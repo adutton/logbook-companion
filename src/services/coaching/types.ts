@@ -144,7 +144,10 @@ export interface CoachingWeeklyPlan {
   team_id: string;
   week_start: string; // ISO date — Monday of the target week
   theme?: string | null;
-  focus_points: string[];
+  goals: string[];
+  coaching_points: string[];
+  drill_examples: string[];
+  piece_examples: string[];
   notes?: string | null;
   reflection?: string | null;
   created_by: string;
@@ -157,7 +160,10 @@ export interface WeeklyPlanInput {
   team_id: string;
   week_start: string;
   theme?: string | null;
-  focus_points: string[];
+  goals: string[];
+  coaching_points: string[];
+  drill_examples: string[];
+  piece_examples: string[];
   notes?: string | null;
   reflection?: string | null;
   created_by: string;

@@ -52,7 +52,7 @@ export const WeeklyFocusBanner: React.FC<WeeklyFocusBannerProps> = ({
     );
   }
 
-  if (!plan || (!plan.theme && plan.focus_points.length === 0 && !plan.reflection)) {
+  if (!plan || (!plan.theme && plan.goals.length === 0 && plan.coaching_points.length === 0 && plan.drill_examples.length === 0 && plan.piece_examples.length === 0 && !plan.reflection)) {
     return null; // Nothing to show — keep schedule clean
   }
 
@@ -72,11 +72,22 @@ export const WeeklyFocusBanner: React.FC<WeeklyFocusBannerProps> = ({
             <h3 className="text-white font-semibold text-sm mb-1.5">{plan.theme}</h3>
           )}
 
-          {plan.focus_points.length > 0 && (
+          {plan.goals.length > 0 && (
             <ul className="flex flex-wrap gap-x-4 gap-y-1">
-              {plan.focus_points.map((point, i) => (
+              {plan.goals.map((point, i) => (
                 <li key={i} className="flex items-center gap-1.5 text-xs text-neutral-400">
-                  <span className="text-indigo-400">•</span>
+                  <span className="text-emerald-400">•</span>
+                  {point}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {plan.coaching_points.length > 0 && (
+            <ul className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+              {plan.coaching_points.map((point, i) => (
+                <li key={i} className="flex items-center gap-1.5 text-xs text-neutral-400">
+                  <span className="text-amber-400">•</span>
                   {point}
                 </li>
               ))}
