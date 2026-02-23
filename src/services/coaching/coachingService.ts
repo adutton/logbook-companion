@@ -1725,6 +1725,25 @@ export async function markAssignmentAsTest(
   }
 }
 
+/** Get athlete counts for multiple teams in a single query (for hierarchy view) */
+export async function getTeamAthleteCounts(teamIds: string[]): Promise<Record<string, number>> {
+  if (teamIds.length === 0) return {};
+  const { data, error } = await supabase
+    .from('team_athletes')
+    .select('team_id')
+    .in('team_id', teamIds)
+    .eq('status', 'active');
+
+  if (error) throw error;
+
+  const counts: Record<string, number> = {};
+  for (const id of teamIds) counts[id] = 0;
+  for (const row of data ?? []) {
+    counts[row.team_id] = (counts[row.team_id] || 0) + 1;
+  }
+  return counts;
+}
+
 /** Get high-level team stats for the dashboard card */
 export async function getTeamStats(teamId: string): Promise<{
   athleteCount: number;
