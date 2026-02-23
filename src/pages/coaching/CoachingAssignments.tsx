@@ -49,6 +49,7 @@ export function CoachingAssignments() {
   // Data
   const [assignments, setAssignments] = useState<GroupAssignment[]>([]);
   const [athletes, setAthletes] = useState<CoachingAthlete[]>([]);
+  const [orgAthletes, setOrgAthletes] = useState<CoachingAthlete[]>([]);
   const [squads, setSquads] = useState<string[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplateListItem[]>([]);
 
@@ -87,6 +88,13 @@ export function CoachingAssignments() {
       setSquads(sq);
       setTemplates(tmpl);
       setComplianceCells(compliance);
+
+      // Fetch org-wide athletes when in an org (for org assignments)
+      if (orgId) {
+        getOrgAthletes(orgId).then(setOrgAthletes).catch(() => {});
+      } else {
+        setOrgAthletes([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
@@ -132,6 +140,7 @@ export function CoachingAssignments() {
       if (newAthleteIds !== undefined && editingAssignment) {
         await syncAssignmentAthletes(id, newAthleteIds, {
           team_id: editingAssignment.team_id ?? null,
+          org_id: editingAssignment.org_id ?? null,
           template_id: editingAssignment.template_id,
           scheduled_date: updates.scheduled_date ?? editingAssignment.scheduled_date,
           title: updates.title ?? editingAssignment.title,
@@ -387,7 +396,7 @@ export function CoachingAssignments() {
           <ResultsEntryModal
             groupAssignmentId={bulkCompleteAssignmentId}
             assignment={assignments.find((a) => a.id === bulkCompleteAssignmentId)!}
-            athletes={athletes}
+            athletes={assignments.find((a) => a.id === bulkCompleteAssignmentId)?.org_id && orgAthletes.length > 0 ? orgAthletes : athletes}
             teamId={teamId!}
             orgId={orgId}
             userId={userId}
@@ -401,7 +410,9 @@ export function CoachingAssignments() {
           <EditAssignmentModal
             assignment={editingAssignment}
             athletes={athletes}
+            orgAthletes={orgAthletes}
             squads={squads}
+            orgId={orgId}
             onSave={(updates, newAthleteIds) => handleEdit(editingAssignment.id, updates, newAthleteIds)}
             onClose={() => setEditingAssignment(null)}
           />
@@ -1809,23 +1820,31 @@ function ComplianceGrid({
 function EditAssignmentModal({
   assignment,
   athletes,
+  orgAthletes,
   squads,
+  orgId,
   onSave,
   onClose,
 }: {
   assignment: GroupAssignment;
   athletes: CoachingAthlete[];
+  orgAthletes: CoachingAthlete[];
   squads: string[];
+  orgId: string | null;
   onSave: (
     updates: { title?: string | null; instructions?: string | null; scheduled_date?: string },
     newAthleteIds: string[]
   ) => Promise<void>;
   onClose: () => void;
 }) {
+  const isOrgAssignment = !!assignment.org_id;
+  // The effective athlete list: org-wide for org assignments, team-scoped otherwise
+  const effectiveAthletes = isOrgAssignment && orgAthletes.length > 0 ? orgAthletes : athletes;
+
   const [title, setTitle] = useState(assignment.title ?? '');
   const [instructions, setInstructions] = useState(assignment.instructions ?? '');
   const [date, setDate] = useState(assignment.scheduled_date);
-  const [assignTo, setAssignTo] = useState<'all' | 'squad' | 'custom'>('all');
+  const [assignTo, setAssignTo] = useState<'all' | 'org' | 'squad' | 'custom'>(isOrgAssignment ? 'org' : 'all');
   const [selectedSquad, setSelectedSquad] = useState('');
   const [customIds, setCustomIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -1835,10 +1854,18 @@ function EditAssignmentModal({
   useEffect(() => {
     getAssignmentAthleteIds(assignment.id).then((idList) => {
         const ids = new Set<string>(idList);
-        // Detect which mode best matches current membership
-        const allIds = new Set(athletes.map((a) => a.id));
-        const isAll = ids.size === allIds.size && [...ids].every((id) => allIds.has(id));
-        if (isAll) {
+        const allEffectiveIds = new Set(effectiveAthletes.map((a) => a.id));
+        const isAll = ids.size === allEffectiveIds.size && [...ids].every((id) => allEffectiveIds.has(id));
+
+        if (isOrgAssignment) {
+          // Org assignment: check if it matches all org athletes
+          if (isAll) {
+            setAssignTo('org');
+          } else {
+            setAssignTo('custom');
+            setCustomIds(ids);
+          }
+        } else if (isAll) {
           setAssignTo('all');
         } else {
           // Check if it matches a squad exactly
@@ -1856,10 +1883,11 @@ function EditAssignmentModal({
         }
         setIsLoadingCurrent(false);
       });
-  }, [assignment.id, athletes, squads]);
+  }, [assignment.id, effectiveAthletes, athletes, squads, isOrgAssignment]);
 
   // Derive target IDs from current selector state
   const targetAthleteIds: string[] = (() => {
+    if (assignTo === 'org') return effectiveAthletes.map((a) => a.id);
     if (assignTo === 'all') return athletes.map((a) => a.id);
     if (assignTo === 'squad') return athletes.filter((a) => a.squad === selectedSquad).map((a) => a.id);
     return [...customIds];
@@ -1938,6 +1966,18 @@ function EditAssignmentModal({
             ) : (
               <>
                 <div className="flex flex-wrap gap-3 mb-2">
+                  {isOrgAssignment && orgId && (
+                    <label className="flex items-center gap-2 text-sm text-neutral-300 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="edit-assignTo"
+                        checked={assignTo === 'org'}
+                        onChange={() => setAssignTo('org')}
+                        className="accent-indigo-500"
+                      />
+                      All Teams (Org) ({effectiveAthletes.length})
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 text-sm text-neutral-300 cursor-pointer">
                     <input
                       type="radio"
@@ -1965,7 +2005,7 @@ function EditAssignmentModal({
                       type="radio"
                       name="edit-assignTo"
                       checked={assignTo === 'custom'}
-                      onChange={() => { setAssignTo('custom'); setCustomIds(new Set(athletes.map((a) => a.id))); }}
+                      onChange={() => { setAssignTo('custom'); setCustomIds(new Set(effectiveAthletes.map((a) => a.id))); }}
                       className="accent-indigo-500"
                     />
                     Custom
@@ -1990,7 +2030,7 @@ function EditAssignmentModal({
 
                 {assignTo === 'custom' && (
                   <div className="border border-neutral-700 rounded-lg divide-y divide-neutral-800 max-h-48 overflow-y-auto mb-2">
-                    {athletes.map((a) => (
+                    {effectiveAthletes.map((a) => (
                       <label key={a.id} className="flex items-center gap-3 px-3 py-1.5 hover:bg-neutral-800/50 cursor-pointer">
                         <input
                           type="checkbox"

@@ -26,6 +26,7 @@ interface ChartRow {
   athleteId: string;
   name: string;
   squad?: string;
+  team_name?: string;
   watts: number;
   weightKg: number;
   wattsPerKg: number;
@@ -62,6 +63,7 @@ export function WattsPerKgChart({ ergData, athletes }: Props) {
         athleteId: d.athleteId,
         name: d.athleteName,
         squad: d.squad,
+        team_name: d.team_name,
         watts: Math.round(d.bestWatts),
         weightKg,
         wattsPerKg: Math.round((d.bestWatts / weightKg) * 100) / 100,
@@ -155,6 +157,7 @@ export function WattsPerKgChart({ ergData, athletes }: Props) {
                 return (
                   <div className="bg-neutral-900 border border-neutral-700 rounded-lg p-3 shadow-xl text-xs">
                     <p className="text-white font-semibold">{d.name}</p>
+                    {d.team_name && <p className="text-indigo-400 text-[10px]">{d.team_name}</p>}
                     {d.squad && <p className="text-neutral-500">{d.squad}</p>}
                     <div className="mt-1.5 space-y-0.5 text-neutral-300">
                       <div>W/kg: <span className="font-mono font-semibold text-indigo-400">{d.wattsPerKg}</span></div>

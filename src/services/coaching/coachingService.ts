@@ -1161,10 +1161,28 @@ export async function createGroupAssignment(
 
   // 2. Resolve the final athlete list
   //    For org-level assignments, merge provided IDs with all org athletes
+  //    and build an athlete→team_id map so each daily row gets the correct team_id
   let finalAthleteIds = athleteIds;
+  const athleteTeamMap = new Map<string, string>();
+
   if (input.org_id && !input.team_id) {
-    const orgAthletes = await getOrgAthletes(input.org_id);
-    const orgAthleteIds = orgAthletes.map((a) => a.id);
+    // Fetch org athletes with their team_id from team_athletes junction
+    const orgTeams = await getTeamsForOrg(input.org_id);
+    const teamIds = orgTeams.map((t) => t.id);
+    if (teamIds.length > 0) {
+      const { data: junctionRows } = await supabase
+        .from('team_athletes')
+        .select('athlete_id, team_id')
+        .in('team_id', teamIds)
+        .eq('status', 'active');
+      for (const row of junctionRows ?? []) {
+        // First team wins (de-dup: athlete may be on multiple teams)
+        if (!athleteTeamMap.has(row.athlete_id)) {
+          athleteTeamMap.set(row.athlete_id, row.team_id);
+        }
+      }
+    }
+    const orgAthleteIds = [...athleteTeamMap.keys()];
     // Union of explicitly-provided + org-wide athletes
     finalAthleteIds = [...new Set([...athleteIds, ...orgAthleteIds])];
   }
@@ -1174,7 +1192,8 @@ export async function createGroupAssignment(
     const dateObj = new Date(input.scheduled_date + 'T00:00:00');
     const rows = finalAthleteIds.map((athleteId) => ({
       athlete_id: athleteId,
-      team_id: input.team_id ?? null,
+      // For org assignments, resolve each athlete's actual team_id (RLS requires non-null team_id)
+      team_id: athleteTeamMap.get(athleteId) ?? input.team_id ?? null,
       original_template_id: input.template_id,
       workout_date: input.scheduled_date,
       day_of_week: dateObj.getDay(),
@@ -1266,7 +1285,7 @@ export async function getAssignmentAthleteIds(groupAssignmentId: string): Promis
 export async function syncAssignmentAthletes(
   groupAssignmentId: string,
   newAthleteIds: string[],
-  assignment: { team_id?: string | null; template_id: string; scheduled_date: string; title?: string | null }
+  assignment: { team_id?: string | null; org_id?: string | null; template_id: string; scheduled_date: string; title?: string | null }
 ): Promise<void> {
   // Fetch currently assigned athlete IDs
   const { data: existing, error: fetchErr } = await supabase
@@ -1295,10 +1314,29 @@ export async function syncAssignmentAthletes(
   // Insert rows for athletes not yet assigned
   const toAdd = newAthleteIds.filter((id) => !existingMap.has(id));
   if (toAdd.length > 0) {
+    // For org assignments, resolve each athlete's actual team_id
+    const athleteTeamMap = new Map<string, string>();
+    if (assignment.org_id && !assignment.team_id) {
+      const orgTeams = await getTeamsForOrg(assignment.org_id);
+      const teamIds = orgTeams.map((t) => t.id);
+      if (teamIds.length > 0) {
+        const { data: junctionRows } = await supabase
+          .from('team_athletes')
+          .select('athlete_id, team_id')
+          .in('team_id', teamIds)
+          .eq('status', 'active');
+        for (const row of junctionRows ?? []) {
+          if (!athleteTeamMap.has(row.athlete_id)) {
+            athleteTeamMap.set(row.athlete_id, row.team_id);
+          }
+        }
+      }
+    }
+
     const dateObj = new Date(assignment.scheduled_date + 'T00:00:00');
     const rows = toAdd.map((athleteId) => ({
       athlete_id: athleteId,
-      team_id: assignment.team_id ?? null,
+      team_id: athleteTeamMap.get(athleteId) ?? assignment.team_id ?? null,
       original_template_id: assignment.template_id,
       workout_date: assignment.scheduled_date,
       day_of_week: dateObj.getDay(),
@@ -1405,6 +1443,8 @@ export interface AssignmentResultRow {
   athlete_id: string;
   athlete_name: string;
   squad?: string | null;
+  team_id?: string | null;
+  team_name?: string | null;
   weight_kg?: number | null;
   completed: boolean;
   completed_at?: string | null;
@@ -1424,18 +1464,24 @@ export async function getAssignmentResultsWithAthletes(
   teamId: string,
   orgId?: string | null
 ): Promise<AssignmentResultRow[]> {
-  // 1. Fetch all assignment rows for this group
+  // 1. Fetch all assignment rows for this group (include team_id for team mapping)
   const { data: rows, error: rowErr } = await supabase
     .from('daily_workout_assignments')
-    .select('id, athlete_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
+    .select('id, athlete_id, team_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
     .eq('group_assignment_id', groupAssignmentId);
   if (rowErr) throw rowErr;
 
   // 2. Fetch athletes — org-wide if orgId provided, otherwise team-scoped
   let athleteRows: Array<Record<string, unknown>> | null = null;
+  let teamLookup = new Map<string, string>(); // team_id → team_name
+
   if (orgId) {
-    // Org-wide: fetch all athletes across all org teams
-    const orgAthletes = await getOrgAthletes(orgId);
+    // Org-wide: fetch all athletes across all org teams, plus team lookup
+    const [orgAthletes, teams] = await Promise.all([
+      getOrgAthletes(orgId),
+      getTeamsForOrg(orgId),
+    ]);
+    teamLookup = new Map(teams.map((t) => [t.id, t.name]));
     athleteRows = orgAthletes.map((a) => ({
       id: a.id,
       first_name: a.first_name,
@@ -1463,11 +1509,14 @@ export async function getAssignmentResultsWithAthletes(
 
   return (rows ?? []).map((row) => {
     const info = athleteMap.get(row.athlete_id as string);
+    const rowTeamId = (row.team_id as string | null) ?? null;
     return {
       id: row.id as string,
       athlete_id: row.athlete_id as string,
       athlete_name: info?.name ?? 'Unknown',
       squad: info?.squad ?? null,
+      team_id: rowTeamId,
+      team_name: rowTeamId ? (teamLookup.get(rowTeamId) ?? null) : null,
       weight_kg: info?.weight_kg ?? null,
       completed: row.completed as boolean,
       completed_at: row.completed_at as string | null,
@@ -1563,8 +1612,8 @@ export async function getComplianceData(
       .from('group_assignments')
       .select('id')
       .eq('org_id', orgId)
-      .gte('workout_date', from)
-      .lte('workout_date', to);
+      .gte('scheduled_date', from)
+      .lte('scheduled_date', to);
     const orgAssignmentIds = (orgAssignments ?? []).map((a) => a.id);
 
     // Build filter parts
@@ -1834,6 +1883,8 @@ export interface TeamErgComparison {
   athleteId: string;
   athleteName: string;
   squad?: string;
+  team_id?: string;
+  team_name?: string;
   distance: number;
   bestTime: number;
   bestSplit: number;
@@ -1881,4 +1932,83 @@ export async function getTeamErgComparison(teamId: string): Promise<TeamErgCompa
   // Sort by distance, then by watts descending (best first)
   results.sort((a, b) => a.distance - b.distance || b.bestWatts - a.bestWatts);
   return results;
+}
+
+// ─── Org-level analytics ────────────────────────────────────────────────────
+
+/**
+ * Get erg comparison data across ALL teams in an organization.
+ * Each result is tagged with team_id / team_name.
+ */
+export async function getOrgErgComparison(orgId: string): Promise<TeamErgComparison[]> {
+  const teams = await getTeamsForOrg(orgId);
+  if (teams.length === 0) return [];
+
+  const perTeam = await Promise.all(
+    teams.map(async (team) => {
+      const data = await getTeamErgComparison(team.id);
+      return data.map((d) => ({ ...d, team_id: team.id, team_name: team.name }));
+    })
+  );
+
+  const results = perTeam.flat();
+  results.sort((a, b) => a.distance - b.distance || b.bestWatts - a.bestWatts);
+  return results;
+}
+
+/**
+ * Get training zone distribution across ALL teams in an organization.
+ */
+export async function getOrgTrainingZoneDistribution(
+  orgId: string,
+  opts?: { from?: string; to?: string }
+): Promise<{ zones: ZoneDistribution[]; total: number }> {
+  const teams = await getTeamsForOrg(orgId);
+  if (teams.length === 0) return { zones: [], total: 0 };
+
+  const perTeam = await Promise.all(
+    teams.map((team) =>
+      getTeamTrainingZoneDistribution(team.id, opts).catch(() => null)
+    )
+  );
+
+  // Merge zone counts across teams
+  const counts = new Map<string, number>();
+  let total = 0;
+  for (const r of perTeam) {
+    if (!r) continue;
+    total += r.total;
+    for (const z of r.zones) {
+      counts.set(z.zone, (counts.get(z.zone) || 0) + z.count);
+    }
+  }
+
+  const order = ['UT2', 'UT1', 'AT', 'TR', 'AN', 'Unset'];
+  const zones: ZoneDistribution[] = order
+    .filter((z) => counts.has(z))
+    .map((z) => ({
+      zone: z,
+      count: counts.get(z)!,
+      percentage: total > 0 ? Math.round((counts.get(z)! / total) * 100) : 0,
+    }));
+
+  return { zones, total };
+}
+
+/**
+ * Get all athletes across an organization, each tagged with their team_id / team_name.
+ * Athletes in multiple teams will appear once per team.
+ */
+export async function getOrgAthletesWithTeam(orgId: string): Promise<CoachingAthlete[]> {
+  const teams = await getTeamsForOrg(orgId);
+  if (teams.length === 0) return [];
+
+  const perTeam = await Promise.all(
+    teams.map(async (team) => {
+      const athletes = await getAthletes(team.id);
+      return athletes.map((a) => ({ ...a, team_id: team.id, team_name: team.name }));
+    })
+  );
+
+  return perTeam.flat();
 }

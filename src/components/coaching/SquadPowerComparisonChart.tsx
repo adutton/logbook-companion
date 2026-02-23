@@ -137,6 +137,9 @@ export function SquadPowerComparisonChart({ data }: Props) {
                 return (
                   <div className="bg-neutral-900 border border-neutral-700 rounded-lg p-3 shadow-xl text-xs">
                     <p className="text-white font-semibold">{d.athleteName}</p>
+                    {d.team_name && (
+                      <p className="text-indigo-400 text-[10px]">{d.team_name}</p>
+                    )}
                     {d.squad && (
                       <p className="text-neutral-500">{d.squad}</p>
                     )}

@@ -57,6 +57,7 @@ import {
   getGroupAssignments,
   getAssignmentResultsWithAthletes,
   getAthletes,
+  getOrgAthletes,
   type GroupAssignment,
   type AssignmentResultRow,
   type IntervalResult,
@@ -1017,7 +1018,13 @@ function SummaryTable({
                   </td>
                   <td className="px-3 py-2 text-neutral-200 whitespace-nowrap">
                     <div>{row.athlete_name}</div>
-                    {row.squad && <div className="text-[10px] text-neutral-500">{row.squad}</div>}
+                    {(row.team_name || row.squad) && (
+                      <div className="text-[10px] text-neutral-500">
+                        {row.team_name && row.squad
+                          ? `${row.team_name} · ${row.squad}`
+                          : row.team_name || row.squad}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {row.dnf ? (
@@ -1065,6 +1072,7 @@ export function AssignmentResults() {
   const [rawRows, setRawRows] = useState<AssignmentResultRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showEntryModal, setShowEntryModal] = useState(false);
+  const [teamFilter, setTeamFilter] = useState<string>('all');
   const [squadFilter, setSquadFilter] = useState<string>('all');
 
   const load = useCallback(async () => {
@@ -1088,7 +1096,7 @@ export function AssignmentResults() {
     } finally {
       setIsLoading(false);
     }
-  }, [teamId, assignmentId, navigate]);
+  }, [teamId, orgId, assignmentId, navigate]);
 
   useEffect(() => {
     if (!isLoadingTeam) load();
@@ -1097,18 +1105,46 @@ export function AssignmentResults() {
   // Enrich rows with derived metrics
   const allRows = useMemo(() => enrichRows(rawRows), [rawRows]);
 
-  // Squads available in this assignment
+  // Is this an org-level assignment?
+  const isOrgAssignment = !!assignment?.org_id;
+
+  // Teams available in this assignment (for org assignments)
+  const teams = useMemo(() => {
+    if (!isOrgAssignment) return [];
+    const map = new Map<string, string>();
+    rawRows.forEach((r) => {
+      if (r.team_id && r.team_name) map.set(r.team_id, r.team_name);
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [rawRows, isOrgAssignment]);
+
+  // Team-filtered rows (applied first for org assignments)
+  const teamFilteredRows = useMemo(
+    () => teamFilter === 'all' ? allRows : allRows.filter((r) => r.team_id === teamFilter),
+    [allRows, teamFilter],
+  );
+
+  // Squads available within current team filter
   const squads = useMemo(() => {
     const set = new Set<string>();
-    rawRows.forEach((r) => { if (r.squad) set.add(r.squad); });
+    teamFilteredRows.forEach((r) => { if (r.squad) set.add(r.squad); });
     return Array.from(set).sort();
-  }, [rawRows]);
+  }, [teamFilteredRows]);
 
-  // Filtered view (squad pill selection)
+  // Filtered view (team first, then squad)
   const rows = useMemo(
-    () => squadFilter === 'all' ? allRows : allRows.filter((r) => r.squad === squadFilter),
-    [allRows, squadFilter],
+    () => squadFilter === 'all' ? teamFilteredRows : teamFilteredRows.filter((r) => r.squad === squadFilter),
+    [teamFilteredRows, squadFilter],
   );
+
+  // Reset squad filter when team filter changes and squad no longer exists
+  useEffect(() => {
+    if (squadFilter !== 'all' && !squads.includes(squadFilter)) {
+      setSquadFilter('all');
+    }
+  }, [squads, squadFilter]);
 
   // Classify workout shape
   const shape = useMemo(() => {
@@ -1242,6 +1278,35 @@ export function AssignmentResults() {
 
             {assignment.instructions && (
               <p className="text-sm text-neutral-400 mt-1">{assignment.instructions}</p>
+            )}
+
+            {/* Team filter pills — only shown for org assignments with multiple teams */}
+            {isOrgAssignment && teams.length > 1 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  onClick={() => setTeamFilter('all')}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    teamFilter === 'all'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  All teams
+                </button>
+                {teams.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTeamFilter(t.id)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      teamFilter === t.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200'
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
             )}
 
             {/* Squad filter pills — only shown when multiple squads exist */}
@@ -1378,14 +1443,17 @@ function ResultsModalLoader({
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
+    const athletePromise = assignment.org_id && orgId
+      ? getOrgAthletes(orgId)
+      : getAthletes(teamId);
     Promise.all([
-      getAthletes(teamId),
+      athletePromise,
       supabase.auth.getUser().then(({ data }) => data.user?.id ?? null),
     ]).then(([aths, uid]) => {
       setAthletes(aths);
       setUserId(uid);
     });
-  }, [teamId]);
+  }, [teamId, orgId, assignment.org_id]);
 
   if (!athletes.length || !userId) {
     return (

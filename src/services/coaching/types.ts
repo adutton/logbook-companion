@@ -89,6 +89,8 @@ export interface Athlete {
 export interface CoachingAthlete extends Athlete {
   name: string; // computed: `${first_name} ${last_name}`.trim()
   squad?: string | null; // from team_athletes junction
+  team_id?: string;   // populated for org-wide queries
+  team_name?: string;  // populated for org-wide queries
 }
 
 /** Junction row from team_athletes */
