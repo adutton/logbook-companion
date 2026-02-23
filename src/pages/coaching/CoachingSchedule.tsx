@@ -58,16 +58,16 @@ export function CoachingSchedule() {
   const [addingNoteFor, setAddingNoteFor] = useState<string | null>(null);
   const [notesVersion, setNotesVersion] = useState(0);
 
-  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 0 });
-  const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 0 });
+  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
     let start: string, end: string;
     if (viewMode === 'week') {
-      const ws = startOfWeek(currentWeek, { weekStartsOn: 0 });
-      const we = endOfWeek(currentWeek, { weekStartsOn: 0 });
+      const ws = startOfWeek(currentWeek, { weekStartsOn: 1 });
+      const we = endOfWeek(currentWeek, { weekStartsOn: 1 });
       start = format(ws, 'yyyy-MM-dd');
       end = format(we, 'yyyy-MM-dd');
     } else {
@@ -89,8 +89,8 @@ export function CoachingSchedule() {
     try {
       let start: string, end: string;
       if (viewMode === 'week') {
-        const ws = startOfWeek(currentWeek, { weekStartsOn: 0 });
-        const we = endOfWeek(currentWeek, { weekStartsOn: 0 });
+        const ws = startOfWeek(currentWeek, { weekStartsOn: 1 });
+        const we = endOfWeek(currentWeek, { weekStartsOn: 1 });
         start = format(ws, 'yyyy-MM-dd');
         end = format(we, 'yyyy-MM-dd');
       } else {
@@ -249,7 +249,7 @@ export function CoachingSchedule() {
           {teamId && (
             <WeeklyFocusBanner
               teamId={teamId}
-              weekStart={getWeekStart(startOfWeek(currentWeek, { weekStartsOn: 1 }))}
+              weekStart={getWeekStart(weekStart)}
               onEdit={() => navigate('/team-management')}
             />
           )}
@@ -346,7 +346,7 @@ export function CoachingSchedule() {
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
         {/* Day headers */}
         <div className="grid grid-cols-7 bg-indigo-600">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
             <div key={day} className="p-3 text-center text-sm font-semibold text-white">
               {day}
             </div>
@@ -356,7 +356,7 @@ export function CoachingSchedule() {
         {/* Calendar days */}
         <div className="grid grid-cols-7">
           {/* Empty cells for padding */}
-          {Array.from({ length: days[0].getDay() }).map((_, i) => (
+          {Array.from({ length: (days[0].getDay() + 6) % 7 }).map((_, i) => (
             <div key={`empty-${i}`} className="p-2 min-h-[90px] bg-neutral-800/50" />
           ))}
 
