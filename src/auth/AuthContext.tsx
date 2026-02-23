@@ -89,7 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const fetchProfile = useCallback(async (userId: string) => {
-    setProfileLoading(true)
+    // Only show profileLoading on the FIRST fetch.  Subsequent refreshes
+    // (e.g. token auto-refresh on tab switch) run in the background so
+    // CoachRoute doesn't unmount the page and destroy open modals.
+    const isInitialLoad = profile === null && !isCoachRole
+    if (isInitialLoad) setProfileLoading(true)
+
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -120,9 +125,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Exception in fetchProfile:', error)
     } finally {
-      setProfileLoading(false)
+      if (isInitialLoad) setProfileLoading(false)
     }
-  }, [user?.email, createBasicProfile])
+  }, [user?.email, createBasicProfile, profile, isCoachRole])
 
   // Restore C2 tokens from database to localStorage
   const restoreC2Tokens = useCallback(async (userId: string) => {
@@ -236,6 +241,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'TOKEN_REFRESHED' && !session) {
           // Unusual: refresh event without session. Log but don't nuke — SDK may retry.
           console.warn('TOKEN_REFRESHED fired without session — ignoring (SDK will retry)')
+          return
+        }
+        if (event === 'TOKEN_REFRESHED' && session?.user) {
+          // Token refresh (e.g. tab regains focus) — update session/user refs
+          // but do NOT re-fetch profile or flip loading flags, which would
+          // unmount protected routes and destroy in-progress modal state.
+          setSession(session)
+          setUser(session.user)
           return
         }
         if (session?.user) {
