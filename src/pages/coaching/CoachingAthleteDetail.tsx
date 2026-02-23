@@ -127,7 +127,7 @@ export function CoachingAthleteDetail() {
     return (
       <>
         <CoachingNav />
-        <div className="p-6 max-w-4xl mx-auto">
+        <div className="px-4 sm:px-6 py-6 max-w-4xl mx-auto">
           <div className="bg-red-900/20 border border-red-800/30 rounded-xl p-6 text-center">
             <p className="text-red-400">{error ?? 'Athlete not found'}</p>
             <button onClick={() => navigate('/team-management/roster')}
@@ -143,7 +143,7 @@ export function CoachingAthleteDetail() {
   return (
     <>
       <CoachingNav />
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="px-4 sm:px-6 py-6 max-w-4xl mx-auto space-y-6">
         {/* Back link */}
         <button
           onClick={() => navigate('/team-management/roster')}

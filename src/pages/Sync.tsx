@@ -57,22 +57,30 @@ export const Sync: React.FC = () => {
     }, [syncing, syncError]);
 
 
-    const { } = useAuth();
+    const { tokensReady } = useAuth();
 
     // CHECK CONNECTION STATUS
     const [isConnected, setIsConnected] = useState(!!localStorage.getItem('concept2_token'));
 
     useEffect(() => {
         const checkConnection = () => setIsConnected(!!localStorage.getItem('concept2_token'));
+        checkConnection();
+
+        window.addEventListener('concept2-token-updated', checkConnection);
+        window.addEventListener('concept2-reconnect-required', checkConnection);
         window.addEventListener('concept2-auth-error', checkConnection);
         // Also listen to storage events if multiple tabs (optional but good)
         window.addEventListener('storage', checkConnection);
+        window.addEventListener('focus', checkConnection);
 
         return () => {
+            window.removeEventListener('concept2-token-updated', checkConnection);
+            window.removeEventListener('concept2-reconnect-required', checkConnection);
             window.removeEventListener('concept2-auth-error', checkConnection);
             window.removeEventListener('storage', checkConnection);
+            window.removeEventListener('focus', checkConnection);
         };
-    }, []);
+    }, [tokensReady]);
 
     const handleC2Connect = () => {
         const client_id = import.meta.env.VITE_CONCEPT2_CLIENT_ID;
@@ -174,12 +182,11 @@ export const Sync: React.FC = () => {
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
-                        <div
-                            className="h-full bg-emerald-500 transition-all duration-300 ease-out"
-                            style={{ width: `${progress}% ` }}
-                        />
-                    </div>
+                    <progress
+                        value={Math.max(0, Math.min(100, progress))}
+                        max={100}
+                        className="w-full h-2 rounded-full overflow-hidden [&::-webkit-progress-bar]:bg-neutral-800 [&::-webkit-progress-value]:bg-emerald-500 [&::-moz-progress-bar]:bg-emerald-500"
+                    />
                 </div>
 
                 <div className="space-y-4">

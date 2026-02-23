@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { Users, Calendar, Loader2, Activity, ClipboardList, BarChart3, CheckCircle2, XCircle, Settings, Plus } from 'lucide-react';
+import { Users, Calendar, Loader2, Activity, ClipboardList, BarChart3, CheckCircle2, XCircle, Settings, Plus, ChevronsRight } from 'lucide-react';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { RowingShellIcon } from '../../components/icons/RowingIcons';
 import { WeeklyFocusCard } from '../../components/coaching/WeeklyFocusCard';
@@ -37,6 +37,8 @@ export const CoachDashboard: React.FC = () => {
     weeklyCompletionRate: number | null;
     sessionsThisWeek: number;
   } | null>(null);
+  const [showSectionScrollHint, setShowSectionScrollHint] = useState(false);
+  const sectionTabsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!teamId) return;
@@ -64,6 +66,31 @@ export const CoachDashboard: React.FC = () => {
       .catch(() => { /* non-critical dashboard card */ })
       .finally(() => setTodayLoading(false));
   }, [teamId]);
+
+  useEffect(() => {
+    const el = sectionTabsRef.current;
+    if (!el) {
+      setShowSectionScrollHint(false);
+      return;
+    }
+
+    const updateHint = () => {
+      const maxScrollLeft = el.scrollWidth - el.clientWidth;
+      const hasOverflow = maxScrollLeft > 2;
+      const atRightEdge = el.scrollLeft >= maxScrollLeft - 2;
+      setShowSectionScrollHint(hasOverflow && !atRightEdge);
+    };
+
+    const raf = requestAnimationFrame(updateHint);
+    el.addEventListener('scroll', updateHint, { passive: true });
+    window.addEventListener('resize', updateHint);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener('scroll', updateHint);
+      window.removeEventListener('resize', updateHint);
+    };
+  }, [teamStats?.athleteCount, teamId]);
 
   if (isLoadingTeam) {
     return (
@@ -128,17 +155,27 @@ export const CoachDashboard: React.FC = () => {
 
       {/* Section Navigation */}
       <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-xl p-2">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {sections.map(({ path, label, icon: Icon }) => (
-            <Link
-              key={path}
-              to={path}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors whitespace-nowrap"
-            >
-              <Icon className="w-4 h-4 text-indigo-400" />
-              {label}
-            </Link>
-          ))}
+        <div className="relative">
+          <div ref={sectionTabsRef} className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {sections.map(({ path, label, icon: Icon }) => (
+              <Link
+                key={path}
+                to={path}
+                className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors whitespace-nowrap"
+              >
+                <Icon className="w-4 h-4 text-indigo-400" />
+                {label}
+                {path === '/team-management/roster' && teamStats?.athleteCount !== undefined && (
+                  <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold bg-neutral-700 text-neutral-200">
+                    {teamStats.athleteCount}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+          {showSectionScrollHint && (
+            <ChevronsRight className="sm:hidden pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500/80" aria-hidden="true" />
+          )}
         </div>
       </div>
 

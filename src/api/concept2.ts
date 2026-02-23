@@ -17,6 +17,7 @@ async function clearAllTokens() {
     localStorage.removeItem('concept2_token');
     localStorage.removeItem('concept2_refresh_token');
     localStorage.removeItem('concept2_expires_at');
+    window.dispatchEvent(new CustomEvent('concept2-token-updated'));
 
     // Clear database tokens so they don't get restored on next login
     try {
@@ -96,6 +97,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
                     const expiresAt = new Date(Date.now() + (response.data.expires_in * 1000)).toISOString();
                     localStorage.setItem('concept2_expires_at', expiresAt);
                 }
+                window.dispatchEvent(new CustomEvent('concept2-token-updated'));
 
                 // Persist to DB async (don't block)
                 supabase.auth.getUser().then(({ data: { user } }) => {

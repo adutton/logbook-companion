@@ -285,7 +285,7 @@ export function CoachingSettings() {
   return (
     <>
       <CoachingNav />
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="px-4 sm:px-6 py-6 max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <h1 className="text-2xl font-bold text-white">Team Settings</h1>
 

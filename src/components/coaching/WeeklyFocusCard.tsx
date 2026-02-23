@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Target, Plus, Pencil, X, Check, Loader2, ChevronLeft, ChevronRight, Trash2, BookOpen, Crosshair, MessageSquare, Activity, Timer, ClipboardList, Copy } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Target, Plus, Pencil, X, Check, Loader2, ChevronLeft, ChevronRight, Trash2, BookOpen, Crosshair, MessageSquare, Activity, Timer, ClipboardList, Copy, ChevronsRight } from 'lucide-react';
 import {
   getWeeklyPlan,
   upsertWeeklyPlan,
@@ -47,6 +47,8 @@ export const WeeklyFocusCard: React.FC<WeeklyFocusCardProps> = ({ teamId, userId
   const [reflection, setReflection] = useState('');
   const [activeTab, setActiveTab] = useState<'goals' | 'coaching' | 'drills' | 'pieces' | 'assignments'>('goals');
   const [assignments, setAssignments] = useState<GroupAssignment[]>([]);
+  const [showTabsScrollHint, setShowTabsScrollHint] = useState(false);
+  const tabsStripRef = useRef<HTMLDivElement | null>(null);
   const loading = loadedKey !== `${teamId}:${weekStart}`;
 
   // Load plan for current week
@@ -82,6 +84,31 @@ export const WeeklyFocusCard: React.FC<WeeklyFocusCardProps> = ({ teamId, userId
 
     return () => { cancelled = true; };
   }, [teamId, weekStart]);
+
+  useEffect(() => {
+    const el = tabsStripRef.current;
+    if (!el) {
+      setShowTabsScrollHint(false);
+      return;
+    }
+
+    const updateHint = () => {
+      const maxScrollLeft = el.scrollWidth - el.clientWidth;
+      const hasOverflow = maxScrollLeft > 2;
+      const atRightEdge = el.scrollLeft >= maxScrollLeft - 2;
+      setShowTabsScrollHint(hasOverflow && !atRightEdge);
+    };
+
+    const raf = requestAnimationFrame(updateHint);
+    el.addEventListener('scroll', updateHint, { passive: true });
+    window.addEventListener('resize', updateHint);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener('scroll', updateHint);
+      window.removeEventListener('resize', updateHint);
+    };
+  }, [editing, activeTab, assignments.length, goals.length, coachingPoints.length, drillExamples.length, pieceExamples.length, plan?.goals.length, plan?.coaching_points.length, plan?.drill_examples.length, plan?.piece_examples.length]);
 
   // Load assignments for this week
   useEffect(() => {
@@ -364,26 +391,31 @@ export const WeeklyFocusCard: React.FC<WeeklyFocusCardProps> = ({ teamId, userId
 
             {/* Tabs */}
             <div>
-              <div className="flex gap-1 border-b border-neutral-800 mb-3">
-                {tabs.map((tab) => {
-                  const Icon = tab.icon;
-                  const isActive = activeTab === tab.key;
-                  return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setActiveTab(tab.key)}
-                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-                        isActive
-                          ? `${tab.color} border-current`
-                          : 'text-neutral-500 border-transparent hover:text-neutral-300'
-                      }`}
-                    >
-                      <Icon size={12} />
-                      {tab.label}
-                    </button>
-                  );
-                })}
+              <div className="relative">
+                <div ref={tabsStripRef} className="flex gap-1 border-b border-neutral-800 mb-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {tabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                          isActive
+                            ? `${tab.color} border-current`
+                            : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                        }`}
+                      >
+                        <Icon size={12} />
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {showTabsScrollHint && (
+                  <ChevronsRight className="sm:hidden pointer-events-none absolute right-1 top-[calc(50%-7px)] w-3.5 h-3.5 text-neutral-500/80" aria-hidden="true" />
+                )}
               </div>
 
               {/* Active tab content (edit mode) */}
@@ -538,34 +570,39 @@ export const WeeklyFocusCard: React.FC<WeeklyFocusCardProps> = ({ teamId, userId
 
             {/* Tabs (display) */}
             <div>
-              <div className="flex gap-1 border-b border-neutral-800 mb-3">
-                {tabs.map((tab) => {
-                  const Icon = tab.icon;
-                  const isActive = activeTab === tab.key;
-                  const count = tab.key === 'assignments'
-                    ? assignments.length
-                    : (planTabData?.[tab.key as keyof typeof planTabData]?.length ?? 0);
-                  return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setActiveTab(tab.key)}
-                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-                        isActive
-                          ? `${tab.color} border-current`
-                          : 'text-neutral-500 border-transparent hover:text-neutral-300'
-                      }`}
-                    >
-                      <Icon size={12} />
-                      {tab.label}
-                      {count > 0 && (
-                        <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded-full">
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+              <div className="relative">
+                <div ref={tabsStripRef} className="flex gap-1 border-b border-neutral-800 mb-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {tabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.key;
+                    const count = tab.key === 'assignments'
+                      ? assignments.length
+                      : (planTabData?.[tab.key as keyof typeof planTabData]?.length ?? 0);
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                          isActive
+                            ? `${tab.color} border-current`
+                            : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                        }`}
+                      >
+                        <Icon size={12} />
+                        {tab.label}
+                        {count > 0 && (
+                          <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded-full">
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {showTabsScrollHint && (
+                  <ChevronsRight className="sm:hidden pointer-events-none absolute right-1 top-[calc(50%-7px)] w-3.5 h-3.5 text-neutral-500/80" aria-hidden="true" />
+                )}
               </div>
 
               {/* Active tab content */}

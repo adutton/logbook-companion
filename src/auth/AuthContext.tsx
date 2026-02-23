@@ -127,28 +127,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Restore C2 tokens from database to localStorage
   const restoreC2Tokens = useCallback(async (userId: string) => {
     try {
+      const localToken = localStorage.getItem('concept2_token');
+      const localRefreshToken = localStorage.getItem('concept2_refresh_token');
+      const localExpiresAt = localStorage.getItem('concept2_expires_at');
+
       const { data, error } = await supabase
         .from('user_integrations')
         .select('concept2_token, concept2_refresh_token, concept2_expires_at')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (error) {
-        // No integrations row or other error - that's fine, user just hasn't connected C2 yet
-        if (error.code !== 'PGRST116') {
-          console.error('Error fetching C2 tokens:', error);
-        }
+        console.error('Error fetching C2 tokens:', error);
         return;
       }
 
-      if (data?.concept2_token) {
-        localStorage.setItem('concept2_token', data.concept2_token);
+      const dbToken = data?.concept2_token;
+      const dbRefreshToken = data?.concept2_refresh_token;
+      const dbExpiresAt = data?.concept2_expires_at;
+
+      if (dbToken) {
+        localStorage.setItem('concept2_token', dbToken);
       }
-      if (data?.concept2_refresh_token) {
-        localStorage.setItem('concept2_refresh_token', data.concept2_refresh_token);
+      if (dbRefreshToken) {
+        localStorage.setItem('concept2_refresh_token', dbRefreshToken);
       }
-      if (data?.concept2_expires_at) {
-        localStorage.setItem('concept2_expires_at', data.concept2_expires_at);
+      if (dbExpiresAt) {
+        localStorage.setItem('concept2_expires_at', dbExpiresAt);
+      }
+
+      // Self-heal path: if DB has null token fields but local storage has valid values,
+      // persist local values so future sessions restore correctly.
+      if (!dbToken && localToken) {
+        const { error: upsertErr } = await supabase
+          .from('user_integrations')
+          .upsert({
+            user_id: userId,
+            concept2_token: localToken,
+            concept2_refresh_token: localRefreshToken,
+            concept2_expires_at: localExpiresAt
+          }, { onConflict: 'user_id' });
+
+        if (upsertErr) {
+          console.error('Error backfilling C2 tokens to database:', upsertErr);
+        }
+      }
+
+      // Notify any listeners (Sync page, status badges) that token state may have changed.
+      window.dispatchEvent(new CustomEvent('concept2-token-updated'));
+      if (!localStorage.getItem('concept2_token')) {
+        window.dispatchEvent(new CustomEvent('concept2-reconnect-required'));
       }
     } catch (err) {
       console.error('Exception restoring C2 tokens:', err);

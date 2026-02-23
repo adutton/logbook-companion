@@ -168,7 +168,7 @@ export function CoachingAssignments() {
     return (
       <>
         <CoachingNav />
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
           <div className="bg-red-900/20 border border-red-800 rounded-lg p-4 text-red-300">
             {error}
             <button onClick={loadData} className="ml-3 underline hover:text-red-200">
@@ -183,7 +183,7 @@ export function CoachingAssignments() {
   return (
     <>
       <CoachingNav />
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4">
         {/* ── Header Row: Title + Week Nav + View Toggle + Action ── */}
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           {/* Left: Title */}

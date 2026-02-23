@@ -44,16 +44,21 @@ export const Callback: React.FC = () => {
             localStorage.setItem('concept2_token', token);
             localStorage.setItem('concept2_refresh_token', refreshToken);
             localStorage.setItem('concept2_expires_at', expiresAt);
+            window.dispatchEvent(new CustomEvent('concept2-token-updated'));
 
             // Store in Supabase if logged in
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                await supabase.from('user_integrations').upsert({
+                const { error: upsertError } = await supabase.from('user_integrations').upsert({
                     user_id: user.id,
                     concept2_token: token,
                     concept2_refresh_token: refreshToken,
                     concept2_expires_at: expiresAt
-                });
+                }, { onConflict: 'user_id' });
+
+                if (upsertError) {
+                    console.error('Failed to persist Concept2 tokens to user_integrations:', upsertError);
+                }
             }
 
             // Redirect to Sync page

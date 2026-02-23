@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Users, Calendar, Settings, ChevronRight, Activity, ClipboardList, BarChart3, ChevronDown } from 'lucide-react';
+import { Users, Calendar, Settings, ChevronRight, Activity, ClipboardList, BarChart3, ChevronDown, ChevronsRight } from 'lucide-react';
 import { RowingShellIcon } from '../icons/RowingIcons';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
+import { getTeamStats } from '../../services/coaching/coachingService';
 
 const tabs = [
   { path: '/team-management/roster', label: 'Roster', icon: Users },
@@ -16,8 +18,47 @@ const tabs = [
 export function CoachingNav() {
   const { pathname } = useLocation();
   const { teamName, teams, teamId, switchTeam } = useCoachingContext();
+  const [rosterCount, setRosterCount] = useState<number | null>(null);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  const tabsRef = useRef<HTMLDivElement | null>(null);
   const currentTab = tabs.find((t) => pathname.startsWith(t.path));
   const hasMultipleTeams = teams.length > 1;
+
+  useEffect(() => {
+    if (!teamId) {
+      setRosterCount(null);
+      return;
+    }
+
+    getTeamStats(teamId)
+      .then((stats) => setRosterCount(stats.athleteCount))
+      .catch(() => setRosterCount(null));
+  }, [teamId]);
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) {
+      setShowScrollHint(false);
+      return;
+    }
+
+    const updateHint = () => {
+      const maxScrollLeft = el.scrollWidth - el.clientWidth;
+      const hasOverflow = maxScrollLeft > 2;
+      const atRightEdge = el.scrollLeft >= maxScrollLeft - 2;
+      setShowScrollHint(hasOverflow && !atRightEdge);
+    };
+
+    const raf = requestAnimationFrame(updateHint);
+    el.addEventListener('scroll', updateHint, { passive: true });
+    window.addEventListener('resize', updateHint);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener('scroll', updateHint);
+      window.removeEventListener('resize', updateHint);
+    };
+  }, [pathname, rosterCount, teamId]);
 
   return (
     <div className="px-4 sm:px-6 pt-4 max-w-6xl mx-auto">
@@ -62,25 +103,38 @@ export function CoachingNav() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 border-b border-neutral-800 -mb-px overflow-x-auto">
-        {tabs.map(({ path, label, icon: Icon }) => {
-          const isActive = pathname.startsWith(path);
-          return (
-            <Link
-              key={path}
-              to={path}
-              title={label}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                isActive
-                  ? 'border-indigo-500 text-indigo-400'
-                  : 'border-transparent text-neutral-500 hover:text-neutral-300 hover:border-neutral-700'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span className="hidden sm:inline">{label}</span>
-            </Link>
-          );
-        })}
+      <div className="relative">
+        <div ref={tabsRef} className="flex gap-1 border-b border-neutral-800 -mb-px overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {tabs.map(({ path, label, icon: Icon }) => {
+            const isActive = pathname.startsWith(path);
+            const isRoster = path === '/team-management/roster';
+            return (
+              <Link
+                key={path}
+                to={path}
+                title={label}
+                className={`shrink-0 flex items-center gap-1.5 px-2.5 sm:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  isActive
+                    ? 'border-indigo-500 text-indigo-400'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-300 hover:border-neutral-700'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="hidden sm:inline">{label}</span>
+                {isRoster && rosterCount !== null && (
+                  <span className={`inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold ${
+                    isActive ? 'bg-indigo-500/20 text-indigo-300' : 'bg-neutral-700 text-neutral-300'
+                  }`}>
+                    {rosterCount}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+        {showScrollHint && (
+          <ChevronsRight className="sm:hidden pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500/80" aria-hidden="true" />
+        )}
       </div>
     </div>
   );

@@ -148,7 +148,7 @@ export function CoachingBoatings() {
   return (
     <>
     <CoachingNav />
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="px-4 sm:px-6 py-6 max-w-6xl mx-auto space-y-6">
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>

@@ -327,7 +327,7 @@ export function CoachingRoster() {
   return (
     <>
     <CoachingNav />
-    <div className="p-3 sm:p-6 max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
+    <div className="px-4 sm:px-6 py-3 sm:py-6 max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
