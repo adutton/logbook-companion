@@ -7,11 +7,12 @@ import {
   updateAthlete,
   updateAthleteSquad,
   deleteAthlete,
+  transferAthlete,
   getAssignmentCompletions,
   type CoachingAthlete,
   type AssignmentCompletion,
 } from '../../services/coaching/coachingService';
-import { Plus, Trash2, Loader2, AlertTriangle, Filter, CheckCircle2, XCircle, Download, ExternalLink, ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Loader2, AlertTriangle, Filter, CheckCircle2, XCircle, Download, ExternalLink, ArrowUpDown, ChevronUp, ChevronDown, ArrowRightLeft } from 'lucide-react';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { QuickScoreModal } from '../../components/coaching/QuickScoreModal';
 import { AthleteEditorModal } from '../../components/coaching/AthleteEditorModal';
@@ -34,7 +35,7 @@ function gradeRank(grade: string | undefined | null): number {
 }
 
 export function CoachingRoster() {
-  const { userId, teamId, isLoadingTeam, teamError } = useCoachingContext();
+  const { userId, teamId, orgId, teams, isLoadingTeam, teamError } = useCoachingContext();
   const navigate = useNavigate();
 
   const [athletes, setAthletes] = useState<CoachingAthlete[]>([]);
@@ -59,17 +60,27 @@ export function CoachingRoster() {
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
+  // Team transfer
+  const [transferringAthlete, setTransferringAthlete] = useState<CoachingAthlete | null>(null);
+
+  // Sibling teams in the same org (for transfers)
+  const currentTeamInfo = teams.find((t) => t.team_id === teamId);
+  const siblingTeams = currentTeamInfo?.org_id
+    ? teams.filter((t) => t.org_id === currentTeamInfo.org_id && t.team_id !== teamId)
+    : [];
+  const canTransfer = siblingTeams.length > 0;
+
   const refreshCompletions = useCallback(async (loadedAthletes: CoachingAthlete[]) => {
     if (!teamId) return;
     try {
       const todayStr = format(new Date(), 'yyyy-MM-dd');
-      const comps = await getAssignmentCompletions(teamId, todayStr, loadedAthletes);
+      const comps = await getAssignmentCompletions(teamId, todayStr, loadedAthletes, orgId ?? undefined);
       setCompletions(comps);
       setHasAssignmentsToday(comps.length > 0);
     } catch {
       // non-critical
     }
-  }, [teamId]);
+  }, [teamId, orgId]);
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
@@ -95,18 +106,23 @@ export function CoachingRoster() {
   }, [teamId, refreshCompletions]);
 
   const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string }) => {
-    await createAthlete(teamId, userId, {
-      first_name: data.first_name ?? '',
-      last_name: data.last_name ?? '',
-      grade: data.grade,
-      experience_level: data.experience_level,
-      side: data.side,
-      height_cm: data.height_cm,
-      weight_kg: data.weight_kg,
-      notes: data.notes,
-    }, data.squad || null);
-    setIsAdding(false);
-    await refreshAthletes();
+    if (!teamId) return;
+    try {
+      await createAthlete(teamId, userId, {
+        first_name: data.first_name ?? '',
+        last_name: data.last_name ?? '',
+        grade: data.grade,
+        experience_level: data.experience_level,
+        side: data.side,
+        height_cm: data.height_cm,
+        weight_kg: data.weight_kg,
+        notes: data.notes,
+      }, data.squad || null);
+      setIsAdding(false);
+      await refreshAthletes();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save athlete');
+    }
   };
 
   // ── Inline cell editing ──────────────────────────────────────────────────
@@ -209,9 +225,26 @@ export function CoachingRoster() {
   };
 
   const handleDelete = async (id: string) => {
-    await deleteAthlete(id);
-    setDeletingAthlete(null);
-    await refreshAthletes();
+    try {
+      await deleteAthlete(id);
+      setDeletingAthlete(null);
+      await refreshAthletes();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete athlete');
+    }
+  };
+
+  const handleTransfer = async (athlete: CoachingAthlete, toTeamId: string) => {
+    const destTeam = siblingTeams.find((t) => t.team_id === toTeamId);
+    try {
+      await transferAthlete(athlete.id, teamId, toTeamId);
+      // Remove from local state immediately
+      setAthletes((prev) => prev.filter((a) => a.id !== athlete.id));
+      setTransferringAthlete(null);
+      toast.success(`${athlete.name} moved to ${destTeam?.team_name ?? 'team'}`);
+    } catch {
+      toast.error('Failed to transfer athlete');
+    }
   };
 
   // Derived: distinct squad names + filtered list
@@ -465,6 +498,15 @@ export function CoachingRoster() {
                   >
                     <ExternalLink className="w-4 h-4 text-neutral-400" />
                   </button>
+                  {canTransfer && (
+                    <button
+                      onClick={() => setTransferringAthlete(athlete)}
+                      className="p-2 hover:bg-neutral-700 rounded-lg transition-colors"
+                      title="Move to another team"
+                    >
+                      <ArrowRightLeft className="w-4 h-4 text-neutral-400" />
+                    </button>
+                  )}
                   <button
                     onClick={() => setDeletingAthlete(athlete)}
                     className="p-2 hover:bg-neutral-700 rounded-lg transition-colors"
@@ -787,6 +829,15 @@ export function CoachingRoster() {
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-neutral-500 hover:text-indigo-400" />
                         </button>
+                        {canTransfer && (
+                          <button
+                            onClick={() => setTransferringAthlete(athlete)}
+                            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
+                            title="Move to another team"
+                          >
+                            <ArrowRightLeft className="w-3.5 h-3.5 text-neutral-500 hover:text-amber-400" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setDeletingAthlete(athlete)}
                           className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
@@ -856,6 +907,42 @@ export function CoachingRoster() {
             setQuickScoreAthlete(null);
           }}
         />
+      )}
+
+      {/* Transfer Athlete Dialog */}
+      {transferringAthlete && canTransfer && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-900/30 rounded-lg">
+                <ArrowRightLeft className="w-5 h-5 text-amber-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white">Move Athlete</h2>
+            </div>
+            <p className="text-neutral-300 mb-4">
+              Move <span className="font-semibold text-white">{transferringAthlete.name}</span> to:
+            </p>
+            <div className="space-y-2 mb-6">
+              {siblingTeams.map((t) => (
+                <button
+                  key={t.team_id}
+                  onClick={() => handleTransfer(transferringAthlete, t.team_id)}
+                  className="w-full text-left px-4 py-3 rounded-lg border border-neutral-700 hover:border-indigo-500 hover:bg-neutral-800 transition-colors text-white text-sm font-medium"
+                >
+                  {t.team_name}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setTransferringAthlete(null)}
+                className="px-4 py-2 rounded-lg bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Dialog */}

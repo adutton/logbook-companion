@@ -34,6 +34,7 @@ import { CoachingSettings } from './pages/coaching/CoachingSettings';
 import { JoinTeam } from './pages/JoinTeam';
 import { MyTeamDashboard } from './pages/team/MyTeamDashboard';
 import { MyScores } from './pages/team/MyScores';
+import { CoachingProvider } from './contexts/CoachingContext';
 import { NotFound } from './pages/NotFound';
 
 import { Layout } from './components/Layout';
@@ -117,6 +118,7 @@ const AppContent: React.FC = () => {
             <AutoSync />
             <Toaster position="top-right" richColors theme={resolvedTheme} />
             <BrowserRouter>
+              <CoachingProvider>
                 <Routes>
           <Route path="/login" element={<Login />} />
                   <Route path="/auth/bootstrap" element={<AuthBootstrap />} />
@@ -367,6 +369,7 @@ const AppContent: React.FC = () => {
             }
           />
         </Routes>
+              </CoachingProvider>
       </BrowserRouter>
     </>
     );

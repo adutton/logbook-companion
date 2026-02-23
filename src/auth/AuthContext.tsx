@@ -108,12 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(data)
       }
 
-      // Check if user has coach role in any team (drives isCoach for route gating)
+      // Check if user has coach or coxswain role in any team (drives isCoach for route gating)
       const { data: coachRow } = await supabase
         .from('team_members')
         .select('id')
         .eq('user_id', userId)
-        .eq('role', 'coach')
+        .in('role', ['coach', 'coxswain'])
         .limit(1)
         .maybeSingle()
       setIsCoachRole(!!coachRow)

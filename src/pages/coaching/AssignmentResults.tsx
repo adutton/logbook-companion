@@ -1059,7 +1059,7 @@ function SummaryTable({
 export function AssignmentResults() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
-  const { teamId, isLoadingTeam } = useCoachingContext();
+  const { teamId, orgId, isLoadingTeam } = useCoachingContext();
 
   const [assignment, setAssignment] = useState<GroupAssignment | null>(null);
   const [rawRows, setRawRows] = useState<AssignmentResultRow[]>([]);
@@ -1073,7 +1073,7 @@ export function AssignmentResults() {
     try {
       const [assignments, rows] = await Promise.all([
         getGroupAssignments(teamId, {}),
-        getAssignmentResultsWithAthletes(assignmentId, teamId),
+        getAssignmentResultsWithAthletes(assignmentId, teamId, orgId),
       ]);
       const found = assignments.find((a) => a.id === assignmentId);
       if (!found) {
@@ -1341,6 +1341,7 @@ export function AssignmentResults() {
           assignmentId={assignmentId!}
           assignment={assignment}
           teamId={teamId}
+          orgId={orgId}
           onClose={() => setShowEntryModal(false)}
           onComplete={() => {
             setShowEntryModal(false);
@@ -1359,12 +1360,14 @@ function ResultsModalLoader({
   assignmentId,
   assignment,
   teamId,
+  orgId,
   onClose,
   onComplete,
 }: {
   assignmentId: string;
   assignment: GroupAssignment;
   teamId: string;
+  orgId?: string | null;
   onClose: () => void;
   onComplete: () => void;
 }) {
@@ -1398,6 +1401,7 @@ function ResultsModalLoader({
       assignment={assignment}
       athletes={athletes}
       teamId={teamId}
+      orgId={orgId}
       userId={userId}
       onClose={onClose}
       onComplete={onComplete}

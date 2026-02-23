@@ -15,6 +15,7 @@ import {
 import { format } from 'date-fns';
 import { Plus, X, Copy, ChevronDown, ChevronUp, Edit2, Trash2, Loader2, Filter, CopyPlus, ArrowRightLeft } from 'lucide-react';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
+import { toast } from 'sonner';
 
 export function CoachingBoatings() {
   const { userId, teamId, isLoadingTeam } = useCoachingContext();
@@ -50,40 +51,63 @@ export function CoachingBoatings() {
   };
 
   const handleSave = async (data: Pick<CoachingBoating, 'date' | 'boat_name' | 'boat_type' | 'positions' | 'notes'>) => {
-    await createBoating(teamId, userId, data);
-    setIsAdding(false);
-    await refreshData();
+    if (!teamId) return;
+    try {
+      await createBoating(teamId, userId, data);
+      setIsAdding(false);
+      await refreshData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save boating');
+    }
   };
 
   const handleEdit = async (data: Pick<CoachingBoating, 'date' | 'boat_name' | 'boat_type' | 'positions' | 'notes'>) => {
     if (!editingBoating) return;
-    await updateBoating(editingBoating.id, data);
-    setEditingBoating(null);
-    await refreshData();
+    try {
+      await updateBoating(editingBoating.id, data);
+      setEditingBoating(null);
+      await refreshData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update boating');
+    }
   };
 
   const handleDelete = async (id: string) => {
-    await deleteBoating(id);
-    await refreshData();
+    try {
+      await deleteBoating(id);
+      await refreshData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete boating');
+    }
   };
 
   const handleDuplicate = async (boating: CoachingBoating) => {
-    await duplicateBoating(teamId, userId, boating);
-    await refreshData();
+    if (!teamId) return;
+    try {
+      await duplicateBoating(teamId, userId, boating);
+      await refreshData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to duplicate boating');
+    }
   };
 
   /** Copy all lineups from the most recent previous day that had lineups */
   const handleCopyPreviousDay = async () => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    // Find the most recent day before today that has boatings
-    const pastDates = Object.keys(boatingsByDate).filter((d) => d < today).sort().reverse();
-    if (pastDates.length === 0) return;
-    const sourceDate = pastDates[0];
-    const sourceBoatings = boatingsByDate[sourceDate];
-    for (const b of sourceBoatings) {
-      await duplicateBoating(teamId, userId, b);
+    if (!teamId) return;
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      // Find the most recent day before today that has boatings
+      const pastDates = Object.keys(boatingsByDate).filter((d) => d < today).sort().reverse();
+      if (pastDates.length === 0) return;
+      const sourceDate = pastDates[0];
+      const sourceBoatings = boatingsByDate[sourceDate];
+      for (const b of sourceBoatings) {
+        await duplicateBoating(teamId, userId, b);
+      }
+      await refreshData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to copy lineups');
     }
-    await refreshData();
   };
 
   /** Inline update: save new positions for a boating (from diagram seat editing / swap) */
@@ -95,7 +119,7 @@ export function CoachingBoatings() {
       prev.map((b) => (b.id === boatingId ? { ...b, positions: newPositions } : b))
     );
     try {
-      await updateBoating(boatingId, { ...boating, positions: newPositions });
+      await updateBoating(boatingId, { positions: newPositions });
     } catch {
       // Revert on error
       await refreshData();
@@ -103,7 +127,7 @@ export function CoachingBoatings() {
   };
 
   const getAthleteName = (athleteId: string) =>
-    athletes.find((a) => a.id === athleteId)?.name ?? 'Unknown';
+    athletes.find((a) => a.id === athleteId)?.name ?? '';
 
   // Derived: squads and filtered athletes for form
   const squads = [...new Set(athletes.map((a) => a.squad).filter((s): s is string => !!s))].sort();
@@ -348,8 +372,10 @@ function BoatDiagram({
   };
 
   const getAthleteNameForSeat = (seat: number) => {
-    const id = getAthleteForSeat(seat);
-    return id ? getAthleteName(id) : '—';
+    const pos = positions.find((p) => p.seat === seat);
+    if (!pos) return '—';
+    // Prefer snapshot name (historical accuracy), fall back to live roster
+    return pos.athlete_name || getAthleteName(pos.athlete_id);
   };
 
   /** Get athletes available for a seat (exclude those already in this boat or other boats on same date) */
@@ -391,14 +417,14 @@ function BoatDiagram({
         setSwapSeat(null);
         return;
       }
-      // Perform swap
-      const aId = getAthleteForSeat(swapSeat);
-      const bId = getAthleteForSeat(seat);
+      // Perform swap (preserve snapshot names)
+      const posA = positions.find((p) => p.seat === swapSeat);
+      const posB = positions.find((p) => p.seat === seat);
       const newPositions = positions
         .filter((p) => p.seat !== swapSeat && p.seat !== seat)
         .concat(
-          ...(aId ? [{ seat, athlete_id: aId }] : []),
-          ...(bId ? [{ seat: swapSeat, athlete_id: bId }] : []),
+          ...(posA ? [{ seat, athlete_id: posA.athlete_id, athlete_name: posA.athlete_name }] : []),
+          ...(posB ? [{ seat: swapSeat, athlete_id: posB.athlete_id, athlete_name: posB.athlete_name }] : []),
         );
       onPositionsChange(newPositions);
       setSwapSeat(null);
@@ -411,8 +437,9 @@ function BoatDiagram({
 
   const handleSeatChange = (seat: number, athleteId: string) => {
     if (!onPositionsChange) return;
+    const athleteName = athletes?.find((a) => a.id === athleteId)?.name ?? '';
     const newPositions = athleteId
-      ? [...positions.filter((p) => p.seat !== seat), { seat, athlete_id: athleteId }]
+      ? [...positions.filter((p) => p.seat !== seat), { seat, athlete_id: athleteId, athlete_name: athleteName }]
       : positions.filter((p) => p.seat !== seat);
     onPositionsChange(newPositions);
     setEditingSeat(null);
@@ -580,11 +607,12 @@ function BoatingForm({
     if (!athleteId) {
       setPositions(positions.filter((p) => p.seat !== seat));
     } else {
+      const athleteName = athletes.find((a) => a.id === athleteId)?.name ?? '';
       const existing = positions.find((p) => p.seat === seat);
       if (existing) {
-        setPositions(positions.map((p) => (p.seat === seat ? { ...p, athlete_id: athleteId } : p)));
+        setPositions(positions.map((p) => (p.seat === seat ? { ...p, athlete_id: athleteId, athlete_name: athleteName } : p)));
       } else {
-        setPositions([...positions, { seat, athlete_id: athleteId }]);
+        setPositions([...positions, { seat, athlete_id: athleteId, athlete_name: athleteName }]);
       }
     }
   };

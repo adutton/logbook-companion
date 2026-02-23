@@ -4,6 +4,130 @@
 
 ---
 
+## Phase 19: Coaching Module Deep Audit — 27 Issues Fixed (February 24, 2026)
+
+**Timeline**: February 24, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Problem**: After implementing org-wide assignments and boating snapshots, a comprehensive 4-subagent audit (security, robustness, type-safety, UX) uncovered 27 issues across coaching module files (8 Critical, 6 High, 7 Medium, 6 Low).
+
+### All 27 Issues Fixed Across 12 Files
+
+#### 1. Context Layer (`coachingContextDef.ts`, `CoachingContext.tsx`)
+- Added `orgId: string | null` and `activeTeam: UserTeamInfo | null` to `CoachingContextType`
+- Changed `teamRole: string | null` → `TeamRole | null` (proper union type)
+- User-scoped localStorage key: `lc_selected_team_${userId}` (prevents cross-user collision)
+- Exposed `orgId` and `activeTeam` in provider value memo
+
+#### 2. Cross-Org Data Leakage Fix (`coachingService.ts`)
+- `getComplianceData()`: Replaced dangerous `team_id.is.null` filter with proper two-step approach — queries `group_assignments` WHERE `org_id = orgId` to get org assignment IDs, then filters `daily_workout_assignments` with `team_id.in.(teamIds) OR group_assignment_id.in.(orgAssignmentIds)`
+- Added empty `teamIds`/`orgAssignmentIds` guard (returns `[]` if both empty)
+
+#### 3. Org Athlete Resolution (`coachingService.ts`)
+- `getAssignmentResultsWithAthletes()`: Added optional `orgId` parameter, uses `getOrgAthletes(orgId)` for cross-team visibility when org assignments present
+
+#### 4. Mutual Exclusivity Validation (`coachingService.ts`)
+- `createGroupAssignment()`: Throws error if both `org_id` and `team_id` are set
+
+#### 5. Type Safety (`types.ts`)
+- `BoatPosition.athlete_name`: Changed from `string` to `string?` (optional)
+
+#### 6. orgId Passthrough (6 UI Components)
+- `CoachingRoster.tsx`: passes `orgId` to `getAssignmentCompletions`
+- `CoachingSchedule.tsx`: passes `orgId` to `getGroupAssignments`
+- `CoachDashboard.tsx`: passes `orgId` to `getAssignmentsForDate` and `getAssignmentCompletions`
+- `CoachingAssignments.tsx`: uses context `orgId` instead of local derivation
+- `AssignmentResults.tsx`: passes `orgId` to `getAssignmentResultsWithAthletes`
+- `ResultsEntryModal` in `CoachingAssignments.tsx`: loads org athletes for org-wide assignments
+
+#### 7. Boatings Hardening (`CoachingBoatings.tsx`)
+- Fixed `handleInlinePositionUpdate`: passes only `{ positions: newPositions }` (not full spread with `id`, `created_at`)
+- Changed all `'Unknown'` fallbacks to `''` (prevents permanent "Unknown" snapshots)
+- Added try/catch + toast.error to 5 handlers
+- Added teamId guards to `handleSave`, `handleDuplicate`, `handleCopyPreviousDay`
+
+#### 8. Robustness Across 4 Components
+- `CoachingRoster.tsx`: teamId guard + try/catch on handleSave/handleDelete
+- `CoachingSchedule.tsx`: teamId guards + try/catch on 5 handlers, added toast import
+- `CoachingErgScores.tsx`: teamId guard + try/catch on handleAddScore/handleDeleteScore, added toast import
+- `CoachingAthleteDetail.tsx`: teamId guard + try/catch on handleSave/handleDelete
+
+### Build Verification
+- `npx tsc --noEmit` → Clean (zero errors)
+- `npx vite build` → ✓ 2855 modules transformed, built in 8.58s, no errors
+
+### What Worked
+- Audit-first approach caught real security issues (cross-org data leakage via `team_id.is.null`)
+- Systematic fix ordering (context → service → types → UI) minimized cascading changes
+- All fixes passed build verification without introducing regressions
+
+---
+
+## Phase 18: Org-Wide Assignments & Boating Snapshots (February 23, 2026)
+
+**Timeline**: February 23, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Problem**: When athletes transfer between teams within an org, their workout assignments break because `group_assignments` was strictly team-scoped via `team_id`. Also, boating lineups show "Unknown" for transferred athletes because seat positions only store `athlete_id` and look up names from the current team roster.
+
+### Changes Implemented
+
+#### 1. Database Migration (applied to live Supabase)
+- `db/migrations/20260223_add_org_assignments_and_boating_snapshots.sql`
+- Added `org_id` FK on `group_assignments` referencing `organizations(id)`
+- Made `team_id` nullable on `group_assignments`
+- Added CHECK constraint: exactly one of `team_id` or `org_id` must be set
+- Updated RLS policies to allow org-level queries via org membership
+- Added index on `group_assignments(org_id)`
+
+#### 2. TypeScript Types
+- `BoatPosition`: Added optional `athlete_name?: string` for snapshot
+- `GroupAssignment`: Added `org_id?: string | null`, made `team_id` optional/nullable
+- `GroupAssignmentInput`: Added `org_id?: string | null`, made `team_id` optional/nullable
+
+#### 3. Service Layer (`coachingService.ts`)
+- **New**: `getTeamsForOrg(orgId)` — queries `teams` table by org_id
+- **New**: `getOrgAthletes(orgId)` — fetches all athletes across all org teams, de-duplicated by athlete ID
+- **Modified**: `getGroupAssignments()` — accepts optional `orgId`, uses `.or()` for org-wide + team-scoped
+- **Modified**: `createGroupAssignment()` — auto-fans-out to all org athletes when `org_id` set and `team_id` null
+- **Modified**: `syncAssignmentAthletes()` — handles nullable `team_id`
+- **Modified**: `getComplianceData()` — queries across all org teams when `orgId` provided
+- **Modified**: `getAssignmentCompletions()` — passes through `orgId`
+- **Modified**: `getAssignmentsForDate()` — passes through `orgId`
+
+#### 4. Boating UI Snapshots (`CoachingBoatings.tsx`)
+- `setPosition()`: resolves + stores `athlete_name` when assigning seat
+- `getAthleteNameForSeat()`: prefers snapshot name, falls back to live roster
+- `handleSeatChange()`: includes `athlete_name` for inline edits
+- Swap logic: preserves snapshot names during seat swaps
+
+#### 5. Assignment UI (`CoachingAssignments.tsx`)
+- Derived `orgId` from `useCoachingContext().teams`
+- `loadData()`: passes `orgId` to service queries
+- `CreateAssignmentForm`: new `orgId` prop, "All Teams (Org)" radio button, lazy-loaded org athletes
+- `assignTo` expanded to `'all' | 'squad' | 'org'`
+- `handleSubmit`: sets `org_id`/`team_id` correctly for scope
+- `AssignmentCard`: "ORG" badge for org-level assignments
+
+### Verification
+
+- `npx tsc --noEmit` — clean (zero errors)
+- `npx vite build` — clean (2855 modules, 13.68s, ~2MB bundle)
+
+### Design Decisions
+
+- **Fan-out at creation time**: Org-level assignments create `daily_workout_assignments` per athlete using `athlete_id` FK (not `team_id`). This makes results transfer-stable — when an athlete moves teams, their completed results stay.
+- **Snapshot over live lookup**: Boating `athlete_name` snapshots prevent historical lineups from breaking when athletes transfer. Display prefers snapshot, falls back to live roster.
+- **Lazy loading org athletes**: Only fetched when coach selects "All Teams" radio, avoiding unnecessary queries for team-scoped assignments.
+
+**Result**: Coaches can now assign workouts to all athletes across an organization, and those assignments + boating records remain accurate even after athlete transfers.
+
+---
+
 ## Phase 17: Coaching Results Modal Ladder Recognition Fix (February 18, 2026)
 
 **Timeline**: February 18, 2026  

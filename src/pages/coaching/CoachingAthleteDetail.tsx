@@ -75,33 +75,41 @@ export function CoachingAthleteDetail() {
   }, [teamId, athleteId, isLoadingTeam]);
 
   const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string }) => {
-    if (!athleteId) return;
-    await updateAthlete(athleteId, {
-      first_name: data.first_name,
-      last_name: data.last_name,
-      grade: data.grade,
-      experience_level: data.experience_level,
-      side: data.side,
-      height_cm: data.height_cm,
-      weight_kg: data.weight_kg,
-      notes: data.notes,
-    });
-    // Update squad on the junction table
-    if (data.squad !== athlete?.squad) {
-      await updateAthleteSquad(teamId, athleteId, data.squad || null);
+    if (!athleteId || !teamId) return;
+    try {
+      await updateAthlete(athleteId, {
+        first_name: data.first_name,
+        last_name: data.last_name,
+        grade: data.grade,
+        experience_level: data.experience_level,
+        side: data.side,
+        height_cm: data.height_cm,
+        weight_kg: data.weight_kg,
+        notes: data.notes,
+      });
+      // Update squad on the junction table
+      if (data.squad !== athlete?.squad) {
+        await updateAthleteSquad(teamId, athleteId, data.squad || null);
+      }
+      setIsEditing(false);
+      // Refresh
+      const athletes = await getAthletes(teamId);
+      setAllAthletes(athletes);
+      const updated = athletes.find((a) => a.id === athleteId);
+      if (updated) setAthlete(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save athlete');
     }
-    setIsEditing(false);
-    // Refresh
-    const athletes = await getAthletes(teamId);
-    setAllAthletes(athletes);
-    const updated = athletes.find((a) => a.id === athleteId);
-    if (updated) setAthlete(updated);
   };
 
   const handleDelete = async () => {
     if (!athleteId) return;
-    await deleteAthlete(athleteId);
-    navigate('/team-management/roster');
+    try {
+      await deleteAthlete(athleteId);
+      navigate('/team-management/roster');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete athlete');
+    }
   };
 
   if (isLoading) {

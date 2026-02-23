@@ -37,11 +37,12 @@ import {
 import { ChevronLeft, ChevronRight, Plus, X, Edit2, Trash2, Loader2, ChevronDown, ChevronUp, MessageSquare, Calendar, CalendarDays, ClipboardList } from 'lucide-react';
 import { WeeklyFocusBanner } from '../../components/coaching/WeeklyFocusBanner';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
 type ViewMode = 'week' | 'month';
 
 export function CoachingSchedule() {
-  const { userId, teamId, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, orgId, isLoadingTeam } = useCoachingContext();
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [currentWeek, setCurrentWeek] = useState(new Date());
@@ -77,7 +78,7 @@ export function CoachingSchedule() {
     Promise.all([
       getSessionsByDateRange(teamId, start, end),
       getAthletes(teamId),
-      getGroupAssignments(teamId, { from: start, to: end }),
+      getGroupAssignments(teamId, { from: start, to: end, orgId: orgId ?? undefined }),
     ])
       .then(([s, a, ga]) => { setSessions(s); setAthletes(a); setAssignments(ga); })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load sessions'))
@@ -112,36 +113,57 @@ export function CoachingSchedule() {
     sessions.filter((s) => isSameDay(parseLocalDate(s.date), date));
 
   const handleAddSession = async (data: Pick<CoachingSession, 'type' | 'focus' | 'general_notes'> & { group_assignment_id?: string | null }) => {
-    if (!selectedDate) return;
-    await createSession(teamId, userId, {
-      ...data,
-      date: format(selectedDate, 'yyyy-MM-dd'),
-    });
-    setIsAdding(false);
-    await refreshSessions();
+    if (!selectedDate || !teamId) return;
+    try {
+      await createSession(teamId, userId, {
+        ...data,
+        date: format(selectedDate, 'yyyy-MM-dd'),
+      });
+      setIsAdding(false);
+      await refreshSessions();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create session');
+    }
   };
 
   const handleEditSession = async (data: Pick<CoachingSession, 'type' | 'focus' | 'general_notes'> & { group_assignment_id?: string | null }) => {
     if (!editingSession) return;
-    await updateSession(editingSession.id, data);
-    setEditingSession(null);
-    await refreshSessions();
+    try {
+      await updateSession(editingSession.id, data);
+      setEditingSession(null);
+      await refreshSessions();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update session');
+    }
   };
 
   const handleDeleteSession = async (id: string) => {
-    await deleteSession(id);
-    await refreshSessions();
+    try {
+      await deleteSession(id);
+      await refreshSessions();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete session');
+    }
   };
 
   const handleAddNote = async (sessionId: string, athleteId: string, note: string) => {
-    await createNote(teamId, userId, { session_id: sessionId, athlete_id: athleteId, note });
-    setAddingNoteFor(null);
-    setNotesVersion((v) => v + 1);
+    if (!teamId) return;
+    try {
+      await createNote(teamId, userId, { session_id: sessionId, athlete_id: athleteId, note });
+      setAddingNoteFor(null);
+      setNotesVersion((v) => v + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save note');
+    }
   };
 
   const handleDeleteNote = async (noteId: string) => {
-    await deleteNote(noteId);
-    setNotesVersion((v) => v + 1);
+    try {
+      await deleteNote(noteId);
+      setNotesVersion((v) => v + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete note');
+    }
   };
 
   const handleEditNote = async (noteId: string, newText: string) => {

@@ -13,6 +13,7 @@ import { format } from 'date-fns';
 import { Plus, X, TrendingUp, TrendingDown, Minus, Loader2, Trash2, Download } from 'lucide-react';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { downloadCsv } from '../../utils/csvExport';
+import { toast } from 'sonner';
 
 export function CoachingErgScores() {
   const { userId, teamId, isLoadingTeam } = useCoachingContext();
@@ -58,14 +59,23 @@ export function CoachingErgScores() {
   const squads = [...new Set(athletes.map((a) => a.squad).filter((s): s is string => !!s))].sort();
 
   const handleAddScore = async (score: Omit<Parameters<typeof createErgScore>[2], 'athlete_id'> & { athlete_id: string }) => {
-    await createErgScore(teamId, userId, score);
-    setIsAdding(false);
-    await refreshData();
+    if (!teamId) return;
+    try {
+      await createErgScore(teamId, userId, score);
+      setIsAdding(false);
+      await refreshData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save erg score');
+    }
   };
 
   const handleDeleteScore = async (id: string) => {
-    await deleteErgScore(id);
-    await refreshData();
+    try {
+      await deleteErgScore(id);
+      await refreshData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete erg score');
+    }
   };
 
   const getAthleteName = (athleteId: string) =>

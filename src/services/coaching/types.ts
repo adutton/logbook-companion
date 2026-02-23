@@ -159,6 +159,8 @@ export interface CoachingBoating {
 export interface BoatPosition {
   seat: number; // 0 = cox, 1 = bow, N = stroke
   athlete_id: string;
+  /** Snapshotted at creation time for historical accuracy across transfers */
+  athlete_name?: string;
 }
 
 import type { WorkoutStructure } from '../../types/workoutStructure.types';
@@ -197,10 +199,11 @@ export interface WeeklyPlanInput {
 
 // ─── Workout Assignments ────────────────────────────────────────────────────
 
-/** A group-level workout assignment: template + date + team */
+/** A group-level workout assignment: template + date + team or org */
 export interface GroupAssignment {
   id: string;
-  team_id: string;
+  team_id?: string | null;
+  org_id?: string | null;
   template_id: string;
   scheduled_date: string; // ISO date (YYYY-MM-DD)
   title?: string | null;
@@ -219,7 +222,8 @@ export interface GroupAssignment {
 
 /** Input shape for creating a group assignment */
 export interface GroupAssignmentInput {
-  team_id: string;
+  team_id?: string | null;
+  org_id?: string | null;
   template_id: string;
   scheduled_date: string;
   title?: string | null;

@@ -13,6 +13,7 @@ import {
   markAssignmentAsTest,
   getComplianceData,
   getAthletes,
+  getOrgAthletes,
   getTeamSquads,
   type GroupAssignment,
   type GroupAssignmentInput,
@@ -26,7 +27,7 @@ import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { format, addDays, startOfWeek, endOfWeek, isToday, eachDayOfInterval, parseISO } from 'date-fns';
 import {
   Plus, Trash2, Loader2, ChevronLeft, ChevronRight,
-  Calendar, ClipboardList, Search, CheckSquare, X, Edit2, Repeat,
+  Calendar, Search, CheckSquare, X, Edit2, Repeat,
   BarChart3, CheckCircle2, Circle, Timer,
 } from 'lucide-react';
 import { calculateWattsFromSplit } from '../../utils/paceCalculator';
@@ -43,7 +44,7 @@ import {
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export function CoachingAssignments() {
-  const { userId, teamId, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, orgId, isLoadingTeam } = useCoachingContext();
 
   // Data
   const [assignments, setAssignments] = useState<GroupAssignment[]>([]);
@@ -75,11 +76,11 @@ export function CoachingAssignments() {
       const fromStr = format(weekStart, 'yyyy-MM-dd');
       const toStr = format(weekEnd, 'yyyy-MM-dd');
       const [asgn, ath, sq, tmpl, compliance] = await Promise.all([
-        getGroupAssignments(teamId, { from: fromStr, to: toStr }),
+        getGroupAssignments(teamId, { from: fromStr, to: toStr, orgId: orgId ?? undefined }),
         getAthletes(teamId),
         getTeamSquads(teamId),
         fetchTemplates({ sortBy: 'popular' }),
-        getComplianceData(teamId, fromStr, toStr),
+        getComplianceData(teamId, fromStr, toStr, orgId ?? undefined),
       ]);
       setAssignments(asgn);
       setAthletes(ath);
@@ -91,7 +92,7 @@ export function CoachingAssignments() {
     } finally {
       setIsLoading(false);
     }
-  }, [teamId, weekStart.toISOString(), weekEnd.toISOString()]);
+  }, [teamId, orgId, weekStart.toISOString(), weekEnd.toISOString()]);
 
   useEffect(() => {
     if (!isLoadingTeam && teamId) {
@@ -130,7 +131,7 @@ export function CoachingAssignments() {
       await updateGroupAssignment(id, updates);
       if (newAthleteIds !== undefined && editingAssignment) {
         await syncAssignmentAthletes(id, newAthleteIds, {
-          team_id: editingAssignment.team_id,
+          team_id: editingAssignment.team_id ?? null,
           template_id: editingAssignment.template_id,
           scheduled_date: updates.scheduled_date ?? editingAssignment.scheduled_date,
           title: updates.title ?? editingAssignment.title,
@@ -167,7 +168,7 @@ export function CoachingAssignments() {
     return (
       <>
         <CoachingNav />
-        <div className="max-w-4xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="bg-red-900/20 border border-red-800 rounded-lg p-4 text-red-300">
             {error}
             <button onClick={loadData} className="ml-3 underline hover:text-red-200">
@@ -182,79 +183,77 @@ export function CoachingAssignments() {
   return (
     <>
       <CoachingNav />
-      <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-neutral-100">Workout Assignments</h1>
-            <p className="text-sm text-neutral-400 mt-1">
-              Assign workouts to your team and track completion.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors self-start sm:self-auto"
-          >
-            <Plus className="w-4 h-4" />
-            Assign Workout
-          </button>
-        </div>
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
+        {/* ── Header Row: Title + Week Nav + View Toggle + Action ── */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          {/* Left: Title */}
+          <h1 className="text-xl sm:text-2xl font-bold text-neutral-100 shrink-0">
+            Assignments
+          </h1>
 
-        {/* Week Navigator */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => setWeekOffset((w) => w - 1)}
-            className="p-1.5 rounded hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
-            aria-label="Previous week"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div className="flex-1 text-center">
-            <span className="text-sm font-medium text-neutral-300">
+          {/* Center: Week Navigator */}
+          <div className="flex items-center gap-2 sm:gap-3 justify-center order-3 lg:order-none">
+            <button
+              onClick={() => setWeekOffset((w) => w - 1)}
+              className="p-1.5 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
+              aria-label="Previous week"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setWeekOffset(0)}
+              className={`text-sm font-medium transition-colors px-2 py-1 rounded-md ${
+                weekOffset === 0
+                  ? 'text-neutral-300'
+                  : 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/20'
+              }`}
+            >
               {format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}
-            </span>
-            {weekOffset !== 0 && (
-              <button
-                onClick={() => setWeekOffset(0)}
-                className="ml-3 text-xs text-indigo-400 hover:text-indigo-300"
-              >
-                Today
-              </button>
-            )}
+            </button>
+            <button
+              onClick={() => setWeekOffset((w) => w + 1)}
+              className="p-1.5 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
+              aria-label="Next week"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            onClick={() => setWeekOffset((w) => w + 1)}
-            className="p-1.5 rounded hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
-            aria-label="Next week"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
 
-        {/* View Mode Tabs */}
-        <div className="flex gap-1 bg-neutral-800/50 rounded-lg p-1 w-fit">
-          <button
-            onClick={() => setViewMode('calendar')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              viewMode === 'calendar'
-                ? 'bg-neutral-700 text-white'
-                : 'text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <Calendar className="w-4 h-4" />
-            Calendar
-          </button>
-          <button
-            onClick={() => setViewMode('compliance')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              viewMode === 'compliance'
-                ? 'bg-neutral-700 text-white'
-                : 'text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            Compliance
-          </button>
+          {/* Right: View Toggle + Create */}
+          <div className="flex items-center gap-2 justify-between lg:justify-end order-2 lg:order-none">
+            <div className="flex gap-0.5 bg-neutral-800/50 rounded-lg p-0.5">
+              <button
+                onClick={() => setViewMode('calendar')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'calendar'
+                    ? 'bg-neutral-700 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Calendar</span>
+              </button>
+              <button
+                onClick={() => setViewMode('compliance')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'compliance'
+                    ? 'bg-neutral-700 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Compliance</span>
+              </button>
+            </div>
+            <button
+              onClick={() => setShowCreateForm(true)}
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Assign Workout</span>
+              <span className="sm:hidden">Assign</span>
+            </button>
+          </div>
         </div>
 
         {viewMode === 'compliance' ? (
@@ -265,116 +264,103 @@ export function CoachingAssignments() {
           />
         ) : (
         <>
-        {/* Week Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+        {/* ── Date Strip ── */}
+        <div className="flex gap-1 sm:gap-1.5">
           {weekDates.map((date) => {
             const dateStr = format(date, 'yyyy-MM-dd');
             const dayAssignments = assignmentsByDate.get(dateStr) ?? [];
-            const today_ = isToday(date);
+            const isSelected = selectedDate === dateStr;
+            const isToday_ = isToday(date);
+            const count = dayAssignments.length;
 
             return (
-              <div
+              <button
                 key={dateStr}
                 onClick={() => setSelectedDate(dateStr)}
-                className={`rounded-lg border p-3 min-h-[120px] transition-colors cursor-pointer ${
-                  selectedDate === dateStr
-                    ? 'border-indigo-500 bg-indigo-900/20 ring-1 ring-indigo-500/40'
-                    : today_
-                      ? 'border-indigo-500/30 bg-indigo-900/5 hover:bg-indigo-900/10'
-                      : 'border-neutral-800 bg-neutral-900/30 hover:bg-neutral-800/40'
+                className={`flex-1 flex flex-col items-center py-2 sm:py-2.5 rounded-lg border transition-all ${
+                  isSelected
+                    ? 'border-indigo-500 bg-indigo-900/30 ring-1 ring-indigo-500/40 shadow-lg shadow-indigo-500/10'
+                    : isToday_
+                      ? 'border-indigo-500/30 bg-indigo-900/10 hover:bg-indigo-900/20'
+                      : 'border-neutral-800 bg-neutral-900/40 hover:bg-neutral-800/60 hover:border-neutral-700'
                 }`}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <div className="text-xs font-medium text-neutral-500 uppercase">
-                      {format(date, 'EEE')}
-                    </div>
-                    <div
-                      className={`text-sm font-semibold ${
-                        today_ ? 'text-indigo-400' : 'text-neutral-300'
-                      }`}
-                    >
-                      {format(date, 'd')}
-                    </div>
-                  </div>
-                </div>
-
-                {dayAssignments.length === 0 ? (
-                  <div className="text-xs text-neutral-600 italic">No workouts</div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {dayAssignments.map((a) => (
-                      <AssignmentCard
-                        key={a.id}
-                        assignment={a}
-                        onDelete={handleDelete}
-                        onEdit={() => setEditingAssignment(a)}
+                <span className={`text-[10px] sm:text-xs font-medium uppercase tracking-wide ${
+                  isSelected ? 'text-indigo-400' : 'text-neutral-500'
+                }`}>
+                  {format(date, 'EEE')}
+                </span>
+                <span className={`text-base sm:text-lg font-semibold leading-tight ${
+                  isSelected ? 'text-white' : isToday_ ? 'text-indigo-400' : 'text-neutral-300'
+                }`}>
+                  {format(date, 'd')}
+                </span>
+                {/* Dot indicator */}
+                <div className="flex gap-0.5 mt-1 h-1.5">
+                  {count > 0 ? (
+                    Array.from({ length: Math.min(count, 4) }, (_, i) => (
+                      <div
+                        key={i}
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          isSelected ? 'bg-indigo-400' : 'bg-neutral-500'
+                        }`}
                       />
-                    ))}
-                  </div>
-                )}
-              </div>
+                    ))
+                  ) : (
+                    <div className="w-1.5 h-1.5" /> /* spacer for alignment */
+                  )}
+                </div>
+              </button>
             );
           })}
         </div>
 
-        {/* Selected Day Detail Panel */}
+        {/* ── Selected Day Content ── */}
         {(() => {
           const dayAssignments = assignmentsByDate.get(selectedDate) ?? [];
-          if (dayAssignments.length === 0) return null;
           const parsedDate = parseISO(selectedDate);
           const isSelectedToday = isToday(parsedDate);
 
           return (
-            <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-5 space-y-4">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-indigo-400" />
-                <h2 className="text-lg font-semibold text-neutral-100">
+            <div className="space-y-3">
+              {/* Day heading */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium text-neutral-400">
                   {isSelectedToday
-                    ? "Today\u2019s Workouts"
-                    : `${format(parsedDate, 'EEEE, MMM d')} Workouts`}
+                    ? "Today"
+                    : format(parsedDate, 'EEEE, MMM d')}
+                  {dayAssignments.length > 0 && (
+                    <span className="ml-2 text-neutral-600">
+                      · {dayAssignments.length} workout{dayAssignments.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
                 </h2>
               </div>
-              {dayAssignments.map((a) => (
-                <div
-                  key={a.id}
-                  className="bg-neutral-800/50 rounded-lg p-4 space-y-2"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                    <ClipboardList className="w-4 h-4 text-indigo-400 shrink-0 hidden sm:block" />
-                    <span className="font-medium text-neutral-200">
-                      {a.title || a.template_name || 'Workout'}
-                    </span>
-                    {a.training_zone && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/30 text-emerald-400 border border-emerald-800/50 self-start">
-                        {a.training_zone}
-                      </span>
-                    )}
-                    {a.canonical_name && (
-                      <span className="text-xs text-neutral-500 font-mono">
-                        {a.canonical_name}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => setBulkCompleteAssignmentId(a.id)}
-                      className="sm:ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 transition-colors self-start"
-                    >
-                      <CheckSquare className="w-3.5 h-3.5" />
-                      Enter Results
-                    </button>
-                    <Link
-                      to={`/team-management/assignments/${a.id}/results`}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 transition-colors self-start"
-                    >
-                      <BarChart3 className="w-3.5 h-3.5" />
-                      View Results
-                    </Link>
-                  </div>
-                  {a.instructions && (
-                    <p className="text-sm text-neutral-400 pl-7">{a.instructions}</p>
-                  )}
+
+              {dayAssignments.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-neutral-500 border border-dashed border-neutral-800 rounded-xl">
+                  <Calendar className="w-8 h-8 mb-2 text-neutral-600" />
+                  <p className="text-sm">No workouts scheduled</p>
+                  <button
+                    onClick={() => setShowCreateForm(true)}
+                    className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    + Assign a workout
+                  </button>
                 </div>
-              ))}
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {dayAssignments.map((a) => (
+                    <AssignmentDetailCard
+                      key={a.id}
+                      assignment={a}
+                      onEdit={() => setEditingAssignment(a)}
+                      onDelete={handleDelete}
+                      onEnterResults={() => setBulkCompleteAssignmentId(a.id)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -387,6 +373,7 @@ export function CoachingAssignments() {
           <CreateAssignmentForm
             teamId={teamId}
             userId={userId}
+            orgId={orgId}
             athletes={athletes}
             squads={squads}
             templates={templates}
@@ -402,6 +389,7 @@ export function CoachingAssignments() {
             assignment={assignments.find((a) => a.id === bulkCompleteAssignmentId)!}
             athletes={athletes}
             teamId={teamId!}
+            orgId={orgId}
             userId={userId}
             onClose={() => setBulkCompleteAssignmentId(null)}
             onComplete={loadData}
@@ -423,64 +411,122 @@ export function CoachingAssignments() {
   );
 }
 
-// ─── Assignment Card (in week grid) ─────────────────────────────────────────
+// ─── Assignment Detail Card (full-width, in day list) ───────────────────────
 
-function AssignmentCard({
+function AssignmentDetailCard({
   assignment,
-  onDelete,
   onEdit,
+  onDelete,
+  onEnterResults,
 }: {
   assignment: GroupAssignment;
-  onDelete: (id: string) => void;
   onEdit: () => void;
+  onDelete: (id: string) => void;
+  onEnterResults: () => void;
 }) {
   const zoneBg: Record<string, string> = {
-    UT2: 'bg-green-900/40 text-green-400',
-    UT1: 'bg-emerald-900/40 text-emerald-400',
-    AT: 'bg-yellow-900/40 text-yellow-400',
-    TR: 'bg-orange-900/40 text-orange-400',
-    AN: 'bg-red-900/40 text-red-400',
+    UT2: 'bg-green-900/30 text-green-400 border-green-800/40',
+    UT1: 'bg-emerald-900/30 text-emerald-400 border-emerald-800/40',
+    AT: 'bg-yellow-900/30 text-yellow-400 border-yellow-800/40',
+    TR: 'bg-orange-900/30 text-orange-400 border-orange-800/40',
+    AN: 'bg-red-900/30 text-red-400 border-red-800/40',
   };
 
   return (
-    <div className="group flex items-start gap-1.5 bg-neutral-800/50 rounded p-1.5">
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={onEdit}>
-        <div className="text-xs font-medium text-neutral-200 truncate">
-          {assignment.title || assignment.template_name || 'Workout'}
+    <div className="group bg-neutral-900/60 border border-neutral-800 rounded-xl p-4 hover:border-neutral-700 transition-colors">
+      {/* Top row: title + badges */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-neutral-200 text-sm sm:text-base">
+              {assignment.title || assignment.template_name || 'Workout'}
+            </span>
+            {assignment.org_id && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-900/40 text-indigo-400 border border-indigo-800/40 font-medium" title="Org-wide assignment">
+                ORG
+              </span>
+            )}
+            {assignment.training_zone && (
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded-md border font-medium ${
+                  zoneBg[assignment.training_zone] ?? 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                }`}
+              >
+                {assignment.training_zone}
+              </span>
+            )}
+            {assignment.is_test_template && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-900/30 text-indigo-400 border border-indigo-800/40 font-medium" title="Test / baseline piece">
+                TEST
+              </span>
+            )}
+          </div>
+          {assignment.canonical_name && (
+            <span className="text-xs text-neutral-500 font-mono mt-0.5 block">
+              {assignment.canonical_name}
+            </span>
+          )}
+          {assignment.instructions && (
+            <p className="text-xs sm:text-sm text-neutral-400 mt-1.5 line-clamp-2">
+              {assignment.instructions}
+            </p>
+          )}
         </div>
-        {assignment.training_zone && (
-          <span
-            className={`inline-block text-[10px] px-1.5 py-0.5 rounded mt-0.5 ${
-              zoneBg[assignment.training_zone] ?? 'bg-neutral-700 text-neutral-300'
-            }`}
+
+        {/* Desktop action icons */}
+        <div className="hidden sm:flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <button
+            onClick={onEdit}
+            className="p-1.5 rounded-md text-neutral-500 hover:text-indigo-400 hover:bg-neutral-800 transition-colors"
+            aria-label="Edit assignment"
+            title="Edit"
           >
-            {assignment.training_zone}
-          </span>
-        )}
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onDelete(assignment.id)}
+            className="p-1.5 rounded-md text-neutral-500 hover:text-red-400 hover:bg-neutral-800 transition-colors"
+            aria-label="Delete assignment"
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
-      <div className="flex gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
+
+      {/* Action buttons row */}
+      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-neutral-800/60">
+        <button
+          onClick={onEnterResults}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600/15 text-emerald-400 hover:bg-emerald-600/25 border border-emerald-700/30 transition-colors"
+        >
+          <CheckSquare className="w-3.5 h-3.5" />
+          Enter Results
+        </button>
         <Link
           to={`/team-management/assignments/${assignment.id}/results`}
-          className="p-0.5 text-neutral-600 hover:text-indigo-400 transition-colors"
-          aria-label="View results"
-          title="View results"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600/15 text-indigo-300 hover:bg-indigo-600/25 border border-indigo-700/30 transition-colors"
         >
-          <BarChart3 className="w-3 h-3" />
+          <BarChart3 className="w-3.5 h-3.5" />
+          View Results
         </Link>
-        <button
-          onClick={onEdit}
-          className="p-0.5 text-neutral-600 hover:text-indigo-400 transition-colors"
-          aria-label="Edit assignment"
-        >
-          <Edit2 className="w-3 h-3" />
-        </button>
-        <button
-          onClick={() => onDelete(assignment.id)}
-          className="p-0.5 text-neutral-600 hover:text-red-400 transition-colors"
-          aria-label="Delete assignment"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
+        {/* Mobile edit/delete buttons */}
+        <div className="flex items-center gap-1 sm:hidden ml-auto">
+          <button
+            onClick={onEdit}
+            className="p-1.5 rounded-md text-neutral-500 hover:text-indigo-400 transition-colors"
+            aria-label="Edit assignment"
+          >
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onDelete(assignment.id)}
+            className="p-1.5 rounded-md text-neutral-500 hover:text-red-400 transition-colors"
+            aria-label="Delete assignment"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -491,6 +537,7 @@ function AssignmentCard({
 function CreateAssignmentForm({
   teamId,
   userId,
+  orgId,
   athletes,
   squads,
   templates,
@@ -499,6 +546,7 @@ function CreateAssignmentForm({
 }: {
   teamId: string;
   userId: string;
+  orgId: string | null;
   athletes: CoachingAthlete[];
   squads: string[];
   templates: WorkoutTemplateListItem[];
@@ -509,12 +557,25 @@ function CreateAssignmentForm({
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [assignTo, setAssignTo] = useState<'all' | 'squad'>('all');
+  const [assignTo, setAssignTo] = useState<'all' | 'squad' | 'org'>('all');
   const [selectedSquad, setSelectedSquad] = useState('');
   const [templateSearch, setTemplateSearch] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'none' | 'daily' | 'weekdays' | 'weekly'>('none');
   const [repeatUntil, setRepeatUntil] = useState(format(addDays(new Date(), 7), 'yyyy-MM-dd'));
+  const [orgAthletes, setOrgAthletes] = useState<CoachingAthlete[]>([]);
+  const [isLoadingOrgAthletes, setIsLoadingOrgAthletes] = useState(false);
+
+  // Load org athletes when "All Teams" is selected
+  useEffect(() => {
+    if (assignTo === 'org' && orgId && orgAthletes.length === 0) {
+      setIsLoadingOrgAthletes(true);
+      getOrgAthletes(orgId)
+        .then(setOrgAthletes)
+        .catch(() => {})
+        .finally(() => setIsLoadingOrgAthletes(false));
+    }
+  }, [assignTo, orgId, orgAthletes.length]);
 
   // Filter templates by search
   const filteredTemplates = templateSearch
@@ -529,7 +590,9 @@ function CreateAssignmentForm({
 
   // Determine which athletes get this assignment
   const targetAthleteIds =
-    assignTo === 'all'
+    assignTo === 'org'
+      ? orgAthletes.map((a) => a.id)
+      : assignTo === 'all'
       ? athletes.map((a) => a.id)
       : athletes.filter((a) => a.squad === selectedSquad).map((a) => a.id);
 
@@ -567,9 +630,11 @@ function CreateAssignmentForm({
       }
 
       for (const d of dates) {
+        const isOrgLevel = assignTo === 'org' && orgId;
         await onCreate(
           {
-            team_id: teamId,
+            team_id: isOrgLevel ? null : teamId,
+            org_id: isOrgLevel ? orgId : null,
             template_id: templateId,
             scheduled_date: d,
             title: title || null,
@@ -681,7 +746,24 @@ function CreateAssignmentForm({
                     Squad
                   </label>
                 )}
+                {orgId && (
+                  <label className="flex items-center gap-2 text-sm text-neutral-300">
+                    <input
+                      type="radio"
+                      name="assignTo"
+                      checked={assignTo === 'org'}
+                      onChange={() => setAssignTo('org')}
+                      className="accent-indigo-500"
+                    />
+                    All Teams (Org)
+                  </label>
+                )}
               </div>
+              {assignTo === 'org' && isLoadingOrgAthletes && (
+                <div className="mt-1 text-xs text-indigo-400 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Loading org athletes…
+                </div>
+              )}
               {assignTo === 'squad' && (
                 <>
                   <label htmlFor="assignment-squad-select" className="block text-sm font-medium text-neutral-300 mt-2 mb-1">
@@ -825,6 +907,7 @@ export function ResultsEntryModal({
   assignment,
   athletes,
   teamId,
+  orgId,
   userId,
   onClose,
   onComplete,
@@ -833,6 +916,7 @@ export function ResultsEntryModal({
   assignment: GroupAssignment;
   athletes: CoachingAthlete[];
   teamId: string;
+  orgId?: string | null;
   userId: string;
   onClose: () => void;
   onComplete: () => void;
@@ -937,7 +1021,24 @@ export function ResultsEntryModal({
     };
   }, [assignment.is_test_template, groupAssignmentId, shape]);
 
-  const athleteMap = new Map(athletes.map((a) => [a.id, a]));
+  // For org-wide assignments, load all org athletes so names resolve correctly
+  const [orgAthletesList, setOrgAthletesList] = useState<CoachingAthlete[]>([]);
+  useEffect(() => {
+    if (orgId && assignment.org_id) {
+      getOrgAthletes(orgId)
+        .then(setOrgAthletesList)
+        .catch(() => {});
+    }
+  }, [orgId, assignment.org_id]);
+
+  // Merge team athletes with org athletes (org athletes fill in gaps for cross-team visibility)
+  const athleteMap = useMemo(() => {
+    const map = new Map(athletes.map((a) => [a.id, a]));
+    for (const a of orgAthletesList) {
+      if (!map.has(a.id)) map.set(a.id, a);
+    }
+    return map;
+  }, [athletes, orgAthletesList]);
 
   const updateEntry = (idx: number, field: keyof AthleteResultEntry, value: string | boolean) => {
     // Typing "dnf" in the primary field toggles primaryDnf

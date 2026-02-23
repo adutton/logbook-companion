@@ -26,7 +26,7 @@ const sections = [
 ];
 
 export const CoachDashboard: React.FC = () => {
-  const { hasTeam, isLoadingTeam, teamId, userId, teamName, teams, teamsByOrg, switchTeam } = useCoachingContext();
+  const { hasTeam, isLoadingTeam, teamId, orgId, userId, teamName, teams, teamsByOrg, switchTeam } = useCoachingContext();
 
   const [todayAssignments, setTodayAssignments] = useState<GroupAssignment[]>([]);
   const [completions, setCompletions] = useState<AssignmentCompletion[]>([]);
@@ -40,12 +40,19 @@ export const CoachDashboard: React.FC = () => {
 
   useEffect(() => {
     if (!teamId) return;
+
+    // Reset state so stale data from previous team doesn't linger
+    setTodayLoading(true);
+    setTodayAssignments([]);
+    setCompletions([]);
+    setTeamStats(null);
+
     const todayStr = format(new Date(), 'yyyy-MM-dd');
 
     Promise.all([
-      getAssignmentsForDate(teamId, todayStr),
+      getAssignmentsForDate(teamId, todayStr, orgId ?? undefined),
       getAthletes(teamId).then((athletes: CoachingAthlete[]) =>
-        getAssignmentCompletions(teamId, todayStr, athletes)
+        getAssignmentCompletions(teamId, todayStr, athletes, orgId ?? undefined)
       ),
       getTeamStats(teamId),
     ])

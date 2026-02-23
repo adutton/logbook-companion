@@ -14,12 +14,16 @@ import {
   Link,
   Mail,
   Building2,
+  TriangleAlert,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import {
   getTeam,
   updateTeam,
+  deleteTeam,
+  getTeamDataCounts,
   regenerateInviteCode,
   getTeamMembers,
   updateTeamMemberRole,
@@ -40,7 +44,8 @@ const ROLE_CONFIG: Record<TeamRole, { label: string; color: string; icon: typeof
 };
 
 export function CoachingSettings() {
-  const { userId, teamId, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, isLoadingTeam, teams, refreshTeam } = useCoachingContext();
+  const navigate = useNavigate();
 
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<TeamMemberWithProfile[]>([]);
@@ -72,6 +77,13 @@ export function CoachingSettings() {
 
   // Invite link copy
   const [linkCopied, setLinkCopied] = useState(false);
+
+  // Delete team
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [dataCounts, setDataCounts] = useState<{ athletes: number; sessions: number; assignments: number; boatings: number; ergScores: number } | null>(null);
+  const [isLoadingCounts, setIsLoadingCounts] = useState(false);
   
   // Organization
   const [orgs, setOrgs] = useState<Organization[]>([]);
@@ -626,6 +638,48 @@ export function CoachingSettings() {
         </div>
       </div>
 
+      {/* ── Danger Zone ─────────────────────────────────────────────── */}
+      <div className="bg-neutral-900 border border-red-900/40 rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-red-900/30 rounded-lg">
+            <TriangleAlert className="w-5 h-5 text-red-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">Danger Zone</h2>
+            <p className="text-neutral-500 text-sm">Irreversible actions</p>
+          </div>
+        </div>
+
+        <div className="border border-red-900/30 rounded-lg p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-white font-medium text-sm">Delete this team</p>
+            <p className="text-neutral-500 text-xs mt-0.5">
+              Permanently delete this team and all its data — athletes, sessions, assignments, boatings, and erg scores. This cannot be undone.
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              setShowDeleteConfirm(true);
+              setDeleteConfirmName('');
+              if (!dataCounts) {
+                setIsLoadingCounts(true);
+                try {
+                  const counts = await getTeamDataCounts(teamId);
+                  setDataCounts(counts);
+                } catch {
+                  // non-critical — just won't show counts
+                } finally {
+                  setIsLoadingCounts(false);
+                }
+              }
+            }}
+            className="px-4 py-2 bg-red-900/30 border border-red-800 text-red-400 rounded-lg hover:bg-red-900/50 transition-colors text-sm font-medium whitespace-nowrap"
+          >
+            Delete Team
+          </button>
+        </div>
+      </div>
+
       {/* Remove Member Confirmation Dialog */}
       {removingMember && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -654,6 +708,87 @@ export function CoachingSettings() {
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors"
               >
                 Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Team Confirmation Dialog */}
+      {showDeleteConfirm && team && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-neutral-900 border border-red-900/40 rounded-xl p-6 w-full max-w-md">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                <TriangleAlert className="w-5 h-5 text-red-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-white">Delete Team Permanently</h3>
+            </div>
+
+            {/* Data warning */}
+            {isLoadingCounts ? (
+              <div className="flex items-center gap-2 text-neutral-400 text-sm mb-4">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Checking team data...
+              </div>
+            ) : dataCounts && (dataCounts.athletes > 0 || dataCounts.sessions > 0 || dataCounts.assignments > 0 || dataCounts.boatings > 0 || dataCounts.ergScores > 0) ? (
+              <div className="bg-red-900/20 border border-red-800/30 rounded-lg p-3 mb-4">
+                <p className="text-red-400 text-sm font-medium mb-2">This will permanently delete:</p>
+                <ul className="text-red-300/80 text-sm space-y-1">
+                  {dataCounts.athletes > 0 && <li>• {dataCounts.athletes} athlete{dataCounts.athletes !== 1 ? 's' : ''} (roster data)</li>}
+                  {dataCounts.sessions > 0 && <li>• {dataCounts.sessions} practice session{dataCounts.sessions !== 1 ? 's' : ''}</li>}
+                  {dataCounts.assignments > 0 && <li>• {dataCounts.assignments} workout assignment{dataCounts.assignments !== 1 ? 's' : ''}</li>}
+                  {dataCounts.boatings > 0 && <li>• {dataCounts.boatings} boating lineup{dataCounts.boatings !== 1 ? 's' : ''}</li>}
+                  {dataCounts.ergScores > 0 && <li>• {dataCounts.ergScores} erg score{dataCounts.ergScores !== 1 ? 's' : ''}</li>}
+                </ul>
+                <p className="text-red-400/70 text-xs mt-2">This data cannot be recovered.</p>
+              </div>
+            ) : dataCounts ? (
+              <p className="text-neutral-400 text-sm mb-4">This team has no coaching data. It's safe to delete.</p>
+            ) : null}
+
+            <p className="text-neutral-300 text-sm mb-3">
+              Type <span className="font-mono font-semibold text-white bg-neutral-800 px-1.5 py-0.5 rounded">{team.name}</span> to confirm:
+            </p>
+            <input
+              type="text"
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder={team.name}
+              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none mb-4"
+              autoFocus
+            />
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmName(''); }}
+                className="px-4 py-2 border border-neutral-700 rounded-lg text-neutral-300 hover:bg-neutral-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={deleteConfirmName !== team.name || isDeleting}
+                onClick={async () => {
+                  setIsDeleting(true);
+                  try {
+                    await deleteTeam(teamId);
+                    setShowDeleteConfirm(false);
+                    // If user has other teams, refresh and go to dashboard; otherwise go to setup
+                    if (teams.length > 1) {
+                      await refreshTeam();
+                      navigate('/team-management');
+                    } else {
+                      navigate('/team-management/setup');
+                    }
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to delete team');
+                    setIsDeleting(false);
+                  }
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium flex items-center gap-2"
+              >
+                {isDeleting && <Loader2 className="w-4 h-4 animate-spin" />}
+                Delete Forever
               </button>
             </div>
           </div>
