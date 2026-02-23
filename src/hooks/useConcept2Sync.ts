@@ -42,6 +42,29 @@ export const useConcept2Sync = () => {
         return data.user_id;
     };
 
+    const isTransientError = (err: unknown): boolean => {
+        const error = err as {
+            code?: string;
+            message?: string;
+            response?: { status?: number };
+        };
+
+        const message = (error?.message || '').toLowerCase();
+        const code = (error?.code || '').toLowerCase();
+        const status = error?.response?.status;
+
+        if (typeof status === 'number' && (status === 429 || status >= 500)) {
+            return true;
+        }
+
+        return message.includes('network error')
+            || message.includes('failed to fetch')
+            || message.includes('timeout')
+            || message.includes('load failed')
+            || code === 'err_network'
+            || code === 'econnaborted';
+    };
+
     const startSync = useCallback(async (options: SyncOptions = { range: '30days' }) => {
         // Smart Sync Throttling
         if (options.skipIfRecent) {
@@ -60,10 +83,35 @@ export const useConcept2Sync = () => {
         setStatus('Initializing sync...');
         setProgress(0);
 
+        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+        const withRetry = async <T,>(
+            op: () => Promise<T>,
+            label: string,
+            maxAttempts = 3
+        ): Promise<T> => {
+            let lastError: unknown;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    return await op();
+                } catch (err) {
+                    lastError = err;
+                    if (!isTransientError(err) || attempt === maxAttempts) {
+                        throw err;
+                    }
+
+                    setStatus(`${label} failed (attempt ${attempt}/${maxAttempts}). Retrying...`);
+                    await sleep(Math.min(1000 * Math.pow(2, attempt), 5000));
+                }
+            }
+
+            throw lastError;
+        };
+
         try {
             // 1. Get C2 Profile & Match to Supabase User
             setStatus('Matching user profile...');
-            const profile = await getProfile();
+            const profile = await withRetry(() => getProfile(), 'Profile lookup');
 
             const userId = await findSupabaseUser(profile.email);
             if (!userId) {
@@ -105,7 +153,10 @@ export const useConcept2Sync = () => {
 
             while (hasMore) {
                 setStatus(`Fetching page ${page}... ${queryParams.from ? `(since ${queryParams.from})` : ''}`);
-                const response = await getResults('me', page, queryParams);
+                const response = await withRetry(
+                    () => getResults('me', page, queryParams),
+                    `Fetching page ${page}`
+                );
                 const pageData = Array.isArray(response.data) ? response.data : [];
 
                 if (pageData.length === 0) {
@@ -169,8 +220,16 @@ export const useConcept2Sync = () => {
 
                 try {
                     // Fetch full details (strokes, splits)
-                    const detail = await getResultDetail(summary.id);
-                    const strokes = await getStrokes(summary.id);
+                    const detail = await withRetry(
+                        () => getResultDetail(summary.id),
+                        `Fetching details for workout ${summary.id}`,
+                        2
+                    );
+                    const strokes = await withRetry(
+                        () => getStrokes(summary.id),
+                        `Fetching strokes for workout ${summary.id}`,
+                        2
+                    );
 
                     const fullData = {
                         ...detail,
@@ -376,7 +435,9 @@ export const useConcept2Sync = () => {
 
         } catch (err) {
             console.error(err);
-            setError(err instanceof Error ? err.message : "Sync failed.");
+            const defaultMessage = err instanceof Error ? err.message : 'Sync failed.';
+            const networkMessage = 'Network error during sync. This is more common on mobile data. Try again on stable Wi-Fi, keep the app in foreground, or reconnect Concept2 if needed.';
+            setError(isTransientError(err) ? networkMessage : defaultMessage);
             setStatus('Sync failed.');
         } finally {
             setSyncing(false);

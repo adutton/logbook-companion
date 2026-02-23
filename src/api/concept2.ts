@@ -6,10 +6,23 @@ import { supabase } from '../services/supabase';
 
 export const concept2Client = axios.create({
     baseURL: BASE_URL,
+    timeout: 20000,
     headers: {
         'Content-Type': 'application/json',
     },
 });
+
+const withRefreshLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const lockManager = (navigator as Navigator & {
+        locks?: { request: (name: string, callback: () => Promise<T>) => Promise<T> };
+    }).locks;
+
+    if (lockManager?.request) {
+        return lockManager.request('concept2_refresher_lock', fn);
+    }
+
+    return fn();
+};
 
 // Helper: Clear local tokens AND database tokens
 async function clearAllTokens() {
@@ -47,9 +60,10 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
     }
 
     refreshPromise = (async () => {
-        // Deduplicate requests ACROSS tabs using Web Locks API
-        // This ensures only one tab attempts the HTTP refresh at a time
-        return navigator.locks.request('concept2_refresher_lock', async () => {
+        // Deduplicate requests ACROSS tabs when Web Locks API is available.
+        // On browsers without `navigator.locks` (e.g., some mobile Safari versions),
+        // safely fall back to running refresh directly.
+        return withRefreshLock(async () => {
             // 1. Check if token was updated by another tab while we were waiting for the lock
             const currentStoredRefresh = localStorage.getItem('concept2_refresh_token');
             const currentStoredToken = localStorage.getItem('concept2_token');
@@ -83,6 +97,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
 
             try {
                 const response = await axios.post('https://log.concept2.com/oauth/access_token', params, {
+                    timeout: 20000,
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
                 });
 
