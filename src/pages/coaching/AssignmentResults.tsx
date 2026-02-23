@@ -1080,7 +1080,7 @@ export function AssignmentResults() {
     setIsLoading(true);
     try {
       const [assignments, rows] = await Promise.all([
-        getGroupAssignments(teamId, {}),
+        getGroupAssignments(teamId, { orgId: orgId ?? undefined }),
         getAssignmentResultsWithAthletes(assignmentId, teamId, orgId),
       ]);
       const found = assignments.find((a) => a.id === assignmentId);
