@@ -20,6 +20,9 @@ import type {
   GroupAssignment,
   GroupAssignmentInput,
   AssignmentCompletion,
+  Organization,
+  OrgRole,
+  OrganizationMember,
 } from './types';
 
 // Re-export types for convenience
@@ -42,6 +45,9 @@ export type {
   GroupAssignment,
   GroupAssignmentInput,
   AssignmentCompletion,
+  Organization,
+  OrgRole,
+  OrganizationMember,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -74,19 +80,25 @@ export async function getTeamForUser(userId: string): Promise<string | null> {
   return data.team_id;
 }
 
-/** Get ALL teams a user belongs to (with team name + role) */
+/** Get ALL teams a user belongs to (with team name + role + org info) */
 export async function getTeamsForUser(userId: string): Promise<UserTeamInfo[]> {
   const { data, error } = await supabase
     .from('team_members')
-    .select('team_id, role, teams(name)')
+    .select('team_id, role, teams(name, org_id, organizations(name))')
     .eq('user_id', userId)
     .order('joined_at');
 
   if (error || !data) return [];
-  return (data as unknown as { team_id: string; role: string; teams: { name: string } }[]).map((row) => ({
+  return (data as unknown as {
+    team_id: string;
+    role: string;
+    teams: { name: string; org_id: string | null; organizations: { name: string } | null };
+  }[]).map((row) => ({
     team_id: row.team_id,
     team_name: row.teams?.name ?? 'Unnamed Team',
     role: row.role as TeamRole,
+    org_id: row.teams?.org_id ?? null,
+    org_name: row.teams?.organizations?.name ?? null,
   }));
 }
 
@@ -173,6 +185,138 @@ export async function regenerateInviteCode(teamId: string): Promise<string> {
     .update({ invite_code: newCode, updated_at: new Date().toISOString() })
     .eq('id', teamId);
   return newCode;
+}
+
+// ─── Organization CRUD ──────────────────────────────────────────────────────
+
+/** Create a new organization + add the creator as owner */
+export async function createOrganization(
+  userId: string,
+  org: { name: string; description?: string }
+): Promise<Organization> {
+  const inviteCode = generateInviteCode();
+
+  const newOrg = throwOnError(
+    await supabase
+      .from('organizations')
+      .insert({
+        name: org.name,
+        description: org.description ?? null,
+        invite_code: inviteCode,
+        created_by: userId,
+      })
+      .select()
+      .single()
+  ) as Organization;
+
+  // Add the creator as org owner
+  throwOnError(
+    await supabase
+      .from('organization_members')
+      .insert({
+        org_id: newOrg.id,
+        user_id: userId,
+        role: 'owner',
+      })
+      .select()
+      .single()
+  );
+
+  return newOrg;
+}
+
+/** Get all organizations a user belongs to */
+export async function getOrganizationsForUser(userId: string): Promise<Organization[]> {
+  const { data, error } = await supabase
+    .from('organization_members')
+    .select('organizations(*)')
+    .eq('user_id', userId)
+    .order('joined_at');
+
+  if (error || !data) return [];
+  return (data as unknown as { organizations: Organization }[])
+    .map((row) => row.organizations)
+    .filter(Boolean);
+}
+
+/** Look up an organization by its invite code */
+export async function getOrgByInviteCode(code: string): Promise<Organization | null> {
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('*')
+    .eq('invite_code', code.toUpperCase().trim())
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as Organization | null;
+}
+
+/** Join an organization using its invite code */
+export async function joinOrgByInviteCode(
+  userId: string,
+  code: string,
+  role: OrgRole = 'coach'
+): Promise<{ org: Organization; membership: OrganizationMember }> {
+  const org = await getOrgByInviteCode(code);
+  if (!org) throw new Error('Invalid organization invite code.');
+
+  // Check if already a member
+  const { data: existing } = await supabase
+    .from('organization_members')
+    .select('id')
+    .eq('org_id', org.id)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing) throw new Error('You are already a member of this organization.');
+
+  const membership = throwOnError(
+    await supabase
+      .from('organization_members')
+      .insert({
+        org_id: org.id,
+        user_id: userId,
+        role,
+      })
+      .select()
+      .single()
+  ) as OrganizationMember;
+
+  return { org, membership };
+}
+
+/** Regenerate the invite code for an organization */
+export async function regenerateOrgInviteCode(orgId: string): Promise<string> {
+  const newCode = generateInviteCode();
+  await supabase
+    .from('organizations')
+    .update({ invite_code: newCode, updated_at: new Date().toISOString() })
+    .eq('id', orgId);
+  return newCode;
+}
+
+/** Assign a team to an organization */
+export async function assignTeamToOrg(teamId: string, orgId: string): Promise<void> {
+  throwOnError(
+    await supabase
+      .from('teams')
+      .update({ org_id: orgId, updated_at: new Date().toISOString() })
+      .eq('id', teamId)
+      .select()
+      .single()
+  );
+}
+
+/** Remove a team from its organization (set org_id to null) */
+export async function removeTeamFromOrg(teamId: string): Promise<void> {
+  throwOnError(
+    await supabase
+      .from('teams')
+      .update({ org_id: null, updated_at: new Date().toISOString() })
+      .eq('id', teamId)
+      .select()
+      .single()
+  );
 }
 
 // ─── Team Members ───────────────────────────────────────────────────────────

@@ -4,6 +4,45 @@
 
 ---
 
+## ADR-016: Organizations Layer (Org > Team Hierarchy)
+
+**Date**: February 22, 2026
+**Status**: Accepted
+**Author**: User + AI Assistant
+
+### Context
+A coach may work at multiple clubs (e.g., Riverside RC + State University). Each club has multiple boats/squads represented as separate teams. The existing flat `teams` table + multi-team switcher produces a noisy dropdown when a coach has 5+ teams across clubs.
+
+Additionally, the invite flow is team-level — athletes must know which specific boat to join. In practice, athletes join a *club* and the coach assigns them to a boat later.
+
+### Decision
+Add an `organizations` table as an optional grouping layer above `teams`:
+- `organizations` — club/program with its own `invite_code`
+- `organization_members` — owner/admin/coach roles (staff, not athletes)
+- `teams.org_id` — nullable FK linking a team to its parent org
+
+Athletes join an org via invite code; coaches assign them to teams within the org. Existing teams with `org_id = NULL` continue to work unchanged.
+
+### Rationale
+1. **Backward compatible** — nullable FK means zero impact on existing teams/code
+2. **Matches mental model** — coaches think "Riverside RC → V8+, JV8+" not a flat list
+3. **Invite simplification** — one code per club, not one per boat
+4. **Future-proofs** — cross-team analytics, org-level settings, staff management all become possible
+5. **Squads stay lightweight** — within a team, `squad` remains a free-text tag for A/B boat splits
+
+### Alternatives Considered
+- **Per-squad weekly plans** — rejected; using teams-as-squads is simpler and already works
+- **Squads table with IDs** — deferred; free-text squads are sufficient for now
+- **No org layer** — would work today but breaks down at multi-club scale
+
+### Consequences
+- Migration applied: `organizations`, `organization_members` tables + `teams.org_id` column
+- Types added: `Organization`, `OrgRole`, `OrganizationMember`
+- No UI changes yet — team switcher grouping deferred until needed
+- Future work: org-scoped invite flow, grouped team switcher, org settings page
+
+---
+
 ## ADR-015: Reconciliation Source Priority ("Swiss Cheese" Strategy)
 
 **Date**: February 6, 2026

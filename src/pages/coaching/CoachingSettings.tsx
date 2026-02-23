@@ -13,6 +13,7 @@ import {
   UserPlus,
   Link,
   Mail,
+  Building2,
 } from 'lucide-react';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
@@ -25,8 +26,12 @@ import {
   removeTeamMember,
   addTeamMemberByEmail,
   sendTeamInviteEmail,
+  getOrganizationsForUser,
+  assignTeamToOrg,
+  removeTeamFromOrg,
+  createOrganization,
 } from '../../services/coaching/coachingService';
-import type { Team, TeamMemberWithProfile, TeamRole } from '../../services/coaching/types';
+import type { Team, TeamMemberWithProfile, TeamRole, Organization } from '../../services/coaching/types';
 
 const ROLE_CONFIG: Record<TeamRole, { label: string; color: string; icon: typeof Shield }> = {
   coach: { label: 'Coach', color: 'text-indigo-400', icon: ShieldAlert },
@@ -67,20 +72,31 @@ export function CoachingSettings() {
 
   // Invite link copy
   const [linkCopied, setLinkCopied] = useState(false);
+  
+  // Organization
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>('none');
+  const [isSavingOrg, setIsSavingOrg] = useState(false);
+  const [orgSaveSuccess, setOrgSaveSuccess] = useState(false);
+  const [showNewOrgForm, setShowNewOrgForm] = useState(false);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgDescription, setNewOrgDescription] = useState('');
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
 
-    Promise.all([getTeam(teamId), getTeamMembers(teamId)])
-      .then(([t, m]) => {
+    Promise.all([getTeam(teamId), getTeamMembers(teamId), userId ? getOrganizationsForUser(userId) : Promise.resolve([])])
+      .then(([t, m, userOrgs]) => {
         setTeam(t);
         setMembers(m);
         setEditName(t?.name ?? '');
         setEditDescription(t?.description ?? '');
+        setOrgs(userOrgs);
+        setSelectedOrgId(t?.org_id ?? 'none');
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load team'))
       .finally(() => setIsLoading(false));
-  }, [teamId, isLoadingTeam]);
+  }, [teamId, isLoadingTeam, userId]);
 
   const handleSaveTeam = async () => {
     if (!teamId || !editName.trim()) return;
@@ -194,6 +210,55 @@ export function CoachingSettings() {
     }
   };
 
+  const handleOrgChange = async (newOrgId: string) => {
+    if (newOrgId === 'new') {
+      setShowNewOrgForm(true);
+      return;
+    }
+    setShowNewOrgForm(false);
+    if (!teamId) return;
+    setIsSavingOrg(true);
+    try {
+      if (newOrgId === 'none') {
+        await removeTeamFromOrg(teamId);
+      } else {
+        await assignTeamToOrg(teamId, newOrgId);
+      }
+      setSelectedOrgId(newOrgId);
+      setTeam((prev) => prev ? { ...prev, org_id: newOrgId === 'none' ? null : newOrgId } : prev);
+      setOrgSaveSuccess(true);
+      setTimeout(() => setOrgSaveSuccess(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update organization');
+    } finally {
+      setIsSavingOrg(false);
+    }
+  };
+
+  const handleCreateAndAssignOrg = async () => {
+    if (!teamId || !userId || !newOrgName.trim()) return;
+    setIsSavingOrg(true);
+    try {
+      const newOrg = await createOrganization(userId, {
+        name: newOrgName.trim(),
+        description: newOrgDescription.trim() || undefined,
+      });
+      await assignTeamToOrg(teamId, newOrg.id);
+      setOrgs((prev) => [...prev, newOrg]);
+      setSelectedOrgId(newOrg.id);
+      setTeam((prev) => prev ? { ...prev, org_id: newOrg.id } : prev);
+      setShowNewOrgForm(false);
+      setNewOrgName('');
+      setNewOrgDescription('');
+      setOrgSaveSuccess(true);
+      setTimeout(() => setOrgSaveSuccess(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create organization');
+    } finally {
+      setIsSavingOrg(false);
+    }
+  };
+
   if (isLoading || isLoadingTeam) {
     return (
       <>
@@ -269,6 +334,84 @@ export function CoachingSettings() {
             )}
             {saveSuccess ? 'Saved!' : 'Save Changes'}
           </button>
+        </div>
+
+        {/* Organization */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-indigo-400" />
+            Organization
+          </h2>
+          <p className="text-neutral-400 text-sm">
+            Assign this team to an organization (club or program) to group it with other teams.
+          </p>
+
+          <div className="flex items-center gap-3">
+            <select
+              value={showNewOrgForm ? 'new' : selectedOrgId}
+              onChange={(e) => handleOrgChange(e.target.value)}
+              disabled={isSavingOrg}
+              aria-label="Organization"
+              className="flex-1 px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none disabled:opacity-50"
+            >
+              <option value="none">No organization (standalone)</option>
+              {orgs.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+              <option value="new">+ Create new organization</option>
+            </select>
+            {isSavingOrg && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
+            {orgSaveSuccess && <Check className="w-4 h-4 text-green-400" />}
+          </div>
+
+          {showNewOrgForm && (
+            <div className="border border-neutral-700 rounded-lg p-4 space-y-3 bg-neutral-800/50">
+              <div>
+                <label htmlFor="settings-org-name" className="block text-sm font-medium text-neutral-300 mb-1">
+                  Organization Name *
+                </label>
+                <input
+                  id="settings-org-name"
+                  type="text"
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  minLength={3}
+                  maxLength={100}
+                  placeholder="e.g. City Rowing Club"
+                  className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                />
+              </div>
+              <div>
+                <label htmlFor="settings-org-desc" className="block text-sm font-medium text-neutral-300 mb-1">
+                  Description
+                </label>
+                <input
+                  id="settings-org-desc"
+                  type="text"
+                  value={newOrgDescription}
+                  onChange={(e) => setNewOrgDescription(e.target.value)}
+                  placeholder="Optional"
+                  className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreateAndAssignOrg}
+                  disabled={isSavingOrg || newOrgName.trim().length < 3}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 text-sm font-medium"
+                >
+                  {isSavingOrg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Building2 className="w-4 h-4" />}
+                  Create & Assign
+                </button>
+                <button
+                  onClick={() => { setShowNewOrgForm(false); setSelectedOrgId(team?.org_id ?? 'none'); }}
+                  className="px-4 py-2 border border-neutral-700 text-neutral-300 rounded-lg hover:bg-neutral-800 transition-colors text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Invite Code */}

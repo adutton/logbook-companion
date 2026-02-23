@@ -1,9 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './useAuth';
 import { getTeamsForUser } from '../services/coaching/coachingService';
 import type { UserTeamInfo } from '../services/coaching/types';
 
 const SELECTED_TEAM_KEY = 'lc_selected_team_id';
+
+/** Teams grouped by organization for the switcher UI */
+export interface OrgTeamGroup {
+  org_id: string | null;
+  org_name: string;
+  teams: UserTeamInfo[];
+}
 
 /**
  * Provides coaching context: the current user's ID, their teams, and the active team.
@@ -84,12 +91,40 @@ export function useCoachingContext() {
   const teamName = activeTeam?.team_name ?? '';
   const teamRole = activeTeam?.role ?? null;
 
+  // Derived: teams grouped by organization for the switcher
+  const teamsByOrg = useMemo((): OrgTeamGroup[] => {
+    const orgMap = new Map<string | null, OrgTeamGroup>();
+
+    for (const t of teams) {
+      const key = t.org_id ?? null;
+      if (!orgMap.has(key)) {
+        orgMap.set(key, {
+          org_id: key,
+          org_name: t.org_name ?? 'Standalone Teams',
+          teams: [],
+        });
+      }
+      orgMap.get(key)!.teams.push(t);
+    }
+
+    // Sort: named orgs first, standalone last
+    const groups = Array.from(orgMap.values());
+    groups.sort((a, b) => {
+      if (a.org_id === null) return 1;
+      if (b.org_id === null) return -1;
+      return a.org_name.localeCompare(b.org_name);
+    });
+
+    return groups;
+  }, [teams]);
+
   return {
     userId,
     teamId,
     teamName,
     teamRole,
     teams,
+    teamsByOrg,
     isLoadingTeam,
     teamError,
     hasTeam,

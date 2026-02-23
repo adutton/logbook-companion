@@ -26,7 +26,7 @@ const sections = [
 ];
 
 export const CoachDashboard: React.FC = () => {
-  const { hasTeam, isLoadingTeam, teamId, userId, teamName, teams, switchTeam } = useCoachingContext();
+  const { hasTeam, isLoadingTeam, teamId, userId, teamName, teams, teamsByOrg, switchTeam } = useCoachingContext();
 
   const [todayAssignments, setTodayAssignments] = useState<GroupAssignment[]>([]);
   const [completions, setCompletions] = useState<AssignmentCompletion[]>([]);
@@ -87,11 +87,25 @@ export const CoachDashboard: React.FC = () => {
                 className="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm font-medium text-white cursor-pointer hover:border-neutral-600 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                 aria-label="Switch team"
               >
-                {teams.map((t) => (
-                  <option key={t.team_id} value={t.team_id}>
-                    {t.team_name}
-                  </option>
-                ))}
+                {teamsByOrg.length === 1 && teamsByOrg[0].org_id === null ? (
+                  // All standalone teams — flat list
+                  teams.map((t) => (
+                    <option key={t.team_id} value={t.team_id}>
+                      {t.team_name}
+                    </option>
+                  ))
+                ) : (
+                  // Grouped by organization
+                  teamsByOrg.map((group) => (
+                    <optgroup key={group.org_id ?? '__standalone'} label={group.org_name}>
+                      {group.teams.map((t) => (
+                        <option key={t.team_id} value={t.team_id}>
+                          {t.team_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))
+                )}
               </select>
             )}
             <Link

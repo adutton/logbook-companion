@@ -1,6 +1,29 @@
 // Coaching module types — mirrors Supabase athletes + coaching_* tables
 // Unified model: athletes table + team_athletes junction, team-scoped coaching data
 
+// ─── Organization ───────────────────────────────────────────────────────────
+
+/** A club or program that groups multiple teams/boats */
+export interface Organization {
+  id: string;
+  name: string;
+  description?: string | null;
+  invite_code: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type OrgRole = 'owner' | 'admin' | 'coach';
+
+export interface OrganizationMember {
+  id: string;
+  org_id: string;
+  user_id: string;
+  role: OrgRole;
+  joined_at: string;
+}
+
 // ─── Team ───────────────────────────────────────────────────────────────────
 
 export interface Team {
@@ -11,6 +34,7 @@ export interface Team {
   coach_id: string;
   max_members: number;
   is_public: boolean;
+  org_id?: string | null; // FK → organizations (null for standalone/legacy teams)
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +46,8 @@ export interface UserTeamInfo {
   team_id: string;
   team_name: string;
   role: TeamRole;
+  org_id?: string | null;
+  org_name?: string | null;
 }
 
 export interface TeamMember {

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Loader2, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Users, Loader2, AlertTriangle, ArrowLeft, Building2 } from 'lucide-react';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
-import { createTeam } from '../../services/coaching/coachingService';
+import { createTeam, getOrganizationsForUser, assignTeamToOrg, createOrganization } from '../../services/coaching/coachingService';
+import type { Organization } from '../../services/coaching/types';
 
 export function TeamSetup() {
   const { userId, refreshTeam, hasTeam } = useCoachingContext();
@@ -13,6 +14,18 @@ export function TeamSetup() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Organization selection
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>('none');
+  const [showNewOrg, setShowNewOrg] = useState(false);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgDescription, setNewOrgDescription] = useState('');
+
+  useEffect(() => {
+    if (!userId) return;
+    getOrganizationsForUser(userId).then(setOrgs).catch(() => {});
+  }, [userId]);
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !name.trim()) return;
@@ -21,10 +34,30 @@ export function TeamSetup() {
     setError(null);
 
     try {
-      await createTeam(userId, {
+      // Determine org assignment
+      let orgId: string | null = null;
+
+      if (selectedOrgId === 'new' && newOrgName.trim()) {
+        // Create the new org first
+        const newOrg = await createOrganization(userId, {
+          name: newOrgName.trim(),
+          description: newOrgDescription.trim() || undefined,
+        });
+        orgId = newOrg.id;
+      } else if (selectedOrgId !== 'none') {
+        orgId = selectedOrgId;
+      }
+
+      const team = await createTeam(userId, {
         name: name.trim(),
         description: description.trim() || undefined,
       });
+
+      // Assign to org if selected
+      if (orgId) {
+        await assignTeamToOrg(team.id, orgId);
+      }
+
       await refreshTeam();
       navigate('/team-management');
     } catch (err) {
@@ -104,9 +137,70 @@ export function TeamSetup() {
             />
           </div>
 
+          {/* Organization selection */}
+          <div>
+            <label htmlFor="team-org" className="block text-sm font-medium text-neutral-300 mb-1">
+              <Building2 className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
+              Organization
+            </label>
+            <select
+              id="team-org"
+              value={selectedOrgId}
+              onChange={(e) => {
+                setSelectedOrgId(e.target.value);
+                setShowNewOrg(e.target.value === 'new');
+              }}
+              className="w-full px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+            >
+              <option value="none">No organization (standalone)</option>
+              {orgs.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+              <option value="new">+ Create new organization</option>
+            </select>
+            <p className="text-neutral-500 text-xs mt-1">
+              Group teams under an organization (club, program) for easier management.
+            </p>
+          </div>
+
+          {/* New org fields */}
+          {showNewOrg && (
+            <div className="border border-neutral-700 rounded-lg p-4 space-y-3 bg-neutral-800/50">
+              <div>
+                <label htmlFor="new-org-name" className="block text-sm font-medium text-neutral-300 mb-1">
+                  Organization Name *
+                </label>
+                <input
+                  id="new-org-name"
+                  type="text"
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  required
+                  minLength={3}
+                  maxLength={100}
+                  placeholder="e.g. City Rowing Club"
+                  className="w-full px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                />
+              </div>
+              <div>
+                <label htmlFor="new-org-desc" className="block text-sm font-medium text-neutral-300 mb-1">
+                  Organization Description
+                </label>
+                <input
+                  id="new-org-desc"
+                  type="text"
+                  value={newOrgDescription}
+                  onChange={(e) => setNewOrgDescription(e.target.value)}
+                  placeholder="Optional"
+                  className="w-full px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                />
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={isSubmitting || name.trim().length < 3}
+            disabled={isSubmitting || name.trim().length < 3 || (selectedOrgId === 'new' && newOrgName.trim().length < 3)}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
           >
             {isSubmitting ? (
