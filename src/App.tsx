@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { useAuth } from './hooks/useAuth';
@@ -93,8 +93,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const CoachRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading, profileLoading, isCoach } = useAuth();
   const location = useLocation();
+  // Track whether we've ever successfully rendered the coach content.
+  // Once true, we never go back to the loading screen — this prevents
+  // token refreshes (e.g. tab switch) from unmounting modals/dialogs.
+  const hasRendered = useRef(false);
 
-  if (loading || profileLoading) {
+  if (loading || (profileLoading && !hasRendered.current)) {
     return <AuthLoadingScreen />;
   }
 
@@ -103,10 +107,11 @@ const CoachRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
-  if (!isCoach) {
+  if (!isCoach && !hasRendered.current) {
     return <Navigate to="/" replace />;
   }
 
+  hasRendered.current = true;
   return <Layout>{children}</Layout>;
 };
 
