@@ -411,8 +411,9 @@ export const useConcept2Sync = () => {
                     processed++;
                     setStatus(`Processing ${currentIndex}/${totalToProcess} (${processed} synced, ${skippedExisting} existing, ${skippedFiltered} filtered)`);
 
-                    // Rate Limit Throttle: Wait 500ms between API calls to be polite
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Rate Limit Throttle: Wait 1s between workouts to be polite to C2 servers.
+                    // Each workout makes 2 API calls (detail + strokes), so this is ~2 calls/sec.
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 } catch (innerErr) {
                     console.error(`Failed to process workout ${summary.id}:`, innerErr);
                     failed++;

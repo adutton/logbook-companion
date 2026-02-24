@@ -8,26 +8,49 @@ export type { PRRecord };
 export { PR_DISTANCES, BENCHMARK_PATTERNS, formatTime, formatPace, formatRest, calculateCanonicalName, calculateWatts, formatWatts };
 
 /**
- * Fetch all PRs for a user
+ * Fetch all PRs for a user.
+ * Uses paginated fetches to avoid Supabase statement timeouts on large datasets.
  */
 export async function fetchUserPRs(userId: string): Promise<PRRecord[]> {
     if (userId === 'guest_user_123') {
         return calculatePRs(DEMO_WORKOUTS as any[]);
     }
 
-    // 1. Fetch all workouts with raw_data
-    const { data: workouts, error } = await supabase
-        .from('workout_logs')
-        .select('id, completed_at, distance_meters, duration_seconds, duration_minutes, workout_name, workout_type, avg_split_500m, raw_data')
-        .eq('user_id', userId)
-        .order('completed_at', { ascending: false });
+    // Paginate: fetch in batches to avoid Supabase statement timeout (error 57014)
+    // raw_data is a large JSONB column, so keep batch size conservative
+    const PAGE_SIZE = 200;
+    let allWorkouts: any[] = [];
+    let from = 0;
+    let hasMore = true;
 
-    if (error || !workouts) {
-        console.error('Error fetching workouts for PRs:', error);
-        return [];
+    while (hasMore) {
+        const { data: batch, error } = await supabase
+            .from('workout_logs')
+            .select('id, completed_at, distance_meters, duration_seconds, duration_minutes, workout_name, workout_type, avg_split_500m, raw_data')
+            .eq('user_id', userId)
+            .order('completed_at', { ascending: false })
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (error) {
+            console.error('Error fetching workouts for PRs:', error);
+            // If we already have some data, calculate PRs from what we got
+            if (allWorkouts.length > 0) break;
+            return [];
+        }
+
+        if (!batch || batch.length === 0) {
+            hasMore = false;
+        } else {
+            allWorkouts = [...allWorkouts, ...batch];
+            from += PAGE_SIZE;
+            // Supabase returns fewer than PAGE_SIZE when we've hit the end
+            if (batch.length < PAGE_SIZE) hasMore = false;
+        }
     }
 
-    return calculatePRs(workouts);
+    if (allWorkouts.length === 0) return [];
+
+    return calculatePRs(allWorkouts);
 }
 
 /**
