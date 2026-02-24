@@ -4,6 +4,70 @@
 
 ---
 
+## ADR-017: ErgLink ↔ LogbookCompanion Integration Contract
+
+**Date**: June 2025
+**Status**: Accepted
+**Author**: Sam Gammon + AI
+**Cross-ref**: ErgLink ADR-007
+
+### Context
+ErgLink (EL) and LogbookCompanion (LC) share a single Supabase backend. Coaches create live erg sessions in LC and athletes join from EL. However, the data path between the two apps had 6 critical gaps:
+
+1. **No shared workout identity** — EL uploads with generic name `'Live Session Workout'`, no `canonical_name` or `template_id`, so LC can't match to templates or assignments.
+2. **No assignment linkage** — LC creates `group_assignments`, but EL has no visibility into them and doesn't tag uploads with `group_assignment_id`.
+3. **`erg_sessions.active_workout` untyped** — The JSONB column was used by both apps with divergent local interfaces and `as any` casts.
+4. **Reconciliation blind spot** — ADR-015 defines Gold/Silver/Bronze priority but EL wasn't populating the fields needed for matching (no `external_id`, timestamps approximate).
+5. **EL data invisible to coaching views** — no LC queries filter for `source = 'erg_link_live'`.
+6. **No C2 Logbook upload from EL** (future).
+
+Two separate `WorkoutConfig` interfaces existed: EL's in `commands.ts` (PM5-centric) and LC's in `CoachSessions.tsx` (session-management-centric). Neither was shared, documented, or versioned.
+
+### Decision
+Define a **typed integration contract** in `src/types/ergSession.types.ts` (canonical in LC, mirrored in EL) covering:
+
+1. **`ActiveWorkoutSpec`** — the shape LC writes to `erg_sessions.active_workout` and EL reads. Includes PM5 programming fields (`type`, `value`, `split_value`, `rest`, `repeats`, `intervals`) AND metadata fields (`canonical_name`, `template_id`, `group_assignment_id`, `title`, `start_type`). Versioned with `_v: 1`.
+
+2. **`ErgLinkUploadMeta`** — the shape EL writes to `workout_logs.raw_data`. Includes `session_id`, `participant_id`, echoed metadata (`canonical_name`, `template_id`, `group_assignment_id`), and full stroke buffer.
+
+3. **`SOURCE_PRIORITY`** — codifies ADR-015 priority: `manual/ocr=1`, `erg_link_live=2`, `concept2=3`.
+
+4. **`ReconciliationMatch`** — defines dedup tolerances: ±5min timestamp, ±10m distance, ±2s duration.
+
+5. **Column-level contract** — documents which `workout_logs` columns EL must populate vs which LC sets on reconciliation.
+
+### Rationale
+- **Shared types prevent integration bugs** — no more `as any` casts or divergent local interfaces.
+- **Metadata passthrough** — EL echoes `canonical_name`/`template_id`/`group_assignment_id` from the active workout spec, enabling LC to auto-complete assignments and match templates without heuristic guessing.
+- **Versioning** — `_v` field allows backward-compatible evolution. EL must handle missing fields gracefully.
+- **Manual sync, not shared package** — Both repos get a copy of the contract file. A shared npm package is overkill for 2 consumers. Divergence risk is acceptable given low change frequency.
+
+### Consequences
+**Positive**:
+- Both apps can type-check their Supabase reads/writes against the same interface
+- EL uploads become visible in LC coaching views (template matching, assignment completion)
+- Reconciliation can match EL uploads against C2 syncs reliably
+- Clear documentation of which app owns which columns
+
+**Negative**:
+- Manual sync between repos — contract changes require updating both files
+- EL needs code changes to populate new fields (migration work)
+- LC's `CoachSessions.tsx` needs refactoring to use `ActiveWorkoutSpec` instead of local `WorkoutConfig`
+
+### Alternatives Considered
+1. **Shared npm package**: Type-safe but adds build complexity, versioning overhead, and publish pipeline for ~200 lines of types. Rejected as premature.
+2. **Database-level validation (CHECK constraints / generated columns)**: Would enforce schema at DB layer but adds migration complexity and can't express the full TypeScript type system. May add later.
+3. **No contract — just document column expectations**: Too fragile. Without types, `as any` casts proliferate and integration bugs surface in production.
+
+### Implementation Notes
+- Contract files: `LogbookCompanion/src/types/ergSession.types.ts` (canonical), `erg-link/src/types/ergSession.types.ts` (mirror)
+- EL's internal `WorkoutConfig` (in `commands.ts`) remains for CSAFE frame construction — it's a PM5-specific concern. A conversion function will map `ActiveWorkoutSpec` → `WorkoutConfig`.
+- LC's `CoachSessions.tsx` local `WorkoutConfig` should be replaced with `ActiveWorkoutSpec` in a follow-up PR.
+- EL's `sessionService.ts` `uploadWorkoutLog()` needs updating to read metadata from the active workout spec and include it in the `workout_logs` insert.
+- EL's `appStore.ts` `activeWorkout` type should be updated to `ActiveWorkoutSpec | null`.
+
+---
+
 ## ADR-016: Organizations Layer (Org > Team Hierarchy)
 
 **Date**: February 22, 2026

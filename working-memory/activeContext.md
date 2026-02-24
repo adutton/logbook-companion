@@ -1,8 +1,20 @@
 # Active Context
 
-> Last updated: 2026-02-24
+> Last updated: June 2025
 
-## Current Focus: Assignments Page UX Redesign
+## Current Focus: Assignments Page UX Redesign + ErgLink Integration Contract
+
+### ErgLink ↔ LC Integration Contract (ADR-017) ✅ COMPLETE
+Defined shared TypeScript types in `src/types/ergSession.types.ts` (canonical — mirrored in ErgLink) covering:
+- **`ActiveWorkoutSpec`** — typed shape for `erg_sessions.active_workout` JSONB. Replaces local `WorkoutConfig` in `CoachSessions.tsx`.
+- **`ErgLinkUploadMeta`** — typed shape for `workout_logs.raw_data` when `source = 'erg_link_live'`.
+- **`SOURCE_PRIORITY`** + **`ReconciliationMatch`** — codifies ADR-015 reconciliation rules.
+
+#### LC-side wiring TODO:
+1. [ ] Refactor `CoachSessions.tsx` to use `ActiveWorkoutSpec` instead of local `WorkoutConfig`
+2. [ ] Add coaching view queries for `source = 'erg_link_live'` workout logs
+3. [ ] Auto-complete `daily_workout_assignments.completed_log_id` when EL upload has `group_assignment_id`
+4. [ ] Wire reconciliation to merge EL uploads with C2 syncs using `ReconciliationMatch` tolerances
 
 ### Sprint 1: Critical Bug Fixes (2026-02-11) ✅ COMPLETE
 
