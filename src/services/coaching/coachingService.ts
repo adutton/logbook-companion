@@ -1437,6 +1437,51 @@ export interface AthleteAssignmentRow {
   result_intervals?: IntervalResult[] | null;
 }
 
+/** Add a single athlete to an existing group assignment (late addition). */
+export async function addAthleteToAssignment(
+  groupAssignmentId: string,
+  athleteId: string,
+  assignment: { team_id?: string | null; org_id?: string | null; template_id: string; scheduled_date: string; title?: string | null }
+): Promise<AthleteAssignmentRow> {
+  // Resolve team_id for org-level assignments
+  let resolvedTeamId = assignment.team_id ?? null;
+  if (assignment.org_id && !resolvedTeamId) {
+    const orgTeams = await getTeamsForOrg(assignment.org_id);
+    const teamIds = orgTeams.map((t) => t.id);
+    if (teamIds.length > 0) {
+      const { data: junctionRows } = await supabase
+        .from('team_athletes')
+        .select('team_id')
+        .eq('athlete_id', athleteId)
+        .in('team_id', teamIds)
+        .eq('status', 'active')
+        .limit(1);
+      resolvedTeamId = junctionRows?.[0]?.team_id ?? null;
+    }
+  }
+
+  const dateObj = new Date(assignment.scheduled_date + 'T00:00:00');
+  const row = {
+    athlete_id: athleteId,
+    team_id: resolvedTeamId,
+    original_template_id: assignment.template_id,
+    workout_date: assignment.scheduled_date,
+    day_of_week: dateObj.getDay(),
+    week_number: 0,
+    scheduled_workout: { template_id: assignment.template_id, title: assignment.title },
+    group_assignment_id: groupAssignmentId,
+    completed: false,
+  };
+
+  const { data, error } = await supabase
+    .from('daily_workout_assignments')
+    .insert(row)
+    .select('id, athlete_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
+    .single();
+  if (error) throw error;
+  return data as AthleteAssignmentRow;
+}
+
 /** Enriched result row joining assignment data with athlete profile (name, squad, weight_kg) */
 export interface AssignmentResultRow {
   id: string;
@@ -1446,6 +1491,8 @@ export interface AssignmentResultRow {
   team_id?: string | null;
   team_name?: string | null;
   weight_kg?: number | null;
+  side?: string | null;
+  is_coxswain: boolean; // true if side='coxswain' OR team_members role='coxswain'
   completed: boolean;
   completed_at?: string | null;
   result_time_seconds?: number | null;
@@ -1487,24 +1534,45 @@ export async function getAssignmentResultsWithAthletes(
       first_name: a.first_name,
       last_name: a.last_name,
       weight_kg: a.weight_kg,
+      side: a.side ?? null,
+      user_id: a.user_id ?? null,
       team_athletes: [{ squad: a.squad }],
     }));
   } else {
     const { data, error: athErr } = await supabase
       .from('athletes')
-      .select('id, first_name, last_name, weight_kg, team_athletes!inner(team_id, squad)')
+      .select('id, first_name, last_name, weight_kg, side, user_id, team_athletes!inner(team_id, squad)')
       .eq('team_athletes.team_id', teamId);
     if (athErr) throw athErr;
     athleteRows = data;
   }
 
+  // 3. Fetch coxswain-role user_ids from team_members for role-based filtering
+  const coxswainUserIds = new Set<string>();
+  {
+    const teamIds = orgId
+      ? Array.from(teamLookup.keys())
+      : [teamId];
+    for (const tid of teamIds) {
+      const { data: members } = await supabase
+        .from('team_members')
+        .select('user_id')
+        .eq('team_id', tid)
+        .eq('role', 'coxswain');
+      members?.forEach((m) => coxswainUserIds.add(m.user_id as string));
+    }
+  }
+
   // Build lookup map
-  type AthleteInfo = { name: string; squad: string | null; weight_kg: number | null };
+  type AthleteInfo = { name: string; squad: string | null; weight_kg: number | null; side: string | null; is_coxswain: boolean };
   const athleteMap = new Map<string, AthleteInfo>();
   for (const a of athleteRows ?? []) {
     const ta = (a.team_athletes as unknown as Array<{ squad: string | null }>)[0];
     const name = [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || 'Unknown';
-    athleteMap.set(a.id as string, { name, squad: ta?.squad ?? null, weight_kg: (a.weight_kg as number | null) ?? null });
+    const side = (a.side as string | null) ?? null;
+    const userId = (a.user_id as string | null) ?? null;
+    const is_coxswain = side === 'coxswain' || (userId != null && coxswainUserIds.has(userId));
+    athleteMap.set(a.id as string, { name, squad: ta?.squad ?? null, weight_kg: (a.weight_kg as number | null) ?? null, side, is_coxswain });
   }
 
   return (rows ?? []).map((row) => {
@@ -1518,6 +1586,8 @@ export async function getAssignmentResultsWithAthletes(
       team_id: rowTeamId,
       team_name: rowTeamId ? (teamLookup.get(rowTeamId) ?? null) : null,
       weight_kg: info?.weight_kg ?? null,
+      side: info?.side ?? null,
+      is_coxswain: info?.is_coxswain ?? false,
       completed: row.completed as boolean,
       completed_at: row.completed_at as string | null,
       result_time_seconds: row.result_time_seconds as number | null,

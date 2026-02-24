@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { Users, Calendar, Loader2, Activity, ClipboardList, BarChart3, CheckCircle2, XCircle, Settings, Plus, ChevronsRight, Building2, ChevronDown, ChevronRight, Shield } from 'lucide-react';
+import { Users, Calendar, Loader2, Activity, ClipboardList, BarChart3, CheckCircle2, XCircle, Settings, Plus, ChevronsRight, Building2, ChevronDown, ChevronRight, Shield, Search } from 'lucide-react';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { RowingShellIcon } from '../../components/icons/RowingIcons';
 import { WeeklyFocusCard } from '../../components/coaching/WeeklyFocusCard';
@@ -10,6 +10,7 @@ import {
   getAthletes,
   getTeamStats,
   getTeamAthleteCounts,
+  getOrgAthletesWithTeam,
   type GroupAssignment,
   type AssignmentCompletion,
   type CoachingAthlete,
@@ -145,6 +146,10 @@ export const CoachDashboard: React.FC = () => {
   const [athleteCounts, setAthleteCounts] = useState<Record<string, number>>({});
   const [showSectionScrollHint, setShowSectionScrollHint] = useState(false);
   const sectionTabsRef = useRef<HTMLDivElement | null>(null);
+  const [orgRoster, setOrgRoster] = useState<CoachingAthlete[]>([]);
+  const [orgRosterLoading, setOrgRosterLoading] = useState(false);
+  const [showOrgRoster, setShowOrgRoster] = useState(false);
+  const [orgRosterSearch, setOrgRosterSearch] = useState('');
 
   // All team IDs for batch athlete count fetch
   const allTeamIds = useMemo(() => teams.map((t) => t.team_id), [teams]);
@@ -163,6 +168,47 @@ export const CoachDashboard: React.FC = () => {
     const standalone = teamsByOrg.filter((g) => g.org_id === null);
     return [...named, ...standalone];
   }, [teamsByOrg]);
+
+  // Fetch org roster when panel is opened
+  useEffect(() => {
+    if (!showOrgRoster || orgRoster.length > 0) return;
+    if (!orgId && !teamId) return;
+    setOrgRosterLoading(true);
+    const load = orgId
+      ? getOrgAthletesWithTeam(orgId)
+      : getAthletes(teamId);
+    load
+      .then(setOrgRoster)
+      .catch(() => { /* non-critical */ })
+      .finally(() => setOrgRosterLoading(false));
+  }, [showOrgRoster, orgRoster.length, orgId, teamId]);
+
+  // Group org roster by team name, with search filter
+  const groupedOrgRoster = useMemo(() => {
+    const q = orgRosterSearch.toLowerCase().trim();
+    const filtered = q
+      ? orgRoster.filter(
+          (a) =>
+            a.name.toLowerCase().includes(q) ||
+            (a.squad && a.squad.toLowerCase().includes(q)) ||
+            (a.team_name && a.team_name.toLowerCase().includes(q)) ||
+            (a.side && a.side.toLowerCase().includes(q))
+        )
+      : orgRoster;
+
+    const groups = new Map<string, CoachingAthlete[]>();
+    for (const a of filtered) {
+      const key = a.team_name ?? teamName ?? 'Team';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(a);
+    }
+    return groups;
+  }, [orgRoster, orgRosterSearch, teamName]);
+
+  const filteredOrgRosterCount = useMemo(
+    () => [...groupedOrgRoster.values()].reduce((sum, arr) => sum + arr.length, 0),
+    [groupedOrgRoster]
+  );
 
   useEffect(() => {
     if (!teamId) return;
@@ -263,6 +309,105 @@ export const CoachDashboard: React.FC = () => {
             onSelectTeam={switchTeam}
           />
         ))}
+      </div>
+
+      {/* ── Org Roster Table ──────────────────────────────── */}
+      <div className="mb-8">
+        <button
+          type="button"
+          onClick={() => setShowOrgRoster((v) => !v)}
+          className="w-full flex items-center justify-between gap-3 px-4 py-3 sm:px-5 sm:py-4 bg-neutral-900 border border-neutral-800 rounded-xl hover:bg-neutral-800/50 transition-colors text-left"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <Users className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-white">
+                {orgId ? 'Organization Roster' : 'Team Roster'}
+              </h2>
+              <p className="text-xs text-neutral-500">
+                {orgRoster.length > 0
+                  ? `${orgRoster.length} athlete${orgRoster.length !== 1 ? 's' : ''} across all teams`
+                  : 'View all athletes in one table'}
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0 text-neutral-500">
+            {showOrgRoster ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {showOrgRoster && (
+          <div className="mt-2 bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
+            {/* Search */}
+            <div className="p-3 border-b border-neutral-800">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                <input
+                  type="text"
+                  value={orgRosterSearch}
+                  onChange={(e) => setOrgRosterSearch(e.target.value)}
+                  placeholder="Search by name, squad, team, or side\u2026"
+                  className="w-full pl-9 pr-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              {orgRosterSearch && (
+                <p className="text-xs text-neutral-500 mt-1.5 px-1">
+                  {filteredOrgRosterCount} result{filteredOrgRosterCount !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
+
+            {orgRosterLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+              </div>
+            ) : orgRoster.length === 0 ? (
+              <div className="py-10 text-center text-neutral-500 text-sm">No athletes found</div>
+            ) : (
+              <div className="divide-y divide-neutral-800">
+                {[...groupedOrgRoster.entries()].map(([groupTeamName, athletes]) => (
+                  <div key={groupTeamName}>
+                    {/* Team sub-header — only when org-level with multiple teams */}
+                    {orgId && groupedOrgRoster.size > 1 && (
+                      <div className="px-4 py-2 bg-neutral-800/50 text-xs font-semibold text-neutral-400 uppercase tracking-wider flex items-center justify-between">
+                        <span>{groupTeamName}</span>
+                        <span className="text-neutral-500 font-normal normal-case">
+                          {athletes.length} athlete{athletes.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    )}
+                    <table className="w-full text-sm">
+                      <thead className="sr-only">
+                        <tr>
+                          <th>Name</th>
+                          <th>Side</th>
+                          <th>Squad</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-800/50">
+                        {athletes.map((a) => (
+                          <tr key={`${a.id}-${groupTeamName}`} className="hover:bg-neutral-800/30 transition-colors">
+                            <td className="px-4 py-2.5 text-white font-medium">{a.name}</td>
+                            <td className="px-4 py-2.5 text-neutral-400 capitalize">{a.side ?? '\u2014'}</td>
+                            <td className="px-4 py-2.5">
+                              {a.squad ? (
+                                <span className="inline-block px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 rounded-full">
+                                  {a.squad}
+                                </span>
+                              ) : (
+                                <span className="text-neutral-600">\u2014</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Active Team Section ───────────────────────────── */}

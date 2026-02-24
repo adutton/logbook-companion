@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { parseLocalDate } from '../../utils/dateUtils';
 import {
@@ -25,6 +25,9 @@ export function CoachingErgScores() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Exclude coxswain-sided athletes — they don't erg
+  const ergAthletes = useMemo(() => athletes.filter((a) => a.side !== 'coxswain'), [athletes]);
+
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
     Promise.all([getAthletes(teamId), getErgScores(teamId)])
@@ -50,13 +53,15 @@ export function CoachingErgScores() {
   const filteredScores = scores.filter((s) => {
     if (selectedDistance !== 'all' && s.distance !== selectedDistance) return false;
     if (selectedSquad !== 'all') {
-      const athlete = athletes.find((a) => a.id === s.athlete_id);
+      const athlete = ergAthletes.find((a) => a.id === s.athlete_id);
       if (athlete?.squad !== selectedSquad) return false;
     }
+    // Exclude scores belonging to coxswain athletes
+    if (!ergAthletes.some((a) => a.id === s.athlete_id)) return false;
     return true;
   });
   const distances = [...new Set(scores.map((s) => s.distance))].sort((a, b) => a - b);
-  const squads = [...new Set(athletes.map((a) => a.squad).filter((s): s is string => !!s))].sort();
+  const squads = [...new Set(ergAthletes.map((a) => a.squad).filter((s): s is string => !!s))].sort();
 
   const handleAddScore = async (score: Omit<Parameters<typeof createErgScore>[2], 'athlete_id'> & { athlete_id: string }) => {
     if (!teamId) return;
@@ -79,7 +84,7 @@ export function CoachingErgScores() {
   };
 
   const getAthleteName = (athleteId: string) =>
-    athletes.find((a) => a.id === athleteId)?.name ?? 'Unknown';
+    ergAthletes.find((a) => a.id === athleteId)?.name ?? 'Unknown';
 
   // Group by date for display
   const scoresByDate = filteredScores.reduce((acc, score) => {
@@ -272,7 +277,7 @@ export function CoachingErgScores() {
       )}
 
       {isAdding && (
-        <AddScoreForm athletes={athletes} onSave={handleAddScore} onCancel={() => setIsAdding(false)} />
+        <AddScoreForm athletes={ergAthletes} onSave={handleAddScore} onCancel={() => setIsAdding(false)} />
       )}
     </div>
     </>

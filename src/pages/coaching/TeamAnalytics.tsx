@@ -46,7 +46,8 @@ export function TeamAnalytics() {
           getOrgTrainingZoneDistribution(orgId).catch(() => null),
         ]);
         setOrgTeams(loadedTeams);
-        setAthletes(loadedAthletes);
+        // Exclude coxswain-sided athletes — they don't erg
+        setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
         setZoneDistribution(zoneDist);
       } else {
@@ -57,7 +58,8 @@ export function TeamAnalytics() {
           getTeamTrainingZoneDistribution(teamId).catch(() => null),
         ]);
         setOrgTeams([]);
-        setAthletes(loadedAthletes);
+        // Exclude coxswain-sided athletes — they don't erg
+        setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
         setZoneDistribution(zoneDist);
       }

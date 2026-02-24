@@ -11,6 +11,7 @@ import {
   getAthleteAssignmentRows,
   saveAssignmentResults,
   markAssignmentAsTest,
+  addAthleteToAssignment,
   getComplianceData,
   getAthletes,
   getOrgAthletes,
@@ -28,7 +29,7 @@ import { format, addDays, startOfWeek, endOfWeek, isToday, eachDayOfInterval, pa
 import {
   Plus, Trash2, Loader2, ChevronLeft, ChevronRight,
   Calendar, Search, CheckSquare, X, Edit2, Repeat,
-  BarChart3, CheckCircle2, Circle, Timer,
+  BarChart3, CheckCircle2, Circle, Timer, UserPlus,
 } from 'lucide-react';
 import { calculateWattsFromSplit } from '../../utils/paceCalculator';
 import { toast } from 'sonner';
@@ -154,6 +155,10 @@ export function CoachingAssignments() {
     }
   };
 
+  // Exclude coxswain-sided athletes from assignment compliance (they don't erg)
+  const ergAthletes = useMemo(() => athletes.filter((a) => a.side !== 'coxswain'), [athletes]);
+  const ergOrgAthletes = useMemo(() => orgAthletes.filter((a) => a.side !== 'coxswain'), [orgAthletes]);
+
   // Group assignments by date
   const assignmentsByDate = new Map<string, GroupAssignment[]>();
   for (const a of assignments) {
@@ -268,7 +273,7 @@ export function CoachingAssignments() {
         {viewMode === 'compliance' ? (
           <ComplianceGrid
             assignments={assignments}
-            athletes={athletes}
+            athletes={ergAthletes}
             cells={complianceCells}
           />
         ) : (
@@ -383,7 +388,7 @@ export function CoachingAssignments() {
             teamId={teamId}
             userId={userId}
             orgId={orgId}
-            athletes={athletes}
+            athletes={ergAthletes}
             squads={squads}
             templates={templates}
             onCreate={handleCreate}
@@ -396,7 +401,7 @@ export function CoachingAssignments() {
           <ResultsEntryModal
             groupAssignmentId={bulkCompleteAssignmentId}
             assignment={assignments.find((a) => a.id === bulkCompleteAssignmentId)!}
-            athletes={assignments.find((a) => a.id === bulkCompleteAssignmentId)?.org_id && orgAthletes.length > 0 ? orgAthletes : athletes}
+            athletes={assignments.find((a) => a.id === bulkCompleteAssignmentId)?.org_id && ergOrgAthletes.length > 0 ? ergOrgAthletes : ergAthletes}
             teamId={teamId!}
             orgId={orgId}
             userId={userId}
@@ -409,8 +414,8 @@ export function CoachingAssignments() {
         {editingAssignment && (
           <EditAssignmentModal
             assignment={editingAssignment}
-            athletes={athletes}
-            orgAthletes={orgAthletes}
+            athletes={ergAthletes}
+            orgAthletes={ergOrgAthletes}
             squads={squads}
             orgId={orgId}
             onSave={(updates, newAthleteIds) => handleEdit(editingAssignment.id, updates, newAthleteIds)}
@@ -577,12 +582,12 @@ function CreateAssignmentForm({
   const [orgAthletes, setOrgAthletes] = useState<CoachingAthlete[]>([]);
   const [isLoadingOrgAthletes, setIsLoadingOrgAthletes] = useState(false);
 
-  // Load org athletes when "All Teams" is selected
+  // Load org athletes when "All Teams" is selected (exclude coxswains)
   useEffect(() => {
     if (assignTo === 'org' && orgId && orgAthletes.length === 0) {
       setIsLoadingOrgAthletes(true);
       getOrgAthletes(orgId)
-        .then(setOrgAthletes)
+        .then((all) => setOrgAthletes(all.filter((a) => a.side !== 'coxswain')))
         .catch(() => {})
         .finally(() => setIsLoadingOrgAthletes(false));
     }
@@ -946,6 +951,8 @@ export function ResultsEntryModal({
   const [entries, setEntries] = useState<AthleteResultEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAddingAthlete, setIsAddingAthlete] = useState(false);
+  const [showAddAthlete, setShowAddAthlete] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1050,6 +1057,49 @@ export function ResultsEntryModal({
     }
     return map;
   }, [athletes, orgAthletesList]);
+
+  // Athletes available to add (on roster but not yet assigned, excluding coxswains)
+  const unassignedAthletes = useMemo(() => {
+    const assignedIds = new Set(entries.map((e) => e.athlete_id));
+    return [...athleteMap.values()]
+      .filter((a) => !assignedIds.has(a.id) && a.side !== 'coxswain')
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [athleteMap, entries]);
+
+  // Handler: add an athlete to this assignment and create a blank entry row
+  const handleAddAthlete = async (athleteId: string) => {
+    setIsAddingAthlete(true);
+    try {
+      await addAthleteToAssignment(groupAssignmentId, athleteId, {
+        team_id: assignment.team_id,
+        org_id: assignment.org_id,
+        template_id: assignment.template_id,
+        scheduled_date: assignment.scheduled_date,
+        title: assignment.title,
+      });
+      // Append a blank entry for the newly added athlete
+      const newEntry: AthleteResultEntry = {
+        athlete_id: athleteId,
+        completed: false,
+        wasCompleted: false,
+        primary: '',
+        primaryDnf: false,
+        spm: '',
+        reps: Array.from({ length: shape.reps }, () => ''),
+        repDnf: Array.from({ length: shape.reps }, () => false),
+        repSpm: Array.from({ length: shape.reps }, () => ''),
+        isTest: assignment.is_test_template ?? false,
+      };
+      setEntries((prev) => [...prev, newEntry]);
+      setShowAddAthlete(false);
+      const athlete = athleteMap.get(athleteId);
+      toast.success(`Added ${athlete?.name ?? 'athlete'} to assignment`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add athlete');
+    } finally {
+      setIsAddingAthlete(false);
+    }
+  };
 
   const updateEntry = (idx: number, field: keyof AthleteResultEntry, value: string | boolean) => {
     // Typing "dnf" in the primary field toggles primaryDnf
@@ -1456,14 +1506,40 @@ export function ResultsEntryModal({
                 <div className="w-10 text-center" title="Mark as test/baseline — creates an erg score">Test</div>
               </div>
 
-              {/* Mark all */}
-              <div className="py-1.5">
+              {/* Mark all + Add athlete */}
+              <div className="py-1.5 flex items-center gap-3">
                 <button
                   onClick={markAllComplete}
                   className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
                 >
                   Mark all complete
                 </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowAddAthlete(!showAddAthlete)}
+                    disabled={unassignedAthletes.length === 0 || isAddingAthlete}
+                    className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 disabled:text-neutral-600 disabled:cursor-not-allowed transition-colors"
+                    title={unassignedAthletes.length === 0 ? 'All roster athletes are assigned' : 'Add an athlete who showed up late'}
+                  >
+                    {isAddingAthlete ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
+                    Add athlete
+                  </button>
+                  {showAddAthlete && unassignedAthletes.length > 0 && (
+                    <div className="absolute left-0 top-full mt-1 z-50 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl max-h-48 overflow-auto w-56">
+                      {unassignedAthletes.map((a) => (
+                        <button
+                          key={a.id}
+                          onClick={() => handleAddAthlete(a.id)}
+                          disabled={isAddingAthlete}
+                          className="w-full text-left px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                        >
+                          <span className="truncate">{a.name}</span>
+                          {a.squad && <span className="text-[10px] text-neutral-500 ml-auto shrink-0">{a.squad}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {entries.map((entry, idx) => {

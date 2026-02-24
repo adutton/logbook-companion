@@ -396,7 +396,8 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
 // ─── Chart: Percentile Dot Plot ───────────────────────────────────────────────
 
 function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
-  const completed = rows.filter((r) => r.completed && r.avg_split_seconds != null);
+  // Exclude DNF and partial-DNF athletes — their averages are unreliable
+  const completed = rows.filter((r) => r.completed && r.avg_split_seconds != null && !r.dnf && !r.partialDnf);
   if (completed.length < 3) return null;
 
   // Lower split = faster = higher percentile rank
@@ -1341,11 +1342,11 @@ export function AssignmentResults() {
 
           {/* ── Missing athletes notice ── */}
           {(() => {
-            const missing = rows.filter((r) => !r.completed);
+            const missing = rows.filter((r) => !r.completed && !r.is_coxswain);
             if (missing.length === 0) return null;
             return (
               <div className="bg-amber-900/20 border border-amber-800/40 rounded-xl px-4 py-3 text-sm text-amber-300">
-                <span className="font-semibold">Not yet completed:</span>{' '}
+                <span className="font-semibold">Absent or not completed:</span>{' '}
                 {missing.map((r) => r.athlete_name).join(', ')}
               </div>
             );
@@ -1450,7 +1451,8 @@ function ResultsModalLoader({
       athletePromise,
       supabase.auth.getUser().then(({ data }) => data.user?.id ?? null),
     ]).then(([aths, uid]) => {
-      setAthletes(aths);
+      // Exclude coxswain-sided athletes — they don't erg
+      setAthletes(aths.filter((a) => a.side !== 'coxswain'));
       setUserId(uid);
     });
   }, [teamId, orgId, assignment.org_id]);
