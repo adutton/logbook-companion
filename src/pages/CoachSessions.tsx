@@ -23,17 +23,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import type { ActiveWorkoutSpec } from '../types/ergSession.types';
 
-type WorkoutType = 'just_row' | 'fixed_distance' | 'fixed_time' | 'interval_distance' | 'interval_time' | 'interval';
-type StartType = 'immediate' | 'synchronized';
-
-interface WorkoutConfig {
-    type: WorkoutType;
-    value: number;
-    split_value?: number;
-    rest?: number;
-    start_type?: StartType;
-}
+type WorkoutSelectionType = ActiveWorkoutSpec['type'] | 'interval';
 
 interface ParticipantData {
     watts?: number;
@@ -50,7 +42,7 @@ interface Session {
     join_code: string;
     status: 'active' | 'finished';
     created_at: string;
-    active_workout?: WorkoutConfig;
+    active_workout?: ActiveWorkoutSpec | null;
 }
 
 interface Participant {
@@ -315,7 +307,7 @@ export const CoachSessions: React.FC = () => {
 
     // ... existing workout modal logic ...
     const [workoutModalOpen, setWorkoutModalOpen] = useState(false);
-    const [workoutType, setWorkoutType] = useState<'just_row' | 'fixed_distance' | 'fixed_time' | 'interval_distance' | 'interval_time' | 'interval'>('fixed_distance');
+    const [workoutType, setWorkoutType] = useState<WorkoutSelectionType>('fixed_distance');
     const [workoutValue, setWorkoutValue] = useState(2000);
     const [startType, setStartType] = useState<'immediate' | 'synchronized'>('immediate');
 
@@ -337,7 +329,7 @@ export const CoachSessions: React.FC = () => {
                             <div className="space-y-4">
                                 <div className="grid grid-cols-4 gap-2">
                                     {[{ id: 'just_row', label: 'Just Row' }, { id: 'fixed_distance', label: 'Distance' }, { id: 'fixed_time', label: 'Time' }, { id: 'interval', label: 'Interval' }].map(type => (
-                                        <button key={type.id} onClick={() => setWorkoutType(type.id as WorkoutType)} className={`p-2 rounded-lg text-xs font-medium transition-colors ${workoutType === type.id || (workoutType.startsWith('interval') && type.id === 'interval') ? 'bg-emerald-600 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}>{type.label}</button>
+                                        <button key={type.id} onClick={() => setWorkoutType(type.id as WorkoutSelectionType)} className={`p-2 rounded-lg text-xs font-medium transition-colors ${workoutType === type.id || (workoutType.startsWith('interval') && type.id === 'interval') ? 'bg-emerald-600 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}>{type.label}</button>
                                     ))}
                                 </div>
 
@@ -394,14 +386,14 @@ export const CoachSessions: React.FC = () => {
                                     // Capture logic here because modifying state in render is bad, and we added uncontrolled inputs
                                     if (!selectedSessionId) return;
 
-                                    let finalType: WorkoutType = workoutType;
+                                    let finalType: ActiveWorkoutSpec['type'] = workoutType === 'interval' ? 'interval_distance' : workoutType;
                                     // Handle generic 'interval' selection defaulting
-                                    if (finalType === 'interval') finalType = 'interval_distance';
 
                                     const restInput = document.getElementById('restDuration') as HTMLInputElement;
                                     const restValue = restInput ? Number(restInput.value) : undefined;
 
-                                    const workoutConfig = {
+                                    const workoutConfig: ActiveWorkoutSpec = {
+                                        _v: 1,
                                         type: finalType,
                                         value: workoutValue,
                                         split_value: finalType.includes('distance') ? 500 : 300,

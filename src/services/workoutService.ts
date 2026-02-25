@@ -3,8 +3,14 @@ import type { C2ResultDetail, C2Stroke } from '../api/concept2.types';
 import { calculateCanonicalName } from '../utils/workoutNaming';
 import { parseRWN } from '../utils/rwnParser';
 import { structureToIntervals } from '../utils/structureAdapter';
+import { autoCompleteAssignmentFromErgLinkLog } from './coaching/coachingService';
+import type { ErgLinkUploadMeta } from '../types/ergSession.types';
 
 export const workoutService = {
+    // Sources visible to dashboard/analysis views
+    // Includes ErgLink live uploads so coaching-related pages can surface them.
+    viewableSources: ['concept2', 'erg_link_live'] as const,
+
     // Fetch recent workouts list (Dashboard)
     getRecentWorkouts: async (limit = 50, page = 0) => {
         const from = page * limit;
@@ -13,11 +19,31 @@ export const workoutService = {
         const { data, error } = await supabase
             .from('workout_logs')
             .select('*')
-            .eq('source', 'concept2') // Only C2 logs for now
+            .in('source', [...workoutService.viewableSources])
             .order('completed_at', { ascending: false })
             .range(from, to);
 
         if (error) throw error;
+
+        const autoLinkTasks = data
+            .filter(log => log.source === 'erg_link_live' && !!log.id && !!log.user_id && !!log.raw_data)
+            .map((log) => {
+                const raw = log.raw_data as ErgLinkUploadMeta | null;
+                const groupAssignmentId = raw?.group_assignment_id;
+                if (!groupAssignmentId) return null;
+
+                return autoCompleteAssignmentFromErgLinkLog({
+                    workoutLogId: log.id,
+                    userId: log.user_id,
+                    completedAt: log.completed_at,
+                    groupAssignmentId,
+                });
+            })
+            .filter(Boolean) as Promise<void>[];
+
+        if (autoLinkTasks.length > 0) {
+            await Promise.allSettled(autoLinkTasks);
+        }
 
         return data.map(log => {
             const raw = log.raw_data;
@@ -362,7 +388,7 @@ export const workoutService = {
         const { data, error } = await supabase
             .from('workout_logs')
             .select('id, external_id, completed_at, workout_name, workout_type, distance_meters, duration_seconds, duration_minutes, watts, average_stroke_rate, average_heart_rate, canonical_name')
-            .eq('source', 'concept2')
+            .in('source', [...workoutService.viewableSources])
             .order('completed_at', { ascending: false });
 
         if (error) throw error;

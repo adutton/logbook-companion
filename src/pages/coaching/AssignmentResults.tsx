@@ -5,7 +5,7 @@
  * Shows a summary table + context-aware charts depending on workout type:
  *
  *  steady_state / distance_interval / time_interval:
- *    - Sorted bar chart (split, watts, W/kg where weight known)
+ *    - Sorted bar chart (split, watts, W/kg + W/lb where weight known)
  *    - Percentile dot plot
  *
  *  interval or variable:
@@ -31,6 +31,10 @@ import {
   BarChart3,
   Maximize2,
   X as XIcon,
+  ChevronRight,
+  ChevronDown,
+  Search,
+  Link2,
 } from 'lucide-react';
 import {
   BarChart,
@@ -56,6 +60,8 @@ import { useCoachingContext } from '../../hooks/useCoachingContext';
 import {
   getGroupAssignments,
   getAssignmentResultsWithAthletes,
+  createAssignmentResultsShare,
+  buildAssignmentResultsShareUrl,
   getAthletes,
   getOrgAthletes,
   type GroupAssignment,
@@ -80,6 +86,10 @@ interface EnrichedRow extends AssignmentResultRow {
   watts: number | null;
   /** W/kg — null when weight_kg is missing */
   wpkg: number | null;
+  /** W/lb — null when weight is missing */
+  wplb: number | null;
+  /** Effective weight used for power-to-weight calculations */
+  effective_weight_kg: number | null;
   /** Std-dev of per-rep split values (consistency score, lower = better) */
   consistency_sigma: number | null;
   /** Rep splits in order, from result_intervals */
@@ -119,6 +129,16 @@ function fmtWatts(w: number | null | undefined): string {
 function fmtWpkg(w: number | null | undefined): string {
   if (w == null || w <= 0) return '—';
   return `${w.toFixed(2)} W/kg`;
+}
+
+function fmtWplb(w: number | null | undefined): string {
+  if (w == null || w <= 0) return '—';
+  return `${w.toFixed(2)} W/lb`;
+}
+
+function fmtPowerToWeight(wpkg: number | null | undefined, wplb: number | null | undefined): string {
+  if (wpkg == null || wpkg <= 0 || wplb == null || wplb <= 0) return '—';
+  return `${fmtWpkg(wpkg)} · ${fmtWplb(wplb)}`;
 }
 
 function calcAvgSplit(row: AssignmentResultRow): number | null {
@@ -189,13 +209,19 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
       avg_split_seconds === null;
 
     const watts = avg_split_seconds ? Math.round(splitToWatts(avg_split_seconds)) : null;
+    const effectiveWeightKg = row.result_weight_kg && row.result_weight_kg > 0
+      ? row.result_weight_kg
+      : row.weight_kg && row.weight_kg > 0
+      ? row.weight_kg
+      : null;
     const wpkg =
-      watts !== null && row.weight_kg && row.weight_kg > 0
-        ? watts / row.weight_kg
+      watts !== null && effectiveWeightKg != null
+        ? watts / effectiveWeightKg
         : null;
+    const wplb = wpkg != null ? wpkg / 2.20462 : null;
     const rep_splits = calcRepSplits(row);
     const consistency_sigma = calcSigma(rep_splits);
-    return { ...row, avg_split_seconds, watts, wpkg, consistency_sigma, rep_splits, dnf, partialDnf, completeNoData };
+    return { ...row, avg_split_seconds, watts, wpkg, wplb, effective_weight_kg: effectiveWeightKg, consistency_sigma, rep_splits, dnf, partialDnf, completeNoData };
   });
 }
 
@@ -221,8 +247,11 @@ function SplitBarChart({ rows }: { rows: EnrichedRow[] }) {
     .sort((a, b) => (a.avg_split_seconds ?? 999) - (b.avg_split_seconds ?? 999))
     .map((r, i) => ({
       name: r.athlete_name.split(' ')[0], // first name to save space
+      fullName: r.athlete_name,
       split: r.avg_split_seconds ?? 0,
       splitLabel: fmtSplit(r.avg_split_seconds),
+      wpkg: r.wpkg,
+      wplb: r.wplb,
       rank: i + 1,
     }));
 
@@ -256,8 +285,17 @@ function SplitBarChart({ rows }: { rows: EnrichedRow[] }) {
           />
           <Tooltip
             contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
-            formatter={(v: number | undefined) => [fmtSplit(v ?? 0), 'Split']}
-            labelStyle={{ color: '#e5e7eb' }}
+            content={({ payload }) => {
+              if (!payload?.length) return null;
+              const point = payload[0].payload as { fullName: string; split: number; wpkg: number | null; wplb: number | null };
+              return (
+                <div className="p-2 text-xs text-neutral-200">
+                  <div className="font-semibold">{point.fullName}</div>
+                  <div>Split: {fmtSplit(point.split)}</div>
+                  <div>Power-to-weight: {fmtPowerToWeight(point.wpkg, point.wplb)}</div>
+                </div>
+              );
+            }}
           />
           <Bar dataKey="split" radius={[4, 4, 0, 0]}>
             {data.map((_, i) => (
@@ -281,7 +319,10 @@ function WattsBarChart({ rows }: { rows: EnrichedRow[] }) {
     .sort((a, b) => (b.watts ?? 0) - (a.watts ?? 0))
     .map((r, i) => ({
       name: r.athlete_name.split(' ')[0],
+      fullName: r.athlete_name,
       watts: r.watts ?? 0,
+      wpkg: r.wpkg,
+      wplb: r.wplb,
       rank: i + 1,
     }));
 
@@ -306,8 +347,17 @@ function WattsBarChart({ rows }: { rows: EnrichedRow[] }) {
           <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} tickFormatter={(v) => `${v}W`} width={48} />
           <Tooltip
             contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
-            formatter={(v: number | undefined) => [`${v ?? 0}W`, 'Watts']}
-            labelStyle={{ color: '#e5e7eb' }}
+            content={({ payload }) => {
+              if (!payload?.length) return null;
+              const point = payload[0].payload as { fullName: string; watts: number; wpkg: number | null; wplb: number | null };
+              return (
+                <div className="p-2 text-xs text-neutral-200">
+                  <div className="font-semibold">{point.fullName}</div>
+                  <div>Watts: {fmtWatts(point.watts)}</div>
+                  <div>Power-to-weight: {fmtPowerToWeight(point.wpkg, point.wplb)}</div>
+                </div>
+              );
+            }}
           />
           <Bar dataKey="watts" radius={[4, 4, 0, 0]}>
             {data.map((_, i) => (
@@ -323,7 +373,7 @@ function WattsBarChart({ rows }: { rows: EnrichedRow[] }) {
   );
 }
 
-// ─── Chart: W/kg Bar ──────────────────────────────────────────────────────────
+// ─── Chart: Power-to-Weight (W/kg + W/lb) ────────────────────────────────────
 
 function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
   const data = [...rows]
@@ -337,15 +387,15 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
 
   if (data.length === 0) return null;
 
-  const withWeight = rows.filter((r) => r.completed && r.weight_kg);
-  const missing = rows.filter((r) => r.completed && !r.weight_kg);
+  const withWeight = rows.filter((r) => r.completed && r.wpkg != null);
+  const missing = rows.filter((r) => r.completed && r.wpkg == null);
 
   return (
     <div className="bg-neutral-800/50 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-neutral-300 flex items-center gap-2">
           <BarChart3 className="w-4 h-4 text-emerald-400" />
-          W/kg — Power-to-Weight (higher = better)
+          W/kg & W/lb — Power-to-Weight (higher = better)
         </h3>
         {missing.length > 0 && (
           <span className="text-xs text-neutral-500">
@@ -371,7 +421,11 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
             />
             <Tooltip
               contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
-              formatter={(v: number | undefined) => [`${(v ?? 0).toFixed(2)} W/kg`, 'W/kg']}
+              formatter={(v: number | undefined) => {
+                const wpkg = v ?? 0;
+                const wplb = wpkg / 2.20462;
+                return [`${wpkg.toFixed(2)} W/kg · ${wplb.toFixed(2)} W/lb`, 'Power-to-weight (W/kg + W/lb)'];
+              }}
               labelStyle={{ color: '#e5e7eb' }}
             />
             <Bar dataKey="wpkg" radius={[4, 4, 0, 0]}>
@@ -411,6 +465,8 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
       pctile: 100 - percentileOf(r.avg_split_seconds!, splits),
       split: r.avg_split_seconds,
       cx: 100 - percentileOf(r.avg_split_seconds!, splits),
+      wpkg: r.wpkg,
+      wplb: r.wplb,
     }))
     .sort((a, b) => b.pctile - a.pctile);
 
@@ -440,11 +496,12 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
             contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
             content={({ payload }) => {
               if (!payload?.length) return null;
-              const d = payload[0].payload as { fullName: string; pctile: number; split: number };
+              const d = payload[0].payload as { fullName: string; pctile: number; split: number; wpkg: number | null; wplb: number | null };
               return (
                 <div className="p-2 text-xs text-neutral-200">
                   <div className="font-semibold">{d.fullName}</div>
                   <div>Split: {fmtSplit(d.split)}</div>
+                  <div>Power-to-weight: {fmtPowerToWeight(d.wpkg, d.wplb)}</div>
                   <div>P{d.pctile} in this group</div>
                 </div>
               );
@@ -508,6 +565,7 @@ function RepProgressionChart({
   const pad = (maxSplit - minSplit) * 0.08 || 5;
   // Y is reversed (faster = higher on chart), so domain min=fast end, max=slow end
   const yDomain: [number, number] = [Math.floor(minSplit - pad), Math.ceil(maxSplit + pad)];
+  const ratioByAthlete = new Map(withReps.map((r) => [r.athlete_name, fmtPowerToWeight(r.wpkg, r.wplb)]));
 
   const chartContent = (height: number) => (
     <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
@@ -530,7 +588,11 @@ function RepProgressionChart({
       />
       <Tooltip
         contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
-        formatter={(v: number | undefined, name: string | undefined) => [fmtSplit(v ?? 0), (name ?? '').split(' ')[0]]}
+        formatter={(v: number | undefined, name: string | undefined) => {
+          const athleteName = name ?? '';
+          const ratio = ratioByAthlete.get(athleteName) ?? '—';
+          return [fmtSplit(v ?? 0), `${athleteName.split(' ')[0]} · ${ratio}`];
+        }}
         labelStyle={{ color: '#e5e7eb', fontWeight: 600 }}
       />
       <Legend
@@ -645,6 +707,7 @@ function RepHeatmap({
 }) {
   const [sortCol, setSortCol] = useState<HeatmapSortCol>('avg');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [metric, setMetric] = useState<'split' | 'wpkg'>('split');
 
   const toggleSort = (col: HeatmapSortCol) => {
     if (sortCol === col) {
@@ -666,37 +729,65 @@ function RepHeatmap({
   const withReps = rows.filter((r) => r.completed && r.rep_splits.some((v) => v != null));
   if (withReps.length === 0 || repLabels.length === 0) return null;
 
+  const repWpkgByAthlete = new Map<string, (number | null)[]>(
+    withReps.map((row) => {
+      const vals = row.rep_splits.map((split) => {
+        if (split == null || split <= 0 || row.effective_weight_kg == null || row.effective_weight_kg <= 0) return null;
+        const repWatts = splitToWatts(split);
+        if (!Number.isFinite(repWatts) || repWatts <= 0) return null;
+        return repWatts / row.effective_weight_kg;
+      });
+      return [row.athlete_id, vals];
+    }),
+  );
+
   // Per-rep: compute team median to use for relative coloring
   const repMedians = repLabels.map((_, repIdx) => {
     const vals = withReps
-      .map((r) => r.rep_splits[repIdx])
+      .map((r) => metric === 'split' ? r.rep_splits[repIdx] : repWpkgByAthlete.get(r.athlete_id)?.[repIdx] ?? null)
       .filter((v): v is number => v != null)
       .sort((a, b) => a - b);
     if (vals.length === 0) return null;
     return vals[Math.floor(vals.length / 2)];
   });
 
-  function cellColor(split: number | null, median: number | null): string {
-    if (split == null || median == null) return 'bg-neutral-700/30';
-    const pct = (split - median) / median; // positive = slower, negative = faster
-    if (pct < -0.03) return 'bg-emerald-500/70'; // >3% faster than median
-    if (pct < -0.01) return 'bg-emerald-500/40';
-    if (pct < 0.01) return 'bg-neutral-600/50';   // within 1%
-    if (pct < 0.03) return 'bg-amber-500/40';
-    return 'bg-red-500/60';                        // >3% slower than median
+  function cellColor(value: number | null, median: number | null): string {
+    if (value == null || median == null || median <= 0) return 'bg-neutral-700/30';
+    if (metric === 'split') {
+      const pct = (value - median) / median; // positive = slower, negative = faster
+      if (pct < -0.03) return 'bg-emerald-500/70';
+      if (pct < -0.01) return 'bg-emerald-500/40';
+      if (pct < 0.01) return 'bg-neutral-600/50';
+      if (pct < 0.03) return 'bg-amber-500/40';
+      return 'bg-red-500/60';
+    }
+    const pct = (value - median) / median; // positive = better for W/kg
+    if (pct > 0.03) return 'bg-emerald-500/70';
+    if (pct > 0.01) return 'bg-emerald-500/40';
+    if (pct > -0.01) return 'bg-neutral-600/50';
+    if (pct > -0.03) return 'bg-amber-500/40';
+    return 'bg-red-500/60';
   }
 
-  function cellText(split: number | null): string {
-    return fmtSplit(split);
+  function cellText(value: number | null): string {
+    if (metric === 'split') return fmtSplit(value);
+    if (value == null || value <= 0) return '—';
+    return value.toFixed(2);
   }
 
   // Sort helper — extracts the numeric value to sort by for a given row
   const sortValue = (row: EnrichedRow): number | string | null => {
     if (sortCol === 'name') return row.athlete_name;
-    if (sortCol === 'avg') return row.avg_split_seconds ?? null;
+    if (sortCol === 'avg') {
+      if (metric === 'split') return row.avg_split_seconds ?? null;
+      if (row.wpkg != null) return -row.wpkg;
+      return null;
+    }
     if (sortCol === 'sigma') return row.consistency_sigma ?? null;
     // sortCol is a rep index
-    return row.rep_splits[sortCol] ?? null;
+    if (metric === 'split') return row.rep_splits[sortCol] ?? null;
+    const ratio = repWpkgByAthlete.get(row.athlete_id)?.[sortCol] ?? null;
+    return ratio != null ? -ratio : null;
   };
 
   const compareFn = (a: EnrichedRow, b: EnrichedRow): number => {
@@ -722,13 +813,32 @@ function RepHeatmap({
 
   return (
     <div className="bg-neutral-800/50 rounded-xl p-4 space-y-3">
-      <h3 className="text-sm font-semibold text-neutral-300">Rep Heatmap — vs. Team Median</h3>
-      <div className="flex items-center gap-3 text-[10px] text-neutral-400">
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-emerald-500/70" /> &gt;3% faster</span>
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-neutral-600/50" /> ±1% median</span>
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-amber-500/40" /> &gt;1% slower</span>
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-red-500/60" /> &gt;3% slower</span>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-neutral-300">Rep Heatmap — vs. Team Median</h3>
+        <div className="inline-flex rounded-lg border border-neutral-700 overflow-hidden text-[10px]">
+          <button
+            onClick={() => setMetric('split')}
+            className={`px-2.5 py-1 font-semibold transition-colors ${metric === 'split' ? 'bg-indigo-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200'}`}
+          >
+            Split
+          </button>
+          <button
+            onClick={() => setMetric('wpkg')}
+            className={`px-2.5 py-1 font-semibold transition-colors ${metric === 'wpkg' ? 'bg-indigo-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200'}`}
+          >
+            W/kg
+          </button>
+        </div>
       </div>
+      <div className="flex items-center gap-3 text-[10px] text-neutral-400">
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-emerald-500/70" /> {metric === 'split' ? '>3% faster' : '>3% higher'}</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-neutral-600/50" /> ±1% median</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-amber-500/40" /> {metric === 'split' ? '>1% slower' : '>1% lower'}</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-red-500/60" /> {metric === 'split' ? '>3% slower' : '>3% lower'}</span>
+      </div>
+      {metric === 'wpkg' && (
+        <p className="text-[10px] text-neutral-500">Rep cells show per-rep W/kg derived from split and assignment/profile weight.</p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
@@ -781,12 +891,15 @@ function RepHeatmap({
                 )}
                 <tr className={row.dnf ? 'opacity-50' : row.partialDnf ? 'opacity-70' : ''}>
                   <td className="sticky left-0 bg-neutral-900/80 px-3 py-1.5 whitespace-nowrap border-t border-neutral-800/30">
-                    <span className="text-neutral-200">{row.athlete_name}</span>
+                    <div className="text-neutral-200">{row.athlete_name}</div>
+                    <div className="text-[10px] text-neutral-500">{fmtPowerToWeight(row.wpkg, row.wplb)}</div>
                     {row.partialDnf && <span className="ml-1.5 text-[9px] font-bold text-amber-400 uppercase">Partial</span>}
                     {row.dnf && <span className="ml-1.5 text-[9px] font-bold text-red-400 uppercase">DNF</span>}
                   </td>
                   {repLabels.map((_, repIdx) => {
-                    const split = row.rep_splits[repIdx] ?? null;
+                    const split = metric === 'split'
+                      ? row.rep_splits[repIdx] ?? null
+                      : repWpkgByAthlete.get(row.athlete_id)?.[repIdx] ?? null;
                     const median = repMedians[repIdx];
                     return (
                       <td
@@ -810,7 +923,7 @@ function RepHeatmap({
               </td>
               {repMedians.map((med, i) => (
                 <td key={i} className="px-2 py-1.5 text-center text-neutral-500 font-mono border-t border-neutral-700/50">
-                  {fmtSplit(med)}
+                  {metric === 'split' ? fmtSplit(med) : med != null && med > 0 ? med.toFixed(2) : '—'}
                 </td>
               ))}
               <td className="px-2 py-1.5 border-t border-neutral-700/50" />
@@ -867,6 +980,9 @@ function SummaryTable({
 }) {
   const [sortField, setSortField] = useState<SortField>('split');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'finishers' | 'partial' | 'dnf' | 'no-data' | 'not-completed'>('all');
+  const [showNotCompleted, setShowNotCompleted] = useState(false);
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -877,8 +993,26 @@ function SummaryTable({
     }
   }
 
+  const filteredRows = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    return rows.filter((row) => {
+      const matchesStatus = (() => {
+        if (statusFilter === 'all') return true;
+        if (statusFilter === 'finishers') return row.completed && !row.dnf && !row.partialDnf && !row.completeNoData;
+        if (statusFilter === 'partial') return row.partialDnf;
+        if (statusFilter === 'dnf') return row.dnf;
+        if (statusFilter === 'no-data') return row.completeNoData;
+        return !row.completed;
+      })();
+      if (!matchesStatus) return false;
+      if (!needle) return true;
+      const haystack = `${row.athlete_name} ${row.team_name ?? ''} ${row.squad ?? ''}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [rows, searchTerm, statusFilter]);
+
   const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
+    return [...filteredRows].sort((a, b) => {
       // DNF always sinks to the very bottom, regardless of sort direction
       if (a.dnf && !b.dnf) return 1;
       if (!a.dnf && b.dnf) return -1;
@@ -913,21 +1047,22 @@ function SummaryTable({
       const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [rows, sortField, sortDir]);
+  }, [filteredRows, sortField, sortDir]);
 
-  // Assign rank by split (only among full finishers — no partial DNF)
-  const completedBySplit = [...sorted]
-    .filter((r) => r.completed && !r.dnf && !r.partialDnf && r.avg_split_seconds != null)
-    .sort((a, b) => (a.avg_split_seconds ?? 999) - (b.avg_split_seconds ?? 999));
-  const rankMap = new Map(completedBySplit.map((r, i) => [r.athlete_id, i + 1]));
+  const completedRows = useMemo(() => sorted.filter((r) => r.completed), [sorted]);
+  const notCompletedRows = useMemo(() => sorted.filter((r) => !r.completed), [sorted]);
+  const visibleRows = useMemo(
+    () => (showNotCompleted ? [...completedRows, ...notCompletedRows] : completedRows),
+    [showNotCompleted, completedRows, notCompletedRows],
+  );
 
   // Track where each tier starts for divider rows
-  const firstPartialDnfIdx = sorted.findIndex((r) => r.partialDnf);
-  const firstCompleteNoDataIdx = sorted.findIndex((r) => r.completeNoData);
-  const firstFullDnfIdx = sorted.findIndex((r) => r.dnf);
-  const firstNotCompletedIdx = sorted.findIndex((r) => !r.completed);
+  const firstPartialDnfIdx = visibleRows.findIndex((r) => r.partialDnf);
+  const firstCompleteNoDataIdx = visibleRows.findIndex((r) => r.completeNoData);
+  const firstFullDnfIdx = visibleRows.findIndex((r) => r.dnf);
+  const firstNotCompletedIdx = visibleRows.findIndex((r) => !r.completed);
 
-  const hasWpkg = sorted.some((r) => r.wpkg != null);
+  const hasWpkg = visibleRows.some((r) => r.wpkg != null);
 
   return (
     <div className="bg-neutral-800/50 rounded-xl overflow-hidden">
@@ -943,6 +1078,33 @@ function SummaryTable({
           Enter / Edit Results
         </button>
       </div>
+      <div className="px-4 py-3 border-b border-neutral-800/60 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+        <div className="relative w-full sm:w-64">
+          <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500" />
+          <input
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search athlete"
+            className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md bg-neutral-900 border border-neutral-700 text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            title="Filter by completion status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            className="text-xs rounded-md bg-neutral-900 border border-neutral-700 text-neutral-300 px-2 py-1.5"
+          >
+            <option value="all">All statuses</option>
+            <option value="finishers">Finishers</option>
+            <option value="partial">Partial</option>
+            <option value="dnf">DNF</option>
+            <option value="no-data">Completed no data</option>
+            <option value="not-completed">Not completed</option>
+          </select>
+          <span className="text-[11px] text-neutral-500">{visibleRows.length} shown</span>
+        </div>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -957,7 +1119,7 @@ function SummaryTable({
               <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-center">Status</th>
               <SortTh label="Split /500m" field="split" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Watts" field="watts" sortField={sortField} onSort={toggleSort} />
-              {hasWpkg && <SortTh label="W/kg" field="wpkg" sortField={sortField} onSort={toggleSort} />}
+              {hasWpkg && <SortTh label="W/kg · W/lb" field="wpkg" sortField={sortField} onSort={toggleSort} />}
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
@@ -965,8 +1127,8 @@ function SummaryTable({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((row, rowIdx) => {
-              const rank = rankMap.get(row.athlete_id);
+            {visibleRows.map((row, rowIdx) => {
+              const displayIndex = rowIdx + 1;
               const showPartialDivider = rowIdx === firstPartialDnfIdx && firstPartialDnfIdx > 0;
               const showCompleteNoDataDivider = rowIdx === firstCompleteNoDataIdx && firstCompleteNoDataIdx > 0;
               const showDnfDivider = rowIdx === firstFullDnfIdx && firstFullDnfIdx > 0;
@@ -996,8 +1158,14 @@ function SummaryTable({
                   )}
                   {showNotCompletedDivider && (
                     <tr>
-                      <td colSpan={99} className="px-3 py-1 text-[10px] font-semibold text-neutral-500 uppercase tracking-widest bg-neutral-800/30 border-t border-neutral-700/30">
-                        Not completed
+                      <td colSpan={99} className="px-3 py-1 bg-neutral-800/30 border-t border-neutral-700/30">
+                        <button
+                          onClick={() => setShowNotCompleted((v) => !v)}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-widest hover:text-neutral-200"
+                        >
+                          {showNotCompleted ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                          Not completed ({notCompletedRows.length})
+                        </button>
                       </td>
                     </tr>
                   )}
@@ -1007,15 +1175,7 @@ function SummaryTable({
                     }`}
                   >
                   <td className="px-3 py-2 text-neutral-500 text-xs">
-                    {rank ? (
-                      <span
-                        className={`font-semibold ${
-                          rank === 1 ? 'text-amber-400' : rank === 2 ? 'text-neutral-300' : rank === 3 ? 'text-amber-700' : 'text-neutral-500'
-                        }`}
-                      >
-                        {rank}
-                      </span>
-                    ) : '—'}
+                    <span className="font-semibold text-neutral-500">{displayIndex}</span>
                   </td>
                   <td className="px-3 py-2 text-neutral-200 whitespace-nowrap">
                     <div>{row.athlete_name}</div>
@@ -1042,7 +1202,7 @@ function SummaryTable({
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtSplit(row.avg_split_seconds)}</td>
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtWatts(row.watts)}</td>
-                  {hasWpkg && <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtWpkg(row.wpkg)}</td>}
+                  {hasWpkg && <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtPowerToWeight(row.wpkg, row.wplb)}</td>}
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtDist(row.result_distance_meters)}</td>
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds)}</td>
                   <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
@@ -1055,6 +1215,26 @@ function SummaryTable({
                 </Fragment>
               );
             })}
+            {notCompletedRows.length > 0 && !showNotCompleted && !visibleRows.some((r) => !r.completed) && (
+              <tr>
+                <td colSpan={99} className="px-3 py-2 text-xs text-neutral-500 border-t border-neutral-800/40">
+                  <button
+                    onClick={() => setShowNotCompleted(true)}
+                    className="inline-flex items-center gap-1 hover:text-neutral-300"
+                  >
+                    <ChevronRight className="w-3 h-3" />
+                    Show not completed ({notCompletedRows.length})
+                  </button>
+                </td>
+              </tr>
+            )}
+            {visibleRows.length === 0 && (
+              <tr>
+                <td colSpan={99} className="px-3 py-6 text-center text-sm text-neutral-500">
+                  No athletes match current filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1073,8 +1253,31 @@ export function AssignmentResults() {
   const [rawRows, setRawRows] = useState<AssignmentResultRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showEntryModal, setShowEntryModal] = useState(false);
+  const [isCreatingShare, setIsCreatingShare] = useState(false);
   const [teamFilter, setTeamFilter] = useState<string>('all');
   const [squadFilter, setSquadFilter] = useState<string>('all');
+
+  const handleCreateShareLink = useCallback(async () => {
+    if (!assignmentId) return;
+    setIsCreatingShare(true);
+    try {
+      const { token, expiresAt } = await createAssignmentResultsShare(assignmentId, 168);
+      const url = buildAssignmentResultsShareUrl(token);
+      await navigator.clipboard.writeText(url);
+      const expiresLabel = (() => {
+        try {
+          return format(parseISO(expiresAt), 'PPP p');
+        } catch {
+          return expiresAt;
+        }
+      })();
+      toast.success(`Share link copied (expires ${expiresLabel})`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create share link');
+    } finally {
+      setIsCreatingShare(false);
+    }
+  }, [assignmentId]);
 
   const load = useCallback(async () => {
     if (!teamId || !assignmentId) return;
@@ -1245,6 +1448,14 @@ export function AssignmentResults() {
 
               {/* Completion badge */}
               <div className="flex items-center gap-3">
+                <button
+                  onClick={handleCreateShareLink}
+                  disabled={isCreatingShare}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 disabled:opacity-60 disabled:cursor-not-allowed text-xs font-medium"
+                >
+                  {isCreatingShare ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                  Copy Share Link
+                </button>
                 <div className="text-center">
                   <div className="text-3xl font-bold text-neutral-100">{finishedCount}</div>
                   <div className="text-xs text-neutral-500">of {squadFilter === 'all' ? totalCount : filteredTotal} finished</div>
@@ -1367,6 +1578,14 @@ export function AssignmentResults() {
                 Charts
               </h2>
 
+              {/* Interval-specific charts (prioritized) */}
+              {isInterval && repLabels.length > 0 && (
+                <div className="space-y-5">
+                  <RepProgressionChart rows={rows} repLabels={repLabels} />
+                  <RepHeatmap rows={rows} repLabels={repLabels} />
+                </div>
+              )}
+
               {/* Bar charts (1-2 per row on wider screens) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <SplitBarChart rows={rows} />
@@ -1374,14 +1593,6 @@ export function AssignmentResults() {
                 <WpkgBarChart rows={rows} />
                 <PercentileDotPlot rows={rows} />
               </div>
-
-              {/* Interval-specific charts (full-width) */}
-              {isInterval && repLabels.length > 0 && (
-                <div className="space-y-5">
-                  <RepProgressionChart rows={rows} repLabels={repLabels} />
-                  <RepHeatmap rows={rows} repLabels={repLabels} />
-                </div>
-              )}
             </div>
           )}
 

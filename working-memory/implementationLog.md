@@ -4,6 +4,110 @@
 
 ---
 
+## Phase 21: User-Level Measurement Units Preference (February 25, 2026)
+
+**Timeline**: February 25, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Make height/weight display and entry user-configurable (`imperial` vs `metric`) while keeping canonical storage metric (cm/kg), with no team-level defaults.
+
+### Changes Implemented
+
+#### 1. Units Model + Resolver
+- `src/utils/unitConversion.ts`
+   - Added `MeasurementUnits` type (`'imperial' | 'metric'`)
+   - Added `isMeasurementUnits()` validator
+   - Added `resolveMeasurementUnits()` preference resolver with fallback
+   - Updated `formatHeight()` / `formatWeight()` to support unit-aware output
+
+#### 2. Auth-Aware Units Hook
+- `src/hooks/useMeasurementUnits.ts`
+   - New hook reading `user_profiles.preferences.units`
+   - Defaults to `imperial` when unset/invalid
+
+#### 3. Preferences UI (User-Level Setting)
+- `src/pages/Preferences.tsx`
+   - Added **Units** section in General tab
+   - Added measurement units selector:
+      - `Imperial (lb, ft/in)`
+      - `Metric (kg, cm)`
+   - Added `updateMeasurementUnits()` with optimistic UI + DB persistence + rollback on failure
+
+#### 4. Coaching Entry + Display Wiring
+- `src/pages/coaching/CoachingAssignments.tsx`
+   - Results-entry bodyweight input now follows user units label/placeholder (`lbs` or `kg`)
+   - Input values convert back to kg before saving `result_weight_kg`
+   - Prefill values convert from stored/profile kg into selected display units
+- `src/components/coaching/AthleteEditorModal.tsx`
+   - Added `units` prop
+   - Height input now supports imperial (`ft/in`) or metric (`cm`)
+   - Weight input now supports imperial (`lbs`) or metric (`kg`)
+   - Persisted outputs remain `height_cm` and `weight_kg`
+- `src/pages/coaching/CoachingRoster.tsx`
+   - Inline height/weight display and editing now respect user units
+   - Conversion logic updated to parse/store metric regardless of display units
+   - Passes `units` prop to add-athlete modal
+- `src/pages/coaching/CoachingAthleteDetail.tsx`
+   - Height/weight display now unit-aware
+   - Passes `units` prop to edit-athlete modal
+
+### Verification
+
+- `npm run build` (LogbookCompanion) → ✅ success (`tsc -b` + `vite build`)
+
+### Outcome
+
+Users can now choose their own measurement system globally, with coaching/profile workflows honoring that preference while data storage remains consistently metric.
+
+---
+
+## Phase 20: Assignment-Level Weight Capture + Dual-Unit Power-to-Weight (February 25, 2026)
+
+**Timeline**: February 25, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Problem**: Assignment result analytics used only athlete profile `weight_kg`, which can be stale relative to race/test day. Coaches needed to capture weight per assignment result and view power-to-weight in both metric and imperial forms.
+
+### Changes Implemented
+
+#### 1. Service Layer (`src/services/coaching/coachingService.ts`)
+- Added `result_weight_kg?: number | null` to assignment/result row interfaces (`AthleteAssignmentRow`, `AssignmentResultRow`)
+- Included `result_weight_kg` in select projections for:
+   - `getAthleteAssignmentRows()`
+   - `getAssignmentResultsWithAthletes()`
+   - `addAthleteToAssignment()` return shape
+- Updated `saveAssignmentResults()` payload typing and persistence to write `result_weight_kg` when provided
+
+#### 2. Results Entry Modal (`src/pages/coaching/CoachingAssignments.tsx`)
+- Extended `AthleteResultEntry` with `weightKg: string`
+- Prefills weight from saved `result_weight_kg` or falls back to athlete profile `weight_kg`
+- Added per-athlete `Wt kg` input column/field in results table
+- Persisted parsed `result_weight_kg` in all save paths (completed, partial DNF, full DNF)
+
+#### 3. Assignment Results View (`src/pages/coaching/AssignmentResults.tsx`)
+- Effective weight logic now prefers `result_weight_kg`, fallback to profile `weight_kg`
+- Computes both `W/kg` and `W/lb` on enriched rows
+- Updated ratio rendering to display both values (`W/kg · W/lb`) in the table
+- Updated W/kg chart tooltip text to include both units
+
+#### 4. Database Migration
+- Added `db/migrations/migration_add_result_weight_kg.sql`:
+   - `ALTER TABLE public.daily_workout_assignments ADD COLUMN IF NOT EXISTS result_weight_kg NUMERIC;`
+
+### Verification
+
+- `npm run build` (LogbookCompanion) → ✅ success (`tsc -b` + `vite build`)
+
+### Outcome
+
+Power-to-weight analytics now reflect assignment/test-day athlete body weight when entered, with profile weight as safe fallback, and present both metric and imperial ratio units for coach usability.
+
+---
+
 ## Phase 19: Coaching Module Deep Audit — 27 Issues Fixed (February 24, 2026)
 
 **Timeline**: February 24, 2026  

@@ -21,6 +21,7 @@ import { downloadCsv } from '../../utils/csvExport';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 
 const experienceLevelOrder: Record<string, number> = { beginner: 0, intermediate: 1, experienced: 2, advanced: 3 };
 
@@ -36,6 +37,8 @@ function gradeRank(grade: string | undefined | null): number {
 
 export function CoachingRoster() {
   const { userId, teamId, orgId, teams, isLoadingTeam, teamError } = useCoachingContext();
+  const units = useMeasurementUnits();
+  const isImperial = units === 'imperial';
   const navigate = useNavigate();
 
   const [athletes, setAthletes] = useState<CoachingAthlete[]>([]);
@@ -134,11 +137,20 @@ export function CoachingRoster() {
     setEditingCell({ athleteId, field });
 
     if (field === 'height') {
-      const ftIn = a.height_cm ? cmToFtIn(a.height_cm) : null;
-      setEditValue(ftIn?.feet?.toString() ?? '');
-      setEditValue2(ftIn?.inches?.toString() ?? '');
+      if (isImperial) {
+        const ftIn = a.height_cm ? cmToFtIn(a.height_cm) : null;
+        setEditValue(ftIn?.feet?.toString() ?? '');
+        setEditValue2(ftIn?.inches?.toString() ?? '');
+      } else {
+        setEditValue(a.height_cm?.toString() ?? '');
+        setEditValue2('');
+      }
     } else if (field === 'weight') {
-      setEditValue(a.weight_kg ? kgToLbs(a.weight_kg).toString() : '');
+      setEditValue(
+        a.weight_kg
+          ? (isImperial ? kgToLbs(a.weight_kg).toString() : a.weight_kg.toString())
+          : ''
+      );
     } else if (field === 'first_name') {
       setEditValue(a.first_name);
     } else if (field === 'last_name') {
@@ -157,7 +169,7 @@ export function CoachingRoster() {
 
     // Focus after render
     setTimeout(() => editRef.current?.focus(), 0);
-  }, [athletes]);
+  }, [athletes, isImperial]);
 
   const commitEdit = useCallback(async () => {
     if (!editingCell) return;
@@ -175,15 +187,19 @@ export function CoachingRoster() {
           await updateAthleteSquad(teamId, athleteId, trimmed);
         }
       } else if (field === 'height') {
-        const cm = (editValue || editValue2)
-          ? ftInToCm(Number(editValue) || 0, Number(editValue2) || 0)
-          : null;
+        const cm = isImperial
+          ? ((editValue || editValue2)
+            ? ftInToCm(Number(editValue) || 0, Number(editValue2) || 0)
+            : null)
+          : (editValue ? Number(editValue) : null);
         if (cm !== a.height_cm) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, height_cm: cm } : x));
           await updateAthlete(athleteId, { height_cm: cm });
         }
       } else if (field === 'weight') {
-        const kg = editValue ? lbsToKg(Number(editValue)) : null;
+        const kg = editValue
+          ? (isImperial ? lbsToKg(Number(editValue)) : Number(editValue))
+          : null;
         if (kg !== a.weight_kg) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, weight_kg: kg } : x));
           await updateAthlete(athleteId, { weight_kg: kg });
@@ -217,7 +233,7 @@ export function CoachingRoster() {
       // Revert on failure
       await refreshAthletes();
     }
-  }, [editingCell, editValue, editValue2, athletes, teamId, refreshAthletes]);
+  }, [editingCell, editValue, editValue2, athletes, teamId, refreshAthletes, isImperial]);
 
   const handleCellKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
@@ -598,7 +614,7 @@ export function CoachingRoster() {
                 <div className="cursor-pointer" onClick={() => startEditing(athlete.id, 'height')}>
                   <span className="text-neutral-500 text-xs">Height</span>
                   <div>
-                    {isEditing(athlete.id, 'height') ? (
+                    {isEditing(athlete.id, 'height') ? isImperial ? (
                       <div className="flex items-center gap-1"
                         onClick={e => e.stopPropagation()}
                         onBlur={e => {
@@ -616,8 +632,15 @@ export function CoachingRoster() {
                           className={`${inputClass} w-10`} placeholder="in" title="Height inches" />
                         <span className="text-neutral-500">"</span>
                       </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
+                          onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                          className={`${inputClass} w-16`} placeholder="cm" title="Height in centimeters" />
+                        <span className="text-neutral-500 text-xs">cm</span>
+                      </div>
                     ) : athlete.height_cm ? (
-                      <span className="text-neutral-300">{cmToFtIn(athlete.height_cm).display}</span>
+                      <span className="text-neutral-300">{isImperial ? cmToFtIn(athlete.height_cm).display : `${athlete.height_cm} cm`}</span>
                     ) : (
                       <span className="text-neutral-600">—</span>
                     )}
@@ -632,11 +655,11 @@ export function CoachingRoster() {
                       <div className="flex items-center gap-1">
                         <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
                           onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
-                          className={`${inputClass} w-16`} title="Weight in lbs" />
-                        <span className="text-neutral-500 text-xs">lbs</span>
+                          className={`${inputClass} w-16`} title={isImperial ? 'Weight in lbs' : 'Weight in kg'} />
+                        <span className="text-neutral-500 text-xs">{isImperial ? 'lbs' : 'kg'}</span>
                       </div>
                     ) : athlete.weight_kg ? (
-                      <span className="text-neutral-300">{kgToLbs(athlete.weight_kg)} lbs</span>
+                      <span className="text-neutral-300">{isImperial ? `${kgToLbs(athlete.weight_kg)} lbs` : `${athlete.weight_kg} kg`}</span>
                     ) : (
                       <span className="text-neutral-600">—</span>
                     )}
@@ -755,7 +778,7 @@ export function CoachingRoster() {
 
                     {/* Height (ft/in) */}
                     <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'height')}>
-                      {isEditing(athlete.id, 'height') ? (
+                      {isEditing(athlete.id, 'height') ? isImperial ? (
                         <div className="flex items-center gap-1"
                           onClick={e => e.stopPropagation()}
                           onBlur={e => {
@@ -774,8 +797,15 @@ export function CoachingRoster() {
                             className={`${inputClass} w-10`} placeholder="in" title="Height inches" />
                           <span className="text-neutral-500">"</span>
                         </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
+                            onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                            className={`${inputClass} w-16`} placeholder="cm" title="Height in centimeters" />
+                          <span className="text-neutral-500 text-xs">cm</span>
+                        </div>
                       ) : athlete.height_cm ? (
-                        <span className="text-neutral-300">{cmToFtIn(athlete.height_cm).display}</span>
+                        <span className="text-neutral-300">{isImperial ? cmToFtIn(athlete.height_cm).display : `${athlete.height_cm} cm`}</span>
                       ) : (
                         <span className="text-neutral-600">—</span>
                       )}
@@ -787,11 +817,11 @@ export function CoachingRoster() {
                         <div className="flex items-center gap-1">
                           <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
                             onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
-                            className={`${inputClass} w-16`} title="Weight in lbs" />
-                          <span className="text-neutral-500 text-xs">lbs</span>
+                            className={`${inputClass} w-16`} title={isImperial ? 'Weight in lbs' : 'Weight in kg'} />
+                          <span className="text-neutral-500 text-xs">{isImperial ? 'lbs' : 'kg'}</span>
                         </div>
                       ) : athlete.weight_kg ? (
-                        <span className="text-neutral-300">{kgToLbs(athlete.weight_kg)} lbs</span>
+                        <span className="text-neutral-300">{isImperial ? `${kgToLbs(athlete.weight_kg)} lbs` : `${athlete.weight_kg} kg`}</span>
                       ) : (
                         <span className="text-neutral-600">—</span>
                       )}
@@ -874,6 +904,7 @@ export function CoachingRoster() {
         <AthleteEditorModal
           athlete={null}
           squads={squads}
+          units={units}
           onSave={handleSave}
           onCancel={() => setIsAdding(false)}
         />

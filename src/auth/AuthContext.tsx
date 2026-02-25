@@ -156,9 +156,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('concept2_expires_at', dbExpiresAt);
       }
 
-      // Self-heal path: if DB has null token fields but local storage has valid values,
+      // Self-heal path: if DB has missing Concept2 fields but local storage has values,
       // persist local values so future sessions restore correctly.
-      if (!dbToken && localToken) {
+      const shouldBackfillToken = !dbToken && !!localToken;
+      const shouldBackfillRefresh = !dbRefreshToken && !!localRefreshToken;
+      const shouldBackfillExpiry = !dbExpiresAt && !!localExpiresAt;
+
+      if (shouldBackfillToken || shouldBackfillRefresh || shouldBackfillExpiry) {
         const { error: upsertErr } = await supabase
           .from('user_integrations')
           .upsert({

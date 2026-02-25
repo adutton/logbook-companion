@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
+import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import {
   getGroupAssignments,
   createGroupAssignment,
@@ -12,6 +13,7 @@ import {
   saveAssignmentResults,
   markAssignmentAsTest,
   addAthleteToAssignment,
+  getResultWeightColumnAvailability,
   getComplianceData,
   getAthletes,
   getOrgAthletes,
@@ -41,6 +43,7 @@ import {
   parseTimeInput,
   type EntryShape,
 } from '../../utils/workoutEntryClassifier';
+import { kgToLbs, lbsToKg } from '../../utils/unitConversion';
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
@@ -902,6 +905,8 @@ interface AthleteResultEntry {
   athlete_id: string;
   completed: boolean;
   wasCompleted: boolean;
+  /** Bodyweight input in selected display units; persisted as kg */
+  weightInput: string;
   /** The measured value — time for fixed_distance, distance for fixed_time */
   primary: string;
   /** True when the whole single-piece workout was DNF */
@@ -937,6 +942,20 @@ export function ResultsEntryModal({
   onClose: () => void;
   onComplete: () => void;
 }): React.JSX.Element {
+  const units = useMeasurementUnits();
+  const isImperial = units === 'imperial';
+
+  const formatWeightInputFromKg = useCallback((value: number | null | undefined): string => {
+    if (value == null || !Number.isFinite(value) || value <= 0) return '';
+    return isImperial ? kgToLbs(value).toString() : value.toString();
+  }, [isImperial]);
+
+  const parseWeightInputToKg = useCallback((value: string): number | null => {
+    const parsed = parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return isImperial ? lbsToKg(parsed) : parsed;
+  }, [isImperial]);
+
   // Classify the workout once (memoized to avoid unstable refs triggering reloads)
   const shape: EntryShape = useMemo(() => {
     const shapeSource = assignment.canonical_name;
@@ -952,6 +971,7 @@ export function ResultsEntryModal({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingAthlete, setIsAddingAthlete] = useState(false);
+  const resultWeightColumnAvailability = getResultWeightColumnAvailability();
   const [showAddAthlete, setShowAddAthlete] = useState(false);
 
   useEffect(() => {
@@ -963,6 +983,7 @@ export function ResultsEntryModal({
         const rows = await getAthleteAssignmentRows(groupAssignmentId);
         if (cancelled) return;
         const mapped: AthleteResultEntry[] = rows.map((r) => {
+          const athleteDefaultWeight = athletes.find((a) => a.id === r.athlete_id)?.weight_kg;
           const existingIntervals = (r.result_intervals ?? []) as IntervalResult[];
 
           // Determine primary value from existing data
@@ -1013,6 +1034,11 @@ export function ResultsEntryModal({
             athlete_id: r.athlete_id,
             completed: r.completed,
             wasCompleted: r.completed,
+            weightInput: r.result_weight_kg != null
+              ? formatWeightInputFromKg(r.result_weight_kg)
+              : athleteDefaultWeight != null
+              ? formatWeightInputFromKg(athleteDefaultWeight)
+              : '',
             primary,
             primaryDnf,
             spm: r.result_stroke_rate ? String(r.result_stroke_rate) : '',
@@ -1037,7 +1063,7 @@ export function ResultsEntryModal({
     return () => {
       cancelled = true;
     };
-  }, [assignment.is_test_template, groupAssignmentId, shape]);
+  }, [assignment.is_test_template, groupAssignmentId, shape, athletes, formatWeightInputFromKg]);
 
   // For org-wide assignments, load all org athletes so names resolve correctly
   const [orgAthletesList, setOrgAthletesList] = useState<CoachingAthlete[]>([]);
@@ -1082,6 +1108,7 @@ export function ResultsEntryModal({
         athlete_id: athleteId,
         completed: false,
         wasCompleted: false,
+        weightInput: formatWeightInputFromKg(athleteMap.get(athleteId)?.weight_kg ?? null),
         primary: '',
         primaryDnf: false,
         spm: '',
@@ -1266,6 +1293,7 @@ export function ResultsEntryModal({
         let resultTime: number | null = null;
         let resultDist: number | null = null;
         let resultSplit: number | null = null;
+        const resultWeightKg = parseWeightInputToKg(e.weightInput);
         const resultSpm = e.spm ? parseInt(e.spm, 10) || null : null;
 
         // Whole-piece DNF: save completed=true but all stats null
@@ -1273,6 +1301,7 @@ export function ResultsEntryModal({
           return {
             athlete_id: e.athlete_id,
             completed: true,
+            result_weight_kg: resultWeightKg,
             result_time_seconds: null,
             result_distance_meters: null,
             result_split_seconds: null,
@@ -1350,6 +1379,7 @@ export function ResultsEntryModal({
         return {
           athlete_id: e.athlete_id,
           completed: e.completed || e.wasCompleted,
+          result_weight_kg: resultWeightKg,
           result_time_seconds: resultTime,
           result_distance_meters: resultDist,
           result_split_seconds: resultSplit,
@@ -1467,6 +1497,13 @@ export function ResultsEntryModal({
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-5">
+          {resultWeightColumnAvailability === false && (
+            <div className="mb-3 rounded-lg border border-amber-700/40 bg-amber-900/20 px-3 py-2 text-xs text-amber-300">
+              Assignment result weight column is not present in this database yet. Weight inputs are visible but will not persist until the migration adding
+              <span className="font-mono"> result_weight_kg</span>
+              {' '}is applied.
+            </div>
+          )}
           {isLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
@@ -1479,6 +1516,7 @@ export function ResultsEntryModal({
               <div className="hidden md:flex items-end gap-2 pb-2 border-b border-neutral-800 text-xs font-medium text-neutral-500 uppercase">
                 <div className="w-6" />
                 <div className="w-36">Athlete</div>
+                <div className="w-16">Wt {isImperial ? 'lbs' : 'kg'}</div>
                 {!isInterval && (
                   <>
                     <div className="w-24">{primaryLabel}</div>
@@ -1568,6 +1606,20 @@ export function ResultsEntryModal({
                         {athlete?.squad && (
                           <span className="ml-2 md:ml-0 md:block text-[10px] text-neutral-500">{athlete.squad}</span>
                         )}
+                      </div>
+
+                      {/* Weight */}
+                      <div className="flex items-center gap-2 w-full md:w-auto mt-1 md:mt-0 pl-6 md:pl-0">
+                        <div className="md:hidden text-[10px] text-neutral-500 uppercase w-10 shrink-0">Wt {isImperial ? 'lbs' : 'kg'}</div>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={entry.weightInput}
+                          onChange={(e) => updateEntry(idx, 'weightInput', e.target.value)}
+                          placeholder={isImperial ? 'lb' : 'kg'}
+                          className="w-16 px-2 py-1.5 text-sm rounded bg-neutral-800 border border-neutral-700 text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-indigo-500"
+                        />
                       </div>
 
                       {/* Single-piece entry */}

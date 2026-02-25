@@ -24,6 +24,34 @@ const withRefreshLock = async <T>(fn: () => Promise<T>): Promise<T> => {
     return fn();
 };
 
+async function persistConcept2Tokens(userId: string, token: string, refreshToken: string | null | undefined, expiresAt: string | undefined) {
+    const payload: {
+        user_id: string;
+        concept2_token: string;
+        concept2_refresh_token?: string | null;
+        concept2_expires_at?: string;
+    } = {
+        user_id: userId,
+        concept2_token: token,
+    };
+
+    if (refreshToken !== undefined) {
+        payload.concept2_refresh_token = refreshToken;
+    }
+
+    if (expiresAt) {
+        payload.concept2_expires_at = expiresAt;
+    }
+
+    const { error } = await supabase
+        .from('user_integrations')
+        .upsert(payload, { onConflict: 'user_id' });
+
+    if (error) {
+        console.error('Failed to persist refreshed Concept2 tokens to user_integrations:', error);
+    }
+}
+
 // Helper: Clear local tokens AND database tokens
 async function clearAllTokens() {
     // Clear localStorage
@@ -114,19 +142,20 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
                 }
                 window.dispatchEvent(new CustomEvent('concept2-token-updated'));
 
-                // Persist to DB async (don't block)
-                supabase.auth.getUser().then(({ data: { user } }) => {
-                    if (user) {
-                        supabase.from('user_integrations').upsert({
-                            user_id: user.id,
-                            concept2_token: newToken,
-                            concept2_refresh_token: newRefreshToken,
-                            concept2_expires_at: response.data.expires_in
-                                ? new Date(Date.now() + (response.data.expires_in * 1000)).toISOString()
-                                : undefined
-                        }, { onConflict: 'user_id' });
-                    }
-                });
+                // Persist to DB with explicit error reporting (prevents silent token drift)
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    await persistConcept2Tokens(
+                        user.id,
+                        newToken,
+                        newRefreshToken,
+                        response.data.expires_in
+                            ? new Date(Date.now() + (response.data.expires_in * 1000)).toISOString()
+                            : undefined
+                    );
+                } else {
+                    console.warn('Concept2 refresh succeeded but no authenticated Supabase user was available to persist tokens.');
+                }
 
                 return newToken;
             } catch (error: unknown) {

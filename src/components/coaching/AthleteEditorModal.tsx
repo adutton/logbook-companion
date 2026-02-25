@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import type { CoachingAthlete } from '../../services/coaching/coachingService';
-import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
+import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg, type MeasurementUnits } from '../../utils/unitConversion';
 
 interface AthleteEditorModalProps {
   athlete: CoachingAthlete | null; // null = adding new
   squads: string[];
+  units: MeasurementUnits;
   onSave: (data: Partial<CoachingAthlete> & { squad?: string }) => void;
   onCancel: () => void;
 }
 
-export function AthleteEditorModal({ athlete, squads, onSave, onCancel }: AthleteEditorModalProps) {
+export function AthleteEditorModal({ athlete, squads, units, onSave, onCancel }: AthleteEditorModalProps) {
   const isEditing = !!athlete;
+  const isImperial = units === 'imperial';
 
   const [firstName, setFirstName] = useState(athlete?.first_name ?? '');
   const [lastName, setLastName] = useState(athlete?.last_name ?? '');
@@ -26,18 +28,36 @@ export function AthleteEditorModal({ athlete, squads, onSave, onCancel }: Athlet
   // Height: store internal as cm, allow ft/in input
   const initialCm = athlete?.height_cm ?? null;
   const initialFtIn = initialCm ? cmToFtIn(initialCm) : null;
-  const [heightFeet, setHeightFeet] = useState(initialFtIn?.feet?.toString() ?? '');
-  const [heightInches, setHeightInches] = useState(initialFtIn?.inches?.toString() ?? '');
+  const [heightPrimary, setHeightPrimary] = useState(
+    isImperial
+      ? (initialFtIn?.feet?.toString() ?? '')
+      : (initialCm?.toString() ?? '')
+  );
+  const [heightSecondary, setHeightSecondary] = useState(
+    isImperial ? (initialFtIn?.inches?.toString() ?? '') : ''
+  );
 
-  // Weight: store internal as kg, allow lbs input
-  const initialLbs = athlete?.weight_kg ? kgToLbs(athlete.weight_kg) : null;
-  const [weightLbs, setWeightLbs] = useState(initialLbs?.toString() ?? '');
+  // Weight: store internal as kg, allow preferred-unit input
+  const [weightInput, setWeightInput] = useState(
+    athlete?.weight_kg != null
+      ? (isImperial ? kgToLbs(athlete.weight_kg).toString() : athlete.weight_kg.toString())
+      : ''
+  );
 
   // Computed previews
-  const heightCmComputed = heightFeet || heightInches
-    ? ftInToCm(Number(heightFeet) || 0, Number(heightInches) || 0)
+  const parsedHeightCm = isImperial
+    ? (heightPrimary || heightSecondary
+      ? ftInToCm(Number(heightPrimary) || 0, Number(heightSecondary) || 0)
+      : null)
+    : (heightPrimary ? Number(heightPrimary) : null);
+  const heightCmComputed = parsedHeightCm != null && Number.isFinite(parsedHeightCm) && parsedHeightCm > 0
+    ? parsedHeightCm
     : null;
-  const weightKgComputed = weightLbs ? lbsToKg(Number(weightLbs)) : null;
+
+  const parsedWeight = weightInput ? Number(weightInput) : null;
+  const weightKgComputed = parsedWeight != null && Number.isFinite(parsedWeight) && parsedWeight > 0
+    ? (isImperial ? lbsToKg(parsedWeight) : parsedWeight)
+    : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,40 +130,50 @@ export function AthleteEditorModal({ athlete, squads, onSave, onCancel }: Athlet
             </select>
           </div>
 
-          {/* Height (ft/in) */}
+          {/* Height */}
           <div>
             <label className="block text-sm font-medium text-neutral-300 mb-1">Height</label>
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <div className="relative">
-                  <input id="ae-height-ft" type="number" min="0" max="8" value={heightFeet} onChange={(e) => setHeightFeet(e.target.value)} placeholder="5"
-                    className="w-full px-4 py-2 pr-8 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">ft</span>
+            {isImperial ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <div className="relative">
+                    <input id="ae-height-ft" type="number" min="0" max="8" value={heightPrimary} onChange={(e) => setHeightPrimary(e.target.value)} placeholder="5"
+                      className="w-full px-4 py-2 pr-8 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">ft</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="relative">
+                    <input id="ae-height-in" type="number" min="0" max="11" value={heightSecondary} onChange={(e) => setHeightSecondary(e.target.value)} placeholder="11"
+                      className="w-full px-4 py-2 pr-8 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">in</span>
+                  </div>
                 </div>
               </div>
-              <div className="flex-1">
-                <div className="relative">
-                  <input id="ae-height-in" type="number" min="0" max="11" value={heightInches} onChange={(e) => setHeightInches(e.target.value)} placeholder="11"
-                    className="w-full px-4 py-2 pr-8 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">in</span>
-                </div>
+            ) : (
+              <div className="relative">
+                <input id="ae-height-cm" type="number" min="0" step="0.1" value={heightPrimary} onChange={(e) => setHeightPrimary(e.target.value)} placeholder="180"
+                  className="w-full px-4 py-2 pr-10 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">cm</span>
               </div>
-            </div>
+            )}
             {heightCmComputed != null && heightCmComputed > 0 && (
-              <p className="text-xs text-neutral-500 mt-1">{heightCmComputed} cm</p>
+              <p className="text-xs text-neutral-500 mt-1">
+                {isImperial ? `${heightCmComputed} cm` : cmToFtIn(heightCmComputed).display}
+              </p>
             )}
           </div>
 
-          {/* Weight (lbs) */}
+          {/* Weight */}
           <div>
             <label htmlFor="ae-weight" className="block text-sm font-medium text-neutral-300 mb-1">Weight</label>
             <div className="relative">
-              <input id="ae-weight" type="number" min="0" step="0.1" value={weightLbs} onChange={(e) => setWeightLbs(e.target.value)} placeholder="165"
+              <input id="ae-weight" type="number" min="0" step="0.1" value={weightInput} onChange={(e) => setWeightInput(e.target.value)} placeholder={isImperial ? '165' : '75'}
                 className="w-full px-4 py-2 pr-10 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">lbs</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">{isImperial ? 'lbs' : 'kg'}</span>
             </div>
             {weightKgComputed != null && weightKgComputed > 0 && (
-              <p className="text-xs text-neutral-500 mt-1">{weightKgComputed} kg</p>
+              <p className="text-xs text-neutral-500 mt-1">{isImperial ? `${weightKgComputed} kg` : `${kgToLbs(weightKgComputed)} lbs`}</p>
             )}
           </div>
 

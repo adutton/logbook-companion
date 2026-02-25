@@ -3,6 +3,20 @@
  * DB stores metric (cm, kg). Display can show imperial (ft/in, lbs).
  */
 
+export type MeasurementUnits = 'imperial' | 'metric';
+
+export function isMeasurementUnits(value: unknown): value is MeasurementUnits {
+  return value === 'imperial' || value === 'metric';
+}
+
+export function resolveMeasurementUnits(
+  preferences: Record<string, unknown> | null | undefined,
+  fallback: MeasurementUnits = 'imperial'
+): MeasurementUnits {
+  const maybeUnits = preferences?.units;
+  return isMeasurementUnits(maybeUnits) ? maybeUnits : fallback;
+}
+
 /** Convert cm to feet and inches */
 export function cmToFtIn(cm: number): { feet: number; inches: number; display: string } {
   const totalInches = cm / 2.54;
@@ -31,16 +45,18 @@ export function lbsToKg(lbs: number): number {
   return Math.round(lbs / 2.20462 * 100) / 100; // 2 decimals for clean round-trip
 }
 
-/** Format height for display: "180 cm (5'11")" */
-export function formatHeight(cm: number | null | undefined): string | null {
+/** Format height for display using preferred units */
+export function formatHeight(cm: number | null | undefined, units: MeasurementUnits = 'imperial'): string | null {
   if (cm == null) return null;
+  if (units === 'metric') return `${cm} cm`;
   const { display } = cmToFtIn(cm);
   return `${display} (${cm} cm)`;
 }
 
-/** Format weight for display: "180 lbs (82 kg)" */
-export function formatWeight(kg: number | null | undefined): string | null {
+/** Format weight for display using preferred units */
+export function formatWeight(kg: number | null | undefined, units: MeasurementUnits = 'imperial'): string | null {
   if (kg == null) return null;
+  if (units === 'metric') return `${kg} kg`;
   const lbs = kgToLbs(kg);
   return `${lbs} lbs (${kg} kg)`;
 }

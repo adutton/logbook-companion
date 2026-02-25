@@ -8,6 +8,7 @@ import { Loader2, Database } from 'lucide-react';
 import { GoalsManager } from '../components/GoalsManager';
 import { PowerBackfill } from '../components/debug/PowerBackfill';
 import { useTheme, type ThemePreference } from '../hooks/useTheme';
+import { isMeasurementUnits, type MeasurementUnits } from '../utils/unitConversion';
 
 export const Preferences: React.FC = () => {
     const { profile, loading: authLoading, refreshProfile } = useAuth();
@@ -26,6 +27,10 @@ export const Preferences: React.FC = () => {
     const isThemePreference = (value: unknown): value is ThemePreference => (
         value === 'dark' || value === 'light' || value === 'system'
     );
+
+    const currentUnits: MeasurementUnits = isMeasurementUnits(formData.preferences?.units)
+        ? formData.preferences.units
+        : 'imperial';
 
     useEffect(() => {
         if (profile) {
@@ -222,6 +227,42 @@ export const Preferences: React.FC = () => {
         }
     };
 
+    const updateMeasurementUnits = async (nextUnits: MeasurementUnits) => {
+        if (!profile?.user_id) return;
+        const currentPrefs = formData.preferences || {};
+        const previousUnits = isMeasurementUnits(currentPrefs.units) ? currentPrefs.units : 'imperial';
+        const updatedPrefs = {
+            ...currentPrefs,
+            units: nextUnits
+        };
+
+        setFormData(prev => ({
+            ...prev,
+            preferences: updatedPrefs
+        }));
+
+        try {
+            const { error } = await supabase
+                .from('user_profiles')
+                .update({ preferences: updatedPrefs })
+                .eq('user_id', profile.user_id);
+
+            if (error) throw error;
+
+            await refreshProfile();
+        } catch (err) {
+            console.error('[Preferences] Units update failed:', err);
+            setMessage({ type: 'error', text: 'Failed to save measurement units.' });
+            setFormData(prev => ({
+                ...prev,
+                preferences: {
+                    ...prev.preferences,
+                    units: previousUnits
+                }
+            }));
+        }
+    };
+
     if (authLoading) return <div className="p-8 text-neutral-400">Loading profile...</div>;
 
     const allBenchmarks = [
@@ -316,6 +357,33 @@ export const Preferences: React.FC = () => {
                                         <option value="dark">Dark</option>
                                         <option value="light">Light</option>
                                         <option value="system">System</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-medium text-neutral-200 mb-4">Units</h3>
+                            <div className="flex items-center justify-between p-4 bg-neutral-950 border border-neutral-800 rounded-lg">
+                                <div>
+                                    <h4 className="font-medium text-neutral-200">Measurement Units</h4>
+                                    <p className="text-sm text-neutral-500 mt-1">
+                                        Choose how height and weight are displayed across the app.
+                                    </p>
+                                </div>
+                                <label className="text-sm text-neutral-400">
+                                    <span className="sr-only">Measurement units</span>
+                                    <select
+                                        className="bg-neutral-900 border border-neutral-700 text-neutral-100 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500"
+                                        value={currentUnits}
+                                        onChange={(event) => {
+                                            const value = event.target.value;
+                                            if (isMeasurementUnits(value)) {
+                                                updateMeasurementUnits(value);
+                                            }
+                                        }}
+                                    >
+                                        <option value="imperial">Imperial (lb, ft/in)</option>
+                                        <option value="metric">Metric (kg, cm)</option>
                                     </select>
                                 </label>
                             </div>

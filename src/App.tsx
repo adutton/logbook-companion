@@ -36,6 +36,7 @@ import { MyTeamDashboard } from './pages/team/MyTeamDashboard';
 import { MyScores } from './pages/team/MyScores';
 import { CoachingProvider } from './contexts/CoachingContext';
 import { NotFound } from './pages/NotFound';
+import { PublicAssignmentResultsShare } from './pages/PublicAssignmentResultsShare';
 
 import { Layout } from './components/Layout';
 import { AutoSync } from './components/AutoSync';
@@ -128,6 +129,7 @@ const AppContent: React.FC = () => {
           <Route path="/login" element={<Login />} />
                   <Route path="/auth/bootstrap" element={<AuthBootstrap />} />
           <Route path="/callback" element={<Callback />} />
+          <Route path="/share/assignment-results/:shareToken" element={<PublicAssignmentResultsShare />} />
           <Route path="/about" element={<About />} />
           <Route
             path="/"

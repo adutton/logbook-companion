@@ -21,6 +21,15 @@ export const Callback: React.FC = () => {
         }
     }, [searchParams]);
 
+    const waitForAuthenticatedUser = async (maxAttempts = 10, delayMs = 300) => {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) return user;
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        return null;
+    };
+
     const exchangeToken = async (code: string) => {
         try {
             const params = new URLSearchParams();
@@ -46,8 +55,8 @@ export const Callback: React.FC = () => {
             localStorage.setItem('concept2_expires_at', expiresAt);
             window.dispatchEvent(new CustomEvent('concept2-token-updated'));
 
-            // Store in Supabase if logged in
-            const { data: { user } } = await supabase.auth.getUser();
+            // Store in Supabase once auth state is available (OAuth redirect can race auth hydration)
+            const user = await waitForAuthenticatedUser();
             if (user) {
                 const { error: upsertError } = await supabase.from('user_integrations').upsert({
                     user_id: user.id,
@@ -59,6 +68,8 @@ export const Callback: React.FC = () => {
                 if (upsertError) {
                     console.error('Failed to persist Concept2 tokens to user_integrations:', upsertError);
                 }
+            } else {
+                console.warn('Concept2 callback received tokens, but no authenticated Supabase user was available after retries; DB persistence skipped for this callback.');
             }
 
             // Redirect to Sync page

@@ -23,6 +23,7 @@ import { ChevronLeft, Edit2, Trash2, Loader2, AlertTriangle, MessageSquare, Clip
 import { toast } from 'sonner';
 import { formatSplit, calculateWattsFromSplit } from '../../utils/paceCalculator';
 import { formatHeight, formatWeight } from '../../utils/unitConversion';
+import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import { ErgScoreProgressionChart } from '../../components/coaching/ErgScoreProgressionChart';
 import { TrainingZoneDonut } from '../../components/coaching/TrainingZoneDonut';
 import { AthleteTrainingZones } from '../../components/coaching/AthleteTrainingZones';
@@ -42,6 +43,7 @@ export function CoachingAthleteDetail() {
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const units = useMeasurementUnits();
 
   useEffect(() => {
     if (!teamId || !athleteId || isLoadingTeam) return;
@@ -188,10 +190,10 @@ export function CoachingAthleteDetail() {
                 {(athlete.height_cm || athlete.weight_kg) && (
                   <div className="flex gap-3 mt-2 text-sm text-neutral-400">
                     {athlete.height_cm != null && (
-                      <span>{formatHeight(athlete.height_cm)}</span>
+                      <span>{formatHeight(athlete.height_cm, units)}</span>
                     )}
                     {athlete.weight_kg != null && (
-                      <span>{formatWeight(athlete.weight_kg)}</span>
+                      <span>{formatWeight(athlete.weight_kg, units)}</span>
                     )}
                   </div>
                 )}
@@ -446,6 +448,7 @@ export function CoachingAthleteDetail() {
         <AthleteEditorModal
           athlete={athlete}
           squads={[...new Set(allAthletes.map((a) => a.squad).filter((s): s is string => !!s))].sort()}
+          units={units}
           onSave={handleSave}
           onCancel={() => setIsEditing(false)}
         />

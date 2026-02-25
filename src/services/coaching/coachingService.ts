@@ -57,6 +57,36 @@ function throwOnError<T>(result: { data: T | null; error: PostgrestError | null 
   return result.data as T;
 }
 
+let resultWeightColumnAvailable: boolean | null = null;
+
+function markResultWeightColumnAvailable(value: boolean): void {
+  if (value) {
+    if (resultWeightColumnAvailable !== false) {
+      resultWeightColumnAvailable = true;
+    }
+    return;
+  }
+  resultWeightColumnAvailable = false;
+}
+
+export function getResultWeightColumnAvailability(): boolean | null {
+  return resultWeightColumnAvailable;
+}
+
+function isMissingResultWeightColumn(error: PostgrestError | null): boolean {
+  if (!error) return false;
+  const code = (error.code ?? '').toLowerCase();
+  const message = `${error.message ?? ''} ${error.details ?? ''} ${error.hint ?? ''}`.toLowerCase();
+  if (code === 'pgrst204' || code === '42703') {
+    return true;
+  }
+  return message.includes('result_weight_kg') && (
+    message.includes('column') ||
+    message.includes('schema cache') ||
+    message.includes('could not find')
+  );
+}
+
 /** Compute display name from first/last */
 function toCoachingAthlete(athlete: Athlete): CoachingAthlete {
   return {
@@ -1413,6 +1443,42 @@ export async function completeAthleteAssignment(
   if (error) throw error;
 }
 
+/**
+ * Guarded auto-link for ErgLink uploads:
+ * - Resolves athlete by user_id
+ * - Marks assignment complete only if completed_log_id is still null
+ * - No-op when metadata is missing or athlete is not linked
+ */
+export async function autoCompleteAssignmentFromErgLinkLog(params: {
+  workoutLogId: string;
+  userId: string;
+  completedAt: string;
+  groupAssignmentId: string;
+}): Promise<void> {
+  const { workoutLogId, userId, completedAt, groupAssignmentId } = params;
+
+  const { data: athleteLink } = await supabase
+    .from('athletes')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (!athleteLink?.id) return;
+
+  const { error } = await supabase
+    .from('daily_workout_assignments')
+    .update({
+      completed: true,
+      completed_at: completedAt,
+      completed_log_id: workoutLogId,
+    })
+    .eq('group_assignment_id', groupAssignmentId)
+    .eq('athlete_id', athleteLink.id)
+    .is('completed_log_id', null);
+
+  if (error) throw error;
+}
+
 /** Interval result shape stored in result_intervals JSONB */
 export interface IntervalResult {
   rep: number;
@@ -1430,6 +1496,7 @@ export interface AthleteAssignmentRow {
   athlete_id: string;
   completed: boolean;
   completed_at?: string | null;
+  result_weight_kg?: number | null;
   result_time_seconds?: number | null;
   result_distance_meters?: number | null;
   result_split_seconds?: number | null;
@@ -1479,7 +1546,10 @@ export async function addAthleteToAssignment(
     .select('id, athlete_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
     .single();
   if (error) throw error;
-  return data as AthleteAssignmentRow;
+  return {
+    ...(data as AthleteAssignmentRow),
+    result_weight_kg: null,
+  };
 }
 
 /** Enriched result row joining assignment data with athlete profile (name, squad, weight_kg) */
@@ -1491,6 +1561,7 @@ export interface AssignmentResultRow {
   team_id?: string | null;
   team_name?: string | null;
   weight_kg?: number | null;
+  result_weight_kg?: number | null;
   side?: string | null;
   is_coxswain: boolean; // true if side='coxswain' OR team_members role='coxswain'
   completed: boolean;
@@ -1500,6 +1571,64 @@ export interface AssignmentResultRow {
   result_split_seconds?: number | null;
   result_stroke_rate?: number | null;
   result_intervals?: IntervalResult[] | null;
+}
+
+export interface AssignmentResultsShareData {
+  shareId: string;
+  expiresAt: string;
+  assignment: GroupAssignment;
+  rows: AssignmentResultRow[];
+}
+
+export function buildAssignmentResultsShareUrl(token: string): string {
+  return `${window.location.origin}/share/assignment-results/${encodeURIComponent(token)}`;
+}
+
+export async function createAssignmentResultsShare(
+  groupAssignmentId: string,
+  expiresInHours = 168,
+): Promise<{ token: string; expiresAt: string }> {
+  const { data, error } = await supabase.rpc('create_assignment_results_share', {
+    p_group_assignment_id: groupAssignmentId,
+    p_expires_in_hours: expiresInHours,
+  });
+  if (error) throw error;
+
+  const payload = data as { token?: string; expires_at?: string } | null;
+  const token = payload?.token?.trim();
+  const expiresAt = payload?.expires_at?.trim();
+  if (!token || !expiresAt) {
+    throw new Error('Failed to create share link');
+  }
+  return { token, expiresAt };
+}
+
+export async function resolveAssignmentResultsShare(
+  shareToken: string,
+): Promise<AssignmentResultsShareData | null> {
+  const { data, error } = await supabase.rpc('resolve_assignment_results_share', {
+    p_token: shareToken,
+  });
+  if (error) throw error;
+  if (!data) return null;
+
+  const payload = data as {
+    share_id?: string;
+    expires_at?: string;
+    assignment?: GroupAssignment;
+    rows?: AssignmentResultRow[];
+  };
+
+  if (!payload.share_id || !payload.expires_at || !payload.assignment || !Array.isArray(payload.rows)) {
+    return null;
+  }
+
+  return {
+    shareId: payload.share_id,
+    expiresAt: payload.expires_at,
+    assignment: payload.assignment,
+    rows: payload.rows,
+  };
 }
 
 /**
@@ -1512,10 +1641,38 @@ export async function getAssignmentResultsWithAthletes(
   orgId?: string | null
 ): Promise<AssignmentResultRow[]> {
   // 1. Fetch all assignment rows for this group (include team_id for team mapping)
-  const { data: rows, error: rowErr } = await supabase
-    .from('daily_workout_assignments')
-    .select('id, athlete_id, team_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
-    .eq('group_assignment_id', groupAssignmentId);
+  let rows: Array<Record<string, unknown>> | null = null;
+  let rowErr: PostgrestError | null = null;
+
+  if (resultWeightColumnAvailable !== false) {
+    const primaryRowsResult = await supabase
+      .from('daily_workout_assignments')
+      .select('id, athlete_id, team_id, completed, completed_at, result_weight_kg, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
+      .eq('group_assignment_id', groupAssignmentId);
+    rows = primaryRowsResult.data as Array<Record<string, unknown>> | null;
+    rowErr = primaryRowsResult.error;
+    if (!rowErr) {
+      markResultWeightColumnAvailable(true);
+    }
+    if (isMissingResultWeightColumn(rowErr)) {
+      markResultWeightColumnAvailable(false);
+    }
+  }
+
+  if (resultWeightColumnAvailable === false || rowErr) {
+    const fallback = await supabase
+      .from('daily_workout_assignments')
+      .select('id, athlete_id, team_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
+      .eq('group_assignment_id', groupAssignmentId);
+    if (!fallback.error) {
+      rows = (fallback.data as Array<Record<string, unknown>> | null)?.map((r) => ({ ...r, result_weight_kg: null })) ?? null;
+      if (resultWeightColumnAvailable === false) {
+        rowErr = null;
+      }
+      rowErr = null;
+    }
+  }
+
   if (rowErr) throw rowErr;
 
   // 2. Fetch athletes — org-wide if orgId provided, otherwise team-scoped
@@ -1590,6 +1747,7 @@ export async function getAssignmentResultsWithAthletes(
       is_coxswain: info?.is_coxswain ?? false,
       completed: row.completed as boolean,
       completed_at: row.completed_at as string | null,
+      result_weight_kg: row.result_weight_kg as number | null,
       result_time_seconds: row.result_time_seconds as number | null,
       result_distance_meters: row.result_distance_meters as number | null,
       result_split_seconds: row.result_split_seconds as number | null,
@@ -1603,13 +1761,37 @@ export async function getAssignmentResultsWithAthletes(
 export async function getAthleteAssignmentRows(
   groupAssignmentId: string
 ): Promise<AthleteAssignmentRow[]> {
-  const { data, error } = await supabase
-    .from('daily_workout_assignments')
-    .select('id, athlete_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
-    .eq('group_assignment_id', groupAssignmentId);
+  let data: Array<Record<string, unknown>> | null = null;
+  let error: PostgrestError | null = null;
+
+  if (resultWeightColumnAvailable !== false) {
+    const primaryRowsResult = await supabase
+      .from('daily_workout_assignments')
+      .select('id, athlete_id, completed, completed_at, result_weight_kg, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
+      .eq('group_assignment_id', groupAssignmentId);
+    data = primaryRowsResult.data as Array<Record<string, unknown>> | null;
+    error = primaryRowsResult.error;
+    if (!error) {
+      markResultWeightColumnAvailable(true);
+    }
+    if (isMissingResultWeightColumn(error)) {
+      markResultWeightColumnAvailable(false);
+    }
+  }
+
+  if (resultWeightColumnAvailable === false || error) {
+    const fallback = await supabase
+      .from('daily_workout_assignments')
+      .select('id, athlete_id, completed, completed_at, result_time_seconds, result_distance_meters, result_split_seconds, result_stroke_rate, result_intervals')
+      .eq('group_assignment_id', groupAssignmentId);
+    if (!fallback.error) {
+      data = (fallback.data as Array<Record<string, unknown>> | null)?.map((r) => ({ ...r, result_weight_kg: null })) ?? null;
+      error = null;
+    }
+  }
 
   if (error) throw error;
-  return (data ?? []) as AthleteAssignmentRow[];
+  return (data ?? []) as unknown as AthleteAssignmentRow[];
 }
 
 /** Save results for multiple athletes on one group assignment */
@@ -1618,6 +1800,7 @@ export async function saveAssignmentResults(
   results: Array<{
     athlete_id: string;
     completed: boolean;
+    result_weight_kg?: number | null;
     result_time_seconds?: number | null;
     result_distance_meters?: number | null;
     result_split_seconds?: number | null;
@@ -1633,17 +1816,33 @@ export async function saveAssignmentResults(
     if (r.completed) {
       updatePayload.completed_at = new Date().toISOString();
     }
+    if (resultWeightColumnAvailable !== false && r.result_weight_kg !== undefined) {
+      updatePayload.result_weight_kg = r.result_weight_kg;
+    }
     if (r.result_time_seconds !== undefined) updatePayload.result_time_seconds = r.result_time_seconds;
     if (r.result_distance_meters !== undefined) updatePayload.result_distance_meters = r.result_distance_meters;
     if (r.result_split_seconds !== undefined) updatePayload.result_split_seconds = r.result_split_seconds;
     if (r.result_stroke_rate !== undefined) updatePayload.result_stroke_rate = r.result_stroke_rate;
     if (r.result_intervals !== undefined) updatePayload.result_intervals = r.result_intervals;
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('daily_workout_assignments')
       .update(updatePayload)
       .eq('group_assignment_id', groupAssignmentId)
       .eq('athlete_id', r.athlete_id);
+
+    if (isMissingResultWeightColumn(error) && 'result_weight_kg' in updatePayload) {
+      markResultWeightColumnAvailable(false);
+      delete updatePayload.result_weight_kg;
+      const fallback = await supabase
+        .from('daily_workout_assignments')
+        .update(updatePayload)
+        .eq('group_assignment_id', groupAssignmentId)
+        .eq('athlete_id', r.athlete_id);
+      error = fallback.error;
+    } else if (!error && 'result_weight_kg' in updatePayload) {
+      markResultWeightColumnAvailable(true);
+    }
 
     if (error) throw error;
   }
