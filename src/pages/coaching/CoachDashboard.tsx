@@ -633,8 +633,21 @@ export const CoachDashboard: React.FC = () => {
                         <ul className="divide-y divide-neutral-800">
                           {rows.slice(0, 6).map((row) => (
                             <li key={row.id} className="px-3 py-2 text-sm text-neutral-300 flex items-center justify-between gap-2">
-                              <span className="truncate">{row.title || row.template_name || 'Workout assignment'}</span>
-                              <span className="text-xs text-neutral-500 shrink-0">{row.scheduled_date}</span>
+                              <Link
+                                to={`/team-management/assignments/${row.id}/results`}
+                                className="truncate text-neutral-200 hover:text-indigo-300 transition-colors"
+                              >
+                                {row.title || row.template_name || 'Workout assignment'}
+                              </Link>
+                              <div className="shrink-0 flex items-center gap-3">
+                                <span className="text-xs text-neutral-500">{row.scheduled_date}</span>
+                                <Link
+                                  to={`/team-management/assignments/${row.id}/results`}
+                                  className="text-xs text-indigo-400 hover:text-indigo-300"
+                                >
+                                  Results →
+                                </Link>
+                              </div>
                             </li>
                           ))}
                         </ul>
