@@ -42,6 +42,7 @@ export interface UserProfile {
     user_id: string;
     email: string;
     display_name?: string;
+    onboarding_completed?: boolean;
     personal_records?: Record<string, number>; // Cached PRs (Tracked Only)
     daily_recommendation?: {
         date: string; // ISO Date "YYYY-MM-DD"

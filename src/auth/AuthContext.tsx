@@ -1,34 +1,10 @@
-import { createContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase, type UserProfile } from '../services/supabase'
+import { AuthContext } from './authContextDef'
 
 /** How long to wait for initial session before giving up (ms) */
 const SESSION_TIMEOUT_MS = 15_000
-
-interface AuthContextType {
-  user: User | null
-  profile: UserProfile | null
-  session: Session | null
-  loading: boolean
-  profileLoading: boolean
-  tokensReady: boolean // True after C2 tokens have been restored from DB
-  signOut: () => Promise<void>
-  signIn: (email: string, password: string) => Promise<void>
-  signUp: (email: string, password: string, displayName: string) => Promise<void>
-  resetPassword: (email: string) => Promise<void>
-  clearStaleSession: () => Promise<void> // Manual escape hatch for stuck sessions
-  isAuthenticated: boolean // Added for compatibility with existing code
-  token: string | null // Added for compatibility
-  login: () => void // Deprecated compatibility stub
-  logout: () => void // Deprecated compatibility stub
-  loginAsGuest?: () => Promise<void>
-  isGuest?: boolean
-  isCoach: boolean
-  isAdmin: boolean
-  refreshProfile: () => Promise<void>
-}
-
-export const AuthContext = createContext<AuthContextType | null>(null)
 
 const ADMIN_USER_ID = '93c46300-57eb-48c8-b35c-cc49c76cfa66';
 
@@ -60,13 +36,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false)
   }, [])
 
-  const createBasicProfile = useCallback(async (userId: string, email: string) => {
+  const createBasicProfile = useCallback(async (userId: string, email: string, displayName?: string) => {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
         .insert({
           user_id: userId,
-          display_name: email.split('@')[0],
+          display_name: displayName?.trim() || email.split('@')[0],
           email: email,
           skill_level: 'novice',
           profile_visibility: 'public',
@@ -270,12 +246,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // --- Auth Actions ---
 
-  const signUp = async (email: string, password: string, _displayName: string) => {
+  const signUp = async (email: string, password: string, displayName: string) => {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) throw error
     if (data.user) {
       // Optimistic profile creation
-      createBasicProfile(data.user.id, email)
+      createBasicProfile(data.user.id, email, displayName)
     }
   }
 
@@ -335,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(guestUser);
 
     // Mock Profile
-    setProfile({
+    const guestProfile: UserProfile = {
       id: 'guest_profile_123',
       user_id: 'guest_user_123',
       email: 'guest@demo.co',
@@ -346,7 +322,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile_visibility: 'public',
       share_workouts: true,
       share_progress: true
-    } as any);
+    };
+    setProfile(guestProfile);
 
     setSession({
       access_token: 'mock_token',
