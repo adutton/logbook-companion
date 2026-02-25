@@ -138,12 +138,6 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
   });
 }
 
-function percentileOf(val: number, sorted: number[]): number {
-  if (sorted.length === 0) return 50;
-  const below = sorted.filter((v) => v < val).length;
-  return Math.round((below / sorted.length) * 100);
-}
-
 function SplitBarChart({ rows }: { rows: EnrichedRow[] }) {
   const data = [...rows]
     .filter((r) => r.completed && r.avg_split_seconds != null)
@@ -230,45 +224,155 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
 
 function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
   const completed = rows.filter((r) => r.completed && r.avg_split_seconds != null && !r.dnf && !r.partialDnf);
-  if (completed.length < 3) return null;
+  const weighted = completed.filter((r) => r.watts != null && r.effective_weight_kg != null);
+  if (weighted.length < 3) return null;
 
-  const splits = completed.map((r) => r.avg_split_seconds!).sort((a, b) => a - b);
-  const data = completed
-    .map((r, idx) => ({
-      name: r.athlete_name.split(' ')[0],
-      fullName: r.athlete_name,
-      pctile: 100 - percentileOf(r.avg_split_seconds!, splits),
-      y: idx + 1,
-      split: r.avg_split_seconds,
-    }))
-    .sort((a, b) => b.pctile - a.pctile);
+  const missingWeightCount = completed.length - weighted.length;
+  const teamPalette = [
+    { fill: '#60a5fa', dotClass: 'bg-blue-400' },
+    { fill: '#10b981', dotClass: 'bg-emerald-500' },
+    { fill: '#f59e0b', dotClass: 'bg-amber-500' },
+    { fill: '#f43f5e', dotClass: 'bg-rose-500' },
+    { fill: '#a78bfa', dotClass: 'bg-violet-400' },
+    { fill: '#22d3ee', dotClass: 'bg-cyan-400' },
+    { fill: '#fb7185', dotClass: 'bg-pink-400' },
+    { fill: '#84cc16', dotClass: 'bg-lime-500' },
+  ];
+
+  const teamNames = Array.from(
+    new Set(weighted.map((r) => (r.team_name ?? '').trim() || 'No Team')),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const teamColor = new Map<string, { fill: string; dotClass: string }>(
+    teamNames.map((team, i) => [team, teamPalette[i % teamPalette.length]]),
+  );
+
+  const minWeight = Math.min(...weighted.map((r) => r.effective_weight_kg!));
+  const maxWeight = Math.max(...weighted.map((r) => r.effective_weight_kg!));
+
+  const sortedWpkg = weighted
+    .map((r) => r.wpkg)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+
+  const quantile = (sorted: number[], p: number): number => {
+    if (sorted.length === 0) return 0;
+    const idx = Math.floor((sorted.length - 1) * p);
+    return sorted[idx] ?? 0;
+  };
+
+  const ratioBenchmarks = [
+    { label: 'P25', ratio: quantile(sortedWpkg, 0.25), color: '#64748b', dotClass: 'bg-slate-500' },
+    { label: 'P50', ratio: quantile(sortedWpkg, 0.5), color: '#94a3b8', dotClass: 'bg-slate-400' },
+    { label: 'P75', ratio: quantile(sortedWpkg, 0.75), color: '#cbd5e1', dotClass: 'bg-slate-300' },
+  ].filter((b) => b.ratio > 0);
+
+  const data = weighted
+    .map((r) => {
+      const watts = r.watts!;
+      const weightKg = r.effective_weight_kg!;
+      const team = (r.team_name ?? '').trim() || 'No Team';
+      return {
+        name: r.athlete_name.split(' ')[0],
+        fullName: r.athlete_name,
+        team,
+        watts,
+        weightKg,
+        split: r.avg_split_seconds,
+        wpkg: r.wpkg,
+        wplb: r.wplb,
+        color: teamColor.get(team)?.fill ?? '#60a5fa',
+      };
+    })
+    .sort((a, b) => b.watts - a.watts);
 
   return (
     <div className="bg-neutral-800/70 rounded-xl p-4 space-y-3 border border-neutral-700/40">
-      <h3 className="text-sm font-semibold text-neutral-200">Percentile Spread</h3>
-      <ResponsiveContainer width="100%" height={Math.max(180, data.length * 26)}>
-        <ScatterChart margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+      <h3 className="text-sm font-semibold text-neutral-200">Power vs Body Weight</h3>
+      <p className="text-xs text-neutral-500">X = body weight (kg), Y = power (watts). Diagonal lines are W/kg percentile benchmarks.</p>
+      {teamNames.length > 1 && (
+        <div className="flex flex-wrap gap-2 text-[11px] text-neutral-500">
+          {teamNames.map((team) => (
+            <span key={team} className="inline-flex items-center gap-1.5 rounded-full border border-neutral-600/60 px-2 py-0.5">
+              <span className={`h-2 w-2 rounded-full ${teamColor.get(team)?.dotClass ?? 'bg-blue-400'}`} />
+              {team}
+            </span>
+          ))}
+        </div>
+      )}
+      {ratioBenchmarks.length > 0 && (
+        <div className="flex flex-wrap gap-2 text-[11px] text-neutral-500">
+          {ratioBenchmarks.map((b) => (
+            <span key={b.label} className="inline-flex items-center gap-1.5 rounded-full border border-neutral-600/60 px-2 py-0.5">
+              <span className={`h-2 w-2 rounded-full ${b.dotClass}`} />
+              {b.label}: {b.ratio.toFixed(2)} W/kg
+            </span>
+          ))}
+        </div>
+      )}
+      {missingWeightCount > 0 && (
+        <p className="text-[11px] text-neutral-500">{missingWeightCount} athlete{missingWeightCount > 1 ? 's' : ''} excluded (missing weight).</p>
+      )}
+      <ResponsiveContainer width="100%" height={Math.max(240, data.length * 20)}>
+        <ScatterChart margin={{ top: 10, right: 20, left: 20, bottom: 20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis type="number" dataKey="pctile" domain={[0, 100]} tick={{ fill: '#9ca3af', fontSize: 11 }} />
-          <YAxis type="number" dataKey="y" hide />
-          <ReferenceLine x={25} stroke="#6b7280" strokeDasharray="4 4" />
-          <ReferenceLine x={50} stroke="#6b7280" strokeDasharray="4 4" />
-          <ReferenceLine x={75} stroke="#6b7280" strokeDasharray="4 4" />
+          <XAxis
+            type="number"
+            dataKey="weightKg"
+            reversed
+            tick={{ fill: '#9ca3af', fontSize: 11 }}
+            label={{ value: 'Body Weight (kg, lighter →)', position: 'insideBottom', offset: -6, fill: '#64748b', fontSize: 11 }}
+          />
+          <YAxis
+            type="number"
+            dataKey="watts"
+            tick={{ fill: '#9ca3af', fontSize: 11 }}
+            width={40}
+            label={{ value: 'Power (W)', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11, dx: -4 }}
+          />
+          {ratioBenchmarks.map((b) => (
+            <ReferenceLine
+              key={b.label}
+              segment={[
+                { x: minWeight, y: minWeight * b.ratio },
+                { x: maxWeight, y: maxWeight * b.ratio },
+              ]}
+              stroke={b.color}
+              strokeDasharray="6 4"
+              strokeOpacity={0.75}
+              label={{ value: `${b.label} ${b.ratio.toFixed(2)} W/kg`, fill: b.color, fontSize: 10 }}
+            />
+          ))}
           <Tooltip
             contentStyle={LIGHT_TOOLTIP_STYLE}
             content={({ payload }) => {
               if (!payload?.length) return null;
-              const point = payload[0].payload as { fullName: string; pctile: number; split: number | null };
+              const point = payload[0].payload as {
+                fullName: string;
+                team: string;
+                watts: number;
+                weightKg: number;
+                split: number | null;
+                wpkg: number | null;
+                wplb: number | null;
+              };
               return (
                 <div className="p-2 text-xs text-slate-800">
                   <div className="font-semibold">{point.fullName}</div>
+                  <div>Team: {point.team}</div>
+                  <div>Weight: {point.weightKg.toFixed(1)} kg</div>
+                  <div>Power: {fmtWatts(point.watts)}</div>
                   <div>Split: {fmtSplit(point.split)}</div>
-                  <div>P{Math.round(point.pctile)} in this group</div>
+                  <div>Power-to-weight: {fmtPowerToWeight(point.wpkg, point.wplb)}</div>
                 </div>
               );
             }}
           />
-          <Scatter data={data} fill="#60a5fa" dataKey="pctile" />
+          <Scatter data={data} fill="#60a5fa">
+            {data.map((d, i) => (
+              <Cell key={i} fill={d.color} r={6} />
+            ))}
+          </Scatter>
         </ScatterChart>
       </ResponsiveContainer>
     </div>
@@ -489,7 +593,10 @@ function RepHeatmap({ rows, repLabels }: { rows: EnrichedRow[]; repLabels: strin
                 )}
                 <tr className={row.dnf ? 'opacity-60' : row.partialDnf ? 'opacity-80' : ''}>
                   <td className="sticky left-0 bg-neutral-900/90 px-3 py-1.5 text-neutral-200 border-t border-neutral-800/30 whitespace-nowrap">
-                    <div>{row.athlete_name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex min-w-5 justify-center text-[10px] font-semibold text-neutral-500">{rowIdx + 1}</span>
+                      <span>{row.athlete_name}</span>
+                    </div>
                     {metric === 'wpkg' && (
                       <div className="text-[10px] text-neutral-500">{fmtPowerToWeight(row.wpkg, row.wplb)}</div>
                     )}
@@ -556,6 +663,7 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
   const [teamFilter, setTeamFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'finishers' | 'partial' | 'dnf' | 'no-data' | 'not-completed'>('all');
   const [showNotCompleted, setShowNotCompleted] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const teamOptions = useMemo(() => {
     const options = rows
@@ -648,7 +756,17 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
         <h3 className="text-sm font-semibold text-neutral-300 flex items-center gap-2">
           <Users className="w-4 h-4 text-indigo-400" /> Results Summary
         </h3>
+        <button
+          onClick={() => setIsCollapsed((v) => !v)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-neutral-700/40 text-neutral-300 hover:bg-neutral-700/60 transition-colors"
+        >
+          {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          {isCollapsed ? 'Expand' : 'Collapse'}
+        </button>
       </div>
+
+      {isCollapsed ? null : (
+      <>
 
       <div className="px-4 py-3 border-b border-neutral-800/60 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
         <div className="relative w-full sm:w-64">
@@ -824,6 +942,8 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -986,6 +1106,20 @@ export function PublicAssignmentResultsShare() {
       `}</style>
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         <div className="rounded-xl border border-neutral-700 bg-neutral-800/70 p-5 space-y-2">
+          <div className="flex items-center justify-end gap-2 pb-1">
+            <a
+              href="/login"
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Back to sign in
+            </a>
+            <a
+              href="/login"
+              className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+            >
+              Sign up for full access
+            </a>
+          </div>
           <h1 className="text-2xl font-bold">{assignment.title || assignment.template_name || 'Assignment Results'}</h1>
           <div className="text-sm text-neutral-300">{dateLabel}</div>
           {assignment.canonical_name && <div className="text-xs text-neutral-400 font-mono">{assignment.canonical_name}</div>}
@@ -1018,8 +1152,9 @@ export function PublicAssignmentResultsShare() {
 
           {isInterval && repLabels.length > 0 && (
             <div className="space-y-5">
-              <RepProgressionChart rows={chartRows} repLabels={repLabels} />
               <RepHeatmap rows={chartRows} repLabels={repLabels} />
+              <PercentileDotPlot rows={chartRows} />
+              <RepProgressionChart rows={chartRows} repLabels={repLabels} />
             </div>
           )}
 
@@ -1027,7 +1162,7 @@ export function PublicAssignmentResultsShare() {
             <SplitBarChart rows={chartRows} />
             <WattsBarChart rows={chartRows} />
             <WpkgBarChart rows={chartRows} />
-            <PercentileDotPlot rows={chartRows} />
+            {!isInterval && <PercentileDotPlot rows={chartRows} />}
           </div>
         </div>
       </div>
