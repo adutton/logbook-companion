@@ -51,6 +51,7 @@ import {
   ScatterChart,
   Scatter,
   Cell,
+  Customized,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
@@ -231,6 +232,48 @@ const LINE_COLORS = [
   '#a78bfa', '#34d399', '#fb923c', '#60a5fa', '#e879f9',
   '#4ade80', '#fbbf24', '#38bdf8', '#f472b6', '#a3e635',
 ];
+
+type RatioZone = { lower: number; upper: number; fill: string };
+
+function RatioZoneShading({
+  xAxisMap,
+  yAxisMap,
+  minWeight,
+  maxWeight,
+  yMax,
+  zones,
+}: {
+  xAxisMap?: Record<string, { scale?: (value: number) => number }>;
+  yAxisMap?: Record<string, { scale?: (value: number) => number }>;
+  minWeight: number;
+  maxWeight: number;
+  yMax: number;
+  zones: RatioZone[];
+}) {
+  const xAxis = Object.values(xAxisMap ?? {})[0];
+  const yAxis = Object.values(yAxisMap ?? {})[0];
+  const xScale = xAxis?.scale;
+  const yScale = yAxis?.scale;
+  if (typeof xScale !== 'function' || typeof yScale !== 'function' || zones.length === 0) return null;
+
+  return (
+    <g pointerEvents="none">
+      {zones.map((zone, idx) => {
+        const y1Min = Math.min(yMax, zone.lower * minWeight);
+        const y1Max = Math.min(yMax, zone.lower * maxWeight);
+        const y2Min = Math.min(yMax, zone.upper * minWeight);
+        const y2Max = Math.min(yMax, zone.upper * maxWeight);
+        const points = [
+          `${xScale(minWeight)},${yScale(y1Min)}`,
+          `${xScale(maxWeight)},${yScale(y1Max)}`,
+          `${xScale(maxWeight)},${yScale(y2Max)}`,
+          `${xScale(minWeight)},${yScale(y2Min)}`,
+        ].join(' ');
+        return <polygon key={`ratio-zone-${idx}`} points={points} fill={zone.fill} fillOpacity={0.08} />;
+      })}
+    </g>
+  );
+}
 
 // ─── Chart: Split Bar ─────────────────────────────────────────────────────────
 
@@ -487,6 +530,18 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
     { label: 'P75', ratio: quantile(sortedWpkg, 0.75), color: '#cbd5e1', dotClass: 'bg-slate-300' },
   ].filter((b) => b.ratio > 0);
 
+  const maxRatio = Math.max(...ratioBenchmarks.map((b) => b.ratio), 0);
+  const maxWatts = Math.max(...weighted.map((r) => r.watts ?? 0), 0);
+  const yMax = Math.max(maxWatts * 1.1, maxWeight * maxRatio * 1.08, 100);
+  const ratioEdges = [0, ...ratioBenchmarks.map((b) => b.ratio), (ratioBenchmarks[ratioBenchmarks.length - 1]?.ratio ?? 0) * 1.2]
+    .filter((v, i, arr) => Number.isFinite(v) && (i === 0 || v > arr[i - 1]));
+  const zoneFills = ['#0f172a', '#1e3a8a', '#0f766e', '#78350f'];
+  const ratioZones = ratioEdges.slice(0, -1).map((lower, idx) => ({
+    lower,
+    upper: ratioEdges[idx + 1] ?? lower,
+    fill: zoneFills[idx % zoneFills.length],
+  }));
+
   const data = weighted
     .map((r) => {
       const watts = r.watts!;
@@ -548,10 +603,12 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
             type="number"
             dataKey="watts"
             name="Power (watts)"
+            domain={[0, yMax]}
             tick={{ fill: '#9ca3af', fontSize: 11 }}
             width={40}
             label={{ value: 'Power (W)', angle: -90, position: 'insideLeft', fill: '#9ca3af', fontSize: 11, dx: -4 }}
           />
+          <Customized component={<RatioZoneShading minWeight={minWeight} maxWeight={maxWeight} yMax={yMax} zones={ratioZones} />} />
           {ratioBenchmarks.map((b) => (
             <ReferenceLine
               key={b.label}
