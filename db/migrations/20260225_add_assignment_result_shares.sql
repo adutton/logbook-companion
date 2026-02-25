@@ -85,8 +85,8 @@ BEGIN
     RAISE EXCEPTION 'You do not have access to this assignment';
   END IF;
 
-  v_token := encode(gen_random_bytes(18), 'hex');
-  v_token_hash := encode(digest(v_token, 'sha256'), 'hex');
+  v_token := encode(extensions.gen_random_bytes(18), 'hex');
+  v_token_hash := encode(extensions.digest(v_token, 'sha256'), 'hex');
   v_expires_at := now() + make_interval(hours => GREATEST(COALESCE(p_expires_in_hours, 168), 1));
 
   INSERT INTO public.assignment_result_shares (
@@ -127,7 +127,7 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  v_token_hash := encode(digest(trim(p_token), 'sha256'), 'hex');
+  v_token_hash := encode(extensions.digest(trim(p_token), 'sha256'), 'hex');
 
   SELECT ars.*
   INTO v_share
