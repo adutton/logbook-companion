@@ -8,6 +8,9 @@ import {
   getAssignmentsForDate,
   getAssignmentCompletions,
   getAthletes,
+  getSessions,
+  getBoatings,
+  getGroupAssignments,
   getTeamStats,
   getTeamAthleteCounts,
   getOrgAthletesWithTeam,
@@ -16,8 +19,12 @@ import {
   type CoachingAthlete,
 } from '../../services/coaching/coachingService';
 import type { OrgTeamGroup } from '../../contexts/coachingContextDef';
-import type { UserTeamInfo, TeamRole } from '../../services/coaching/types';
+import type { CoachingBoating, CoachingSession, UserTeamInfo, TeamRole } from '../../services/coaching/types';
 import { format } from 'date-fns';
+
+type OrgSessionRow = CoachingSession & { team_name: string };
+type OrgAssignmentRow = GroupAssignment & { team_name: string };
+type OrgBoatingRow = CoachingBoating & { team_name: string };
 
 const sections = [
   { path: '/team-management/roster', label: 'Roster', icon: Users, description: 'Manage athletes' },
@@ -150,9 +157,24 @@ export const CoachDashboard: React.FC = () => {
   const [orgRosterLoading, setOrgRosterLoading] = useState(false);
   const [showOrgRoster, setShowOrgRoster] = useState(false);
   const [orgRosterSearch, setOrgRosterSearch] = useState('');
+  const [orgDataLoading, setOrgDataLoading] = useState(false);
+  const [orgSessions, setOrgSessions] = useState<OrgSessionRow[]>([]);
+  const [orgAssignments, setOrgAssignments] = useState<OrgAssignmentRow[]>([]);
+  const [orgBoatings, setOrgBoatings] = useState<OrgBoatingRow[]>([]);
 
   // All team IDs for batch athlete count fetch
   const allTeamIds = useMemo(() => teams.map((t) => t.team_id), [teams]);
+  const orgTeams = useMemo(
+    () => (orgId ? teams.filter((team) => team.org_id === orgId) : []),
+    [orgId, teams]
+  );
+  const currentOrgName = useMemo(() => {
+    if (!orgId) return null;
+    const fromTeam = teams.find((team) => team.org_id === orgId)?.org_name;
+    if (fromTeam) return fromTeam;
+    const fromGroup = teamsByOrg.find((group) => group.org_id === orgId)?.org_name;
+    return fromGroup ?? 'Organization';
+  }, [orgId, teams, teamsByOrg]);
 
   // Fetch athlete counts for all teams (single batch query)
   useEffect(() => {
@@ -168,6 +190,22 @@ export const CoachDashboard: React.FC = () => {
     const standalone = teamsByOrg.filter((g) => g.org_id === null);
     return [...named, ...standalone];
   }, [teamsByOrg]);
+
+  const orgAthleteTotal = useMemo(() => {
+    if (!orgId) return null;
+    const orgTeamIds = teams
+      .filter((team) => team.org_id === orgId)
+      .map((team) => team.team_id);
+    return orgTeamIds.reduce((sum, currentTeamId) => sum + (athleteCounts[currentTeamId] ?? 0), 0);
+  }, [athleteCounts, orgId, teams]);
+
+  const rosterBadgeCount = orgAthleteTotal ?? teamStats?.athleteCount;
+  const orgSectionAnchors: Record<string, string> = {
+    '/team-management/roster': '#org-roster',
+    '/team-management/schedule': '#org-schedule',
+    '/team-management/assignments': '#org-assignments',
+    '/team-management/boatings': '#org-boatings',
+  };
 
   // Fetch org roster when panel is opened
   useEffect(() => {
@@ -210,6 +248,36 @@ export const CoachDashboard: React.FC = () => {
     [groupedOrgRoster]
   );
 
+  const groupedOrgSessions = useMemo(() => {
+    const groups = new Map<string, OrgSessionRow[]>();
+    for (const row of orgSessions) {
+      const key = row.team_name;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+    return groups;
+  }, [orgSessions]);
+
+  const groupedOrgAssignments = useMemo(() => {
+    const groups = new Map<string, OrgAssignmentRow[]>();
+    for (const row of orgAssignments) {
+      const key = row.team_name;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+    return groups;
+  }, [orgAssignments]);
+
+  const groupedOrgBoatings = useMemo(() => {
+    const groups = new Map<string, OrgBoatingRow[]>();
+    for (const row of orgBoatings) {
+      const key = row.team_name;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+    return groups;
+  }, [orgBoatings]);
+
   useEffect(() => {
     if (!teamId) return;
 
@@ -236,6 +304,73 @@ export const CoachDashboard: React.FC = () => {
       .catch(() => { /* non-critical dashboard card */ })
       .finally(() => setTodayLoading(false));
   }, [teamId]);
+
+  useEffect(() => {
+    if (!orgId || orgTeams.length === 0) {
+      setOrgSessions([]);
+      setOrgAssignments([]);
+      setOrgBoatings([]);
+      return;
+    }
+
+    let cancelled = false;
+    setOrgDataLoading(true);
+
+    Promise.all(
+      orgTeams.map(async (team) => {
+        const [sessions, assignments, boatings] = await Promise.all([
+          getSessions(team.team_id),
+          getGroupAssignments(team.team_id, { orgId }),
+          getBoatings(team.team_id),
+        ]);
+        return { teamName: team.team_name, sessions, assignments, boatings };
+      })
+    )
+      .then((rows) => {
+        if (cancelled) return;
+
+        const assignmentSeen = new Set<string>();
+        const mergedAssignments: OrgAssignmentRow[] = [];
+
+        for (const row of rows) {
+          for (const assignment of row.assignments) {
+            if (assignmentSeen.has(assignment.id)) continue;
+            assignmentSeen.add(assignment.id);
+            mergedAssignments.push({
+              ...assignment,
+              team_name: assignment.team_id ? row.teamName : `${currentOrgName ?? 'Organization'}-wide`,
+            });
+          }
+        }
+
+        setOrgSessions(
+          rows
+            .flatMap((row) => row.sessions.map((session) => ({ ...session, team_name: row.teamName })))
+            .sort((a, b) => b.date.localeCompare(a.date))
+        );
+        setOrgAssignments(
+          mergedAssignments.sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date))
+        );
+        setOrgBoatings(
+          rows
+            .flatMap((row) => row.boatings.map((boating) => ({ ...boating, team_name: row.teamName })))
+            .sort((a, b) => b.date.localeCompare(a.date))
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setOrgSessions([]);
+        setOrgAssignments([]);
+        setOrgBoatings([]);
+      })
+      .finally(() => {
+        if (!cancelled) setOrgDataLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentOrgName, orgId, orgTeams]);
 
   useEffect(() => {
     const el = sectionTabsRef.current;
@@ -294,25 +429,52 @@ export const CoachDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Org / Team Hierarchy ──────────────────────────── */}
-      <div className="mb-8 space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
-          <Building2 className="w-4 h-4" />
-          Organizations &amp; Teams
-        </h2>
-        {sortedOrgGroups.map((group) => (
-          <OrgCard
-            key={group.org_id ?? '__standalone'}
-            group={group}
-            activeTeamId={teamId}
-            athleteCounts={athleteCounts}
-            onSelectTeam={switchTeam}
-          />
-        ))}
-      </div>
+      {/* ── Team Section Navigation (Top-level) ───────────────── */}
+      {teamId && (
+        <div className="mb-8 bg-neutral-900 border border-neutral-800 rounded-xl p-2">
+          <div className="relative">
+            <div ref={sectionTabsRef} className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {sections.map(({ path, label, icon: Icon }) => (
+                orgId && orgSectionAnchors[path] ? (
+                  <a
+                    key={path}
+                    href={orgSectionAnchors[path]}
+                    className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors whitespace-nowrap"
+                  >
+                    <Icon className="w-4 h-4 text-indigo-400" />
+                    {label}
+                    {path === '/team-management/roster' && rosterBadgeCount !== undefined && (
+                      <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold bg-neutral-700 text-neutral-200">
+                        {rosterBadgeCount}
+                      </span>
+                    )}
+                  </a>
+                ) : (
+                  <Link
+                    key={path}
+                    to={path}
+                    className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors whitespace-nowrap"
+                  >
+                    <Icon className="w-4 h-4 text-indigo-400" />
+                    {label}
+                    {path === '/team-management/roster' && rosterBadgeCount !== undefined && (
+                      <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold bg-neutral-700 text-neutral-200">
+                        {rosterBadgeCount}
+                      </span>
+                    )}
+                  </Link>
+                )
+              ))}
+            </div>
+            {showSectionScrollHint && (
+              <ChevronsRight className="sm:hidden pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500/80" aria-hidden="true" />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Org Roster Table ──────────────────────────────── */}
-      <div className="mb-8">
+      <div id="org-roster" className="mb-8 scroll-mt-24">
         <button
           type="button"
           onClick={() => setShowOrgRoster((v) => !v)}
@@ -322,7 +484,7 @@ export const CoachDashboard: React.FC = () => {
             <Users className="w-5 h-5 text-emerald-400 shrink-0" />
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-white">
-                {orgId ? 'Organization Roster' : 'Team Roster'}
+                {orgId ? `${currentOrgName} Roster` : 'Team Roster'}
               </h2>
               <p className="text-xs text-neutral-500">
                 {orgRoster.length > 0
@@ -346,7 +508,7 @@ export const CoachDashboard: React.FC = () => {
                   type="text"
                   value={orgRosterSearch}
                   onChange={(e) => setOrgRosterSearch(e.target.value)}
-                  placeholder="Search by name, squad, team, or side\u2026"
+                  placeholder="Search by name, squad, team, or side…"
                   className="w-full pl-9 pr-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
@@ -388,14 +550,14 @@ export const CoachDashboard: React.FC = () => {
                         {athletes.map((a) => (
                           <tr key={`${a.id}-${groupTeamName}`} className="hover:bg-neutral-800/30 transition-colors">
                             <td className="px-4 py-2.5 text-white font-medium">{a.name}</td>
-                            <td className="px-4 py-2.5 text-neutral-400 capitalize">{a.side ?? '\u2014'}</td>
+                            <td className="px-4 py-2.5 text-neutral-400 capitalize">{a.side ?? '—'}</td>
                             <td className="px-4 py-2.5">
                               {a.squad ? (
                                 <span className="inline-block px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 rounded-full">
                                   {a.squad}
                                 </span>
                               ) : (
-                                <span className="text-neutral-600">\u2014</span>
+                                <span className="text-neutral-600">—</span>
                               )}
                             </td>
                           </tr>
@@ -410,41 +572,111 @@ export const CoachDashboard: React.FC = () => {
         )}
       </div>
 
+      {/* ── Org / Team Hierarchy ──────────────────────────── */}
+      <div className="mb-8 space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
+          <Building2 className="w-4 h-4" />
+          {orgId ? `${currentOrgName} & Teams` : 'Organizations & Teams'}
+        </h2>
+        {sortedOrgGroups.map((group) => (
+          <OrgCard
+            key={group.org_id ?? '__standalone'}
+            group={group}
+            activeTeamId={teamId}
+            athleteCounts={athleteCounts}
+            onSelectTeam={switchTeam}
+          />
+        ))}
+      </div>
+
       {/* ── Active Team Section ───────────────────────────── */}
       {teamId && (
         <>
+          {orgId && (
+            <div className="mb-8 space-y-4">
+              <section id="org-schedule" className="scroll-mt-24 bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">{currentOrgName} Schedule &amp; Log</h3>
+                {orgDataLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-neutral-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+                ) : groupedOrgSessions.size === 0 ? (
+                  <p className="text-sm text-neutral-500">No sessions found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {[...groupedOrgSessions.entries()].map(([groupTeamName, rows]) => (
+                      <div key={groupTeamName} className="border border-neutral-800 rounded-lg overflow-hidden">
+                        <div className="px-3 py-2 bg-neutral-800/40 text-xs font-semibold uppercase tracking-wider text-neutral-400">{groupTeamName}</div>
+                        <ul className="divide-y divide-neutral-800">
+                          {rows.slice(0, 5).map((row) => (
+                            <li key={row.id} className="px-3 py-2 text-sm text-neutral-300 flex items-center justify-between gap-2">
+                              <span className="truncate">{row.type} {row.focus ? `· ${row.focus}` : ''}</span>
+                              <span className="text-xs text-neutral-500 shrink-0">{row.date}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section id="org-assignments" className="scroll-mt-24 bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">{currentOrgName} Assignments</h3>
+                {orgDataLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-neutral-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+                ) : groupedOrgAssignments.size === 0 ? (
+                  <p className="text-sm text-neutral-500">No assignments found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {[...groupedOrgAssignments.entries()].map(([groupTeamName, rows]) => (
+                      <div key={groupTeamName} className="border border-neutral-800 rounded-lg overflow-hidden">
+                        <div className="px-3 py-2 bg-neutral-800/40 text-xs font-semibold uppercase tracking-wider text-neutral-400">{groupTeamName}</div>
+                        <ul className="divide-y divide-neutral-800">
+                          {rows.slice(0, 6).map((row) => (
+                            <li key={row.id} className="px-3 py-2 text-sm text-neutral-300 flex items-center justify-between gap-2">
+                              <span className="truncate">{row.title || row.template_name || 'Workout assignment'}</span>
+                              <span className="text-xs text-neutral-500 shrink-0">{row.scheduled_date}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section id="org-boatings" className="scroll-mt-24 bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">{currentOrgName} Boatings</h3>
+                {orgDataLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-neutral-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+                ) : groupedOrgBoatings.size === 0 ? (
+                  <p className="text-sm text-neutral-500">No boatings found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {[...groupedOrgBoatings.entries()].map(([groupTeamName, rows]) => (
+                      <div key={groupTeamName} className="border border-neutral-800 rounded-lg overflow-hidden">
+                        <div className="px-3 py-2 bg-neutral-800/40 text-xs font-semibold uppercase tracking-wider text-neutral-400">{groupTeamName}</div>
+                        <ul className="divide-y divide-neutral-800">
+                          {rows.slice(0, 6).map((row) => (
+                            <li key={row.id} className="px-3 py-2 text-sm text-neutral-300 flex items-center justify-between gap-2">
+                              <span className="truncate">{row.boat_name} · {row.boat_type}</span>
+                              <span className="text-xs text-neutral-500 shrink-0">{row.date}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
           <div className="mb-4 flex items-center gap-2">
             <div className="h-px flex-1 bg-neutral-800" />
             <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500 shrink-0">
               {teamName} — Quick View
             </span>
             <div className="h-px flex-1 bg-neutral-800" />
-          </div>
-
-          {/* Section Navigation */}
-          <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-xl p-2">
-            <div className="relative">
-              <div ref={sectionTabsRef} className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {sections.map(({ path, label, icon: Icon }) => (
-                  <Link
-                    key={path}
-                    to={path}
-                    className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors whitespace-nowrap"
-                  >
-                    <Icon className="w-4 h-4 text-indigo-400" />
-                    {label}
-                    {path === '/team-management/roster' && teamStats?.athleteCount !== undefined && (
-                      <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold bg-neutral-700 text-neutral-200">
-                        {teamStats.athleteCount}
-                      </span>
-                    )}
-                  </Link>
-                ))}
-              </div>
-              {showSectionScrollHint && (
-                <ChevronsRight className="sm:hidden pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500/80" aria-hidden="true" />
-              )}
-            </div>
           </div>
 
           {/* Weekly Focus */}

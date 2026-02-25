@@ -286,6 +286,25 @@ export async function createOrganization(
   return newOrg;
 }
 
+/** Update an organization's editable fields */
+export async function updateOrganization(
+  orgId: string,
+  updates: { name?: string; description?: string | null }
+): Promise<Organization> {
+  return throwOnError(
+    await supabase
+      .from('organizations')
+      .update({
+        ...(updates.name !== undefined ? { name: updates.name } : {}),
+        ...(updates.description !== undefined ? { description: updates.description } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', orgId)
+      .select()
+      .single()
+  ) as Organization;
+}
+
 /** Get all organizations a user belongs to */
 export async function getOrganizationsForUser(userId: string): Promise<Organization[]> {
   const { data, error } = await supabase

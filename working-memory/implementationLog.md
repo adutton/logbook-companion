@@ -4,6 +4,109 @@
 
 ---
 
+## Phase 23: PM5 Adapter-Level Lowering Classification (February 25, 2026)
+
+**Timeline**: February 25, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Add a concrete adapter-layer contract that lowers parsed `WorkoutStructure` into PM5-ready `ActiveWorkoutSpec` while explicitly classifying execution capability as `exact`, `prompt_only`, or `unsupported`.
+
+### Changes Implemented
+
+#### 1. New Lowering Utility
+- `src/utils/rwnPm5Lowering.ts`
+   - Added `Pm5LoweringMode` (`exact` | `prompt_only` | `unsupported`)
+   - Added `Pm5LoweringResult` (`mode`, `activeWorkoutSpec`, `notes`)
+   - Added `lowerWorkoutStructureToPm5(structure)`
+
+#### 2. Lowering Rules (Current)
+- **Exact**
+   - steady-state meters → `fixed_distance`
+   - steady-state seconds → `fixed_time`
+   - fixed interval distance work → `interval_distance`
+   - fixed interval time work → `interval_time`
+   - variable distance/time/rest steps → `variable_interval`
+- **Prompt-only**
+   - any structure carrying `sessionExtension` (`partner`, `relay`, `rotate`, `circuit`) while preserving PM5-programmable core payload
+- **Unsupported**
+   - calorie-based steady-state, interval work, or variable steps (current adapter scope)
+
+#### 3. Focused Tests
+- `src/utils/rwnPm5Lowering.test.ts`
+   - PM5-native fixed interval lowers as `exact`
+   - `partner(...)` lowers as `prompt_only` with preserved core
+   - `rotate(...)` lowers as `prompt_only` with parser-derived core
+   - calorie step case lowers as `unsupported`
+
+### Verification
+
+- Focused test run: `npm run test:run -- src/utils/rwnPm5Lowering.test.ts` → ✅ `4/4` passing
+- Full project build: `npm run build` → ✅ success
+
+### Outcome
+
+The project now has an explicit, test-backed PM5 lowering contract that separates parser expressiveness from PM5 execution capability and prepares the path for ErgLink adapter integration.
+
+---
+
+## Phase 22: RWN Session-Orchestration Parser Extensions (Additive) (February 25, 2026)
+
+**Timeline**: February 25, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Implement parser-first support for coach-facing orchestration constructs (`partner`, `relay`, `rotate`, `circuit`) without breaking existing RWN grammar or downstream consumers.
+
+### Changes Implemented
+
+#### 1. Type System (Additive Metadata Only)
+- `src/types/workoutStructure.types.ts`
+   - Added `SessionExtension` interface for orchestration metadata (`kind`, `switch`, `on`, `off`, `leg`, `total`, `team_size`, `order`, `off_task`, `stations`, `rounds`, `plan`, `items`)
+   - Added optional `sessionExtension?: SessionExtension` to:
+      - `SteadyStateStructure`
+      - `IntervalStructure`
+      - `VariableStructure`
+
+#### 2. Parser Extensions
+- `src/utils/rwnParser.ts`
+   - Added top-level orchestration parser path with helper utilities:
+      - paren/bracket-aware token splitting
+      - named-argument parsing
+      - list parsing
+      - distance parsing
+      - recursive embedded-RWN parsing for `on`/`off`/plan items
+   - Implemented `parseSessionExtensionSyntax(...)` support for:
+      - `partner(on=..., off=..., switch=...)`
+      - `relay(leg=..., total=...)` (with defaults: `switch=leg_complete`, `order=round_robin`, `off_task=wait`)
+      - `rotate(stations=..., switch=..., rounds=..., plan=[...])`
+      - `circuit(...)`
+   - Hooked orchestration parsing early in `parseRWN(...)` flow while preserving legacy parsing behavior when orchestration syntax is not used.
+
+#### 3. Regression + Feature Test Coverage
+- `src/utils/rwnParser.test.ts`
+   - Added suite: **RWN Parser - Session Orchestration Extensions (Additive)**
+   - Coverage includes:
+      - Partner parse + core-work preservation
+      - Partner with active `off=circuit(...)`
+      - Minimal relay defaults
+      - Rotate with plan parsing
+      - Standalone circuit parse
+      - Explicit legacy interval regression guard
+
+### Verification
+
+- Focused parser test run: `src/utils/rwnParser.test.ts` → ✅ `50/50` passing
+- Full project build: `npm run build` → ✅ success (`tsc -b` + `vite build`)
+
+### Outcome
+
+RWN now supports session-level orchestration syntax in an additive, backward-compatible way by attaching optional metadata rather than changing core workout structure contracts.
+
+---
+
 ## Phase 21: User-Level Measurement Units Preference (February 25, 2026)
 
 **Timeline**: February 25, 2026  

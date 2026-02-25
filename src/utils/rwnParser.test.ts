@@ -641,3 +641,84 @@ describe('RWN Parser - Variable List Notation', () => {
         }
     });
 });
+
+describe('RWN Parser - Session Orchestration Extensions (Additive)', () => {
+    test('parses partner syntax and preserves core on-workout structure', () => {
+        const result = parseRWN('partner(on=4x1000m, off=wait, switch=piece_end)');
+
+        expect(result).not.toBeNull();
+        expect(result?.type).toBe('interval');
+
+        if (result?.type === 'interval') {
+            expect(result.repeats).toBe(4);
+            expect(result.work.type).toBe('distance');
+            expect(result.work.value).toBe(1000);
+            expect(result.sessionExtension?.kind).toBe('partner');
+            expect(result.sessionExtension?.off).toBe('wait');
+            expect(result.sessionExtension?.switch).toBe('piece_end');
+        }
+    });
+
+    test('parses partner active off-task circuit notation', () => {
+        const result = parseRWN('partner(on=6x500m/1:00r, off=circuit(20 burpees,20 pushups,20 situps))');
+
+        expect(result).not.toBeNull();
+        expect(result?.sessionExtension?.kind).toBe('partner');
+        expect(result?.sessionExtension?.off).toBe('circuit(20 burpees,20 pushups,20 situps)');
+        expect(result?.sessionExtension?.switch).toBe('piece_end'); // default
+    });
+
+    test('parses minimal relay syntax with defaults', () => {
+        const result = parseRWN('relay(leg=500m,total=6000m)');
+
+        expect(result).not.toBeNull();
+        expect(result?.type).toBe('interval');
+
+        if (result?.type === 'interval') {
+            expect(result.repeats).toBe(12);
+            expect(result.work.type).toBe('distance');
+            expect(result.work.value).toBe(500);
+            expect(result.rest.value).toBe(0);
+            expect(result.sessionExtension?.kind).toBe('relay');
+            expect(result.sessionExtension?.switch).toBe('leg_complete');
+            expect(result.sessionExtension?.order).toBe('round_robin');
+            expect(result.sessionExtension?.off_task).toBe('wait');
+        }
+    });
+
+    test('parses rotate syntax with plan list', () => {
+        const result = parseRWN('rotate(stations=4, switch=15:00, rounds=4, plan=[run(15:00), row(5x500m/1:00r), circuit(20 burpees,20 pushups,20 situps), row(10:00@r20)])');
+
+        expect(result).not.toBeNull();
+        expect(result?.sessionExtension?.kind).toBe('rotate');
+        expect(result?.sessionExtension?.stations).toBe(4);
+        expect(result?.sessionExtension?.rounds).toBe(4);
+        expect(result?.sessionExtension?.switch).toBe('15:00');
+        expect(result?.sessionExtension?.plan?.length).toBe(4);
+    });
+
+    test('parses standalone circuit extension', () => {
+        const result = parseRWN('circuit(20 burpees,20 pushups,20 situps)');
+
+        expect(result).not.toBeNull();
+        expect(result?.type).toBe('variable');
+        expect(result?.sessionExtension?.kind).toBe('circuit');
+        expect(result?.sessionExtension?.items).toEqual(['20 burpees', '20 pushups', '20 situps']);
+    });
+
+    test('legacy syntax remains unchanged (regression guard)', () => {
+        const result = parseRWN('10 x 500m@2k@32spm/3:00r');
+
+        expect(result).not.toBeNull();
+        expect(result?.type).toBe('interval');
+        expect(result?.sessionExtension).toBeUndefined();
+
+        if (result?.type === 'interval') {
+            expect(result.repeats).toBe(10);
+            expect(result.work.value).toBe(500);
+            expect(result.work.target_pace).toBe('2k');
+            expect(result.work.target_rate).toBe(32);
+            expect(result.rest.value).toBe(180);
+        }
+    });
+});

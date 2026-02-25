@@ -34,6 +34,7 @@ import {
   assignTeamToOrg,
   removeTeamFromOrg,
   createOrganization,
+  updateOrganization,
 } from '../../services/coaching/coachingService';
 import type { Team, TeamMemberWithProfile, TeamRole, Organization } from '../../services/coaching/types';
 
@@ -93,6 +94,9 @@ export function CoachingSettings() {
   const [showNewOrgForm, setShowNewOrgForm] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgDescription, setNewOrgDescription] = useState('');
+  const [editOrgName, setEditOrgName] = useState('');
+  const [isSavingOrgName, setIsSavingOrgName] = useState(false);
+  const [orgNameSaveSuccess, setOrgNameSaveSuccess] = useState(false);
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
@@ -105,6 +109,8 @@ export function CoachingSettings() {
         setEditDescription(t?.description ?? '');
         setOrgs(userOrgs);
         setSelectedOrgId(t?.org_id ?? 'none');
+        const selectedOrg = userOrgs.find((org) => org.id === (t?.org_id ?? ''));
+        setEditOrgName(selectedOrg?.name ?? '');
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load team'))
       .finally(() => setIsLoading(false));
@@ -238,6 +244,8 @@ export function CoachingSettings() {
       }
       setSelectedOrgId(newOrgId);
       setTeam((prev) => prev ? { ...prev, org_id: newOrgId === 'none' ? null : newOrgId } : prev);
+      const selectedOrg = orgs.find((o) => o.id === newOrgId);
+      setEditOrgName(selectedOrg?.name ?? '');
       setOrgSaveSuccess(true);
       setTimeout(() => setOrgSaveSuccess(false), 2000);
     } catch (err) {
@@ -259,6 +267,7 @@ export function CoachingSettings() {
       setOrgs((prev) => [...prev, newOrg]);
       setSelectedOrgId(newOrg.id);
       setTeam((prev) => prev ? { ...prev, org_id: newOrg.id } : prev);
+      setEditOrgName(newOrg.name);
       setShowNewOrgForm(false);
       setNewOrgName('');
       setNewOrgDescription('');
@@ -268,6 +277,22 @@ export function CoachingSettings() {
       setError(err instanceof Error ? err.message : 'Failed to create organization');
     } finally {
       setIsSavingOrg(false);
+    }
+  };
+
+  const handleSaveOrgName = async () => {
+    if (selectedOrgId === 'none' || !editOrgName.trim()) return;
+    setIsSavingOrgName(true);
+    try {
+      const updated = await updateOrganization(selectedOrgId, { name: editOrgName.trim() });
+      setOrgs((prev) => prev.map((org) => (org.id === updated.id ? updated : org)));
+      setOrgNameSaveSuccess(true);
+      setTimeout(() => setOrgNameSaveSuccess(false), 2000);
+      await refreshTeam();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update organization name');
+    } finally {
+      setIsSavingOrgName(false);
     }
   };
 
@@ -375,6 +400,39 @@ export function CoachingSettings() {
             {isSavingOrg && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
             {orgSaveSuccess && <Check className="w-4 h-4 text-green-400" />}
           </div>
+
+          {selectedOrgId !== 'none' && !showNewOrgForm && (
+            <div className="border border-neutral-700 rounded-lg p-4 space-y-3 bg-neutral-800/50">
+              <div>
+                <label htmlFor="edit-org-name" className="block text-sm font-medium text-neutral-300 mb-1">
+                  Organization Name
+                </label>
+                <input
+                  id="edit-org-name"
+                  type="text"
+                  value={editOrgName}
+                  onChange={(e) => setEditOrgName(e.target.value)}
+                  minLength={3}
+                  maxLength={100}
+                  className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                />
+              </div>
+              <button
+                onClick={handleSaveOrgName}
+                disabled={isSavingOrgName || editOrgName.trim().length < 3}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 text-sm"
+              >
+                {isSavingOrgName ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : orgNameSaveSuccess ? (
+                  <Check className="w-4 h-4" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {orgNameSaveSuccess ? 'Saved!' : 'Save Organization Name'}
+              </button>
+            </div>
+          )}
 
           {showNewOrgForm && (
             <div className="border border-neutral-700 rounded-lg p-4 space-y-3 bg-neutral-800/50">

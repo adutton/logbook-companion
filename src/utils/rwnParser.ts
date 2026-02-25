@@ -1,4 +1,4 @@
-import type { WorkoutStructure, WorkoutStep, BlockType } from '../types/workoutStructure.types';
+import type { WorkoutStructure, WorkoutStep, BlockType, SessionExtension } from '../types/workoutStructure.types';
 
 /**
  * RWN Parser
@@ -355,6 +355,172 @@ function splitRefined(text: string, separator: string): string[] {
     return parts.filter(p => p.trim() !== '');
 }
 
+function splitTopLevel(text: string, separator: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let parenDepth = 0;
+    let bracketDepth = 0;
+
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char === '(') parenDepth++;
+        if (char === ')') parenDepth--;
+        if (char === '[') bracketDepth++;
+        if (char === ']') bracketDepth--;
+
+        if (parenDepth === 0 && bracketDepth === 0 && text.substring(i, i + separator.length) === separator) {
+            parts.push(current.trim());
+            current = '';
+            i += separator.length - 1;
+        } else {
+            current += char;
+        }
+    }
+
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+}
+
+function parseDistanceMeters(value: string | undefined): number | null {
+    if (!value) return null;
+    const clean = value.trim().toLowerCase();
+    if (/^\d+(?:\.\d+)?m$/.test(clean)) return Math.round(parseFloat(clean.replace(/m$/, '')));
+    if (/^\d+(?:\.\d+)?k(?:m)?$/.test(clean)) return Math.round(parseFloat(clean.replace(/k(?:m)?$/, '')) * 1000);
+    if (/^\d+(?:\.\d+)?$/.test(clean)) return Math.round(parseFloat(clean));
+    return null;
+}
+
+function parseListValue(value: string | undefined): string[] {
+    if (!value) return [];
+    const trimmed = value.trim();
+    const body = trimmed.startsWith('[') && trimmed.endsWith(']')
+        ? trimmed.slice(1, -1)
+        : trimmed;
+    return splitTopLevel(body, ',').map((x) => x.trim()).filter(Boolean);
+}
+
+function parseNamedArgs(text: string): Record<string, string> {
+    const args: Record<string, string> = {};
+    for (const part of splitTopLevel(text, ',')) {
+        const idx = part.indexOf('=');
+        if (idx === -1) continue;
+        const key = part.substring(0, idx).trim().toLowerCase();
+        const value = part.substring(idx + 1).trim();
+        if (key) args[key] = value;
+    }
+    return args;
+}
+
+function appendSessionExtension(base: WorkoutStructure, ext: SessionExtension): WorkoutStructure {
+    const tags = Array.from(new Set([...(base.tags ?? []), 'orchestration', ext.kind]));
+    return {
+        ...base,
+        tags,
+        sessionExtension: ext,
+    };
+}
+
+function parseEmbeddedRWN(expr: string): WorkoutStructure | null {
+    const trimmed = expr.trim();
+    const modalityWrapped = trimmed.match(/^(row|bike|ski|run|other)\((.*)\)$/i);
+    if (modalityWrapped) {
+        const modality = modalityWrapped[1][0].toUpperCase() + modalityWrapped[1].slice(1).toLowerCase();
+        return parseRWN(`${modality}: ${modalityWrapped[2]}`);
+    }
+    return parseRWN(trimmed);
+}
+
+function parseSessionExtensionSyntax(text: string, modality?: WorkoutStructure['modality']): WorkoutStructure | null {
+    const call = text.trim().match(/^(partner|relay|rotate|circuit)\s*\((.*)\)$/i);
+    if (!call) return null;
+
+    const kind = call[1].toLowerCase() as SessionExtension['kind'];
+    const body = call[2].trim();
+
+    if (kind === 'circuit') {
+        const items = parseListValue(body);
+        return {
+            type: 'variable',
+            modality: modality ?? 'other',
+            steps: [],
+            tags: ['orchestration', 'circuit'],
+            sessionExtension: {
+                kind: 'circuit',
+                items,
+            },
+        };
+    }
+
+    const args = parseNamedArgs(body);
+
+    if (kind === 'partner') {
+        const onExpr = args.on;
+        if (!onExpr) return null;
+        const base = parseEmbeddedRWN(onExpr);
+        if (!base) return null;
+
+        return appendSessionExtension(base, {
+            kind: 'partner',
+            on: onExpr,
+            off: args.off ?? 'wait',
+            switch: args.switch ?? 'piece_end',
+        });
+    }
+
+    if (kind === 'relay') {
+        const leg = parseDistanceMeters(args.leg);
+        const total = parseDistanceMeters(args.total);
+        if (!leg || !total || leg <= 0 || total <= 0) return null;
+
+        const repeats = Math.max(1, Math.ceil(total / leg));
+        const base: WorkoutStructure = {
+            type: 'interval',
+            modality: modality ?? 'row',
+            repeats,
+            work: {
+                type: 'distance',
+                value: leg,
+            },
+            rest: {
+                type: 'time',
+                value: 0,
+            },
+            tags: ['orchestration', 'relay'],
+        };
+
+        return appendSessionExtension(base, {
+            kind: 'relay',
+            leg,
+            total,
+            switch: args.switch ?? 'leg_complete',
+            order: args.order ?? 'round_robin',
+            off_task: args.off_task ?? 'wait',
+            team_size: args.team_size ? parseInt(args.team_size, 10) : undefined,
+        });
+    }
+
+    if (kind === 'rotate') {
+        const plan = parseListValue(args.plan);
+        const parsedPlanEntries = plan.map((p) => parseEmbeddedRWN(p)).filter((v): v is WorkoutStructure => v != null);
+        const base = parsedPlanEntries[0] ?? {
+            type: 'variable',
+            modality: modality ?? 'other',
+            steps: [],
+            tags: ['orchestration', 'rotate'],
+        };
+
+        return appendSessionExtension(base, {
+            kind: 'rotate',
+            stations: args.stations ? parseInt(args.stations, 10) : (plan.length > 0 ? plan.length : undefined),
+            rounds: args.rounds ? parseInt(args.rounds, 10) : undefined,
+            switch: args.switch ?? 'piece_end',
+            plan,
+        });
+    }
+
+    return null;
+}
+
 // Helper: Parse a repeated group like "3 x ( ... )"
 function parseRepeatedGroup(text: string, modality?: WorkoutStructure['modality']): WorkoutStructure | null {
     // Regex matches "N x (anything)" or "N x (anything) / rest r"
@@ -500,6 +666,15 @@ export function parseRWN(input: string): WorkoutStructure | null {
         modality = modalityMatch[1].toLowerCase() as 'row' | 'bike' | 'ski' | 'run' | 'other';
         text = modalityMatch[2].trim();
     }
+
+    // 0.4 Session orchestration syntax (additive extension)
+    // Examples:
+    // - partner(on=4x1000m, off=wait, switch=piece_end)
+    // - relay(leg=500m,total=6000m)
+    // - rotate(stations=4, switch=15:00, rounds=4, plan=[run(15:00),row(4x500m/1:00r)])
+    // - circuit(20 burpees,20 pushups,20 situps)
+    const orchestrationStruct = parseSessionExtensionSyntax(text, modality);
+    if (orchestrationStruct) return orchestrationStruct;
 
     // 0.5 Check for "Repeated Group" FIRST if it wraps the whole string
     // e.g. "3 x ( ... )"

@@ -11,6 +11,22 @@ export type WorkoutStructure =
     | IntervalStructure
     | VariableStructure;
 
+export interface SessionExtension {
+    kind: 'partner' | 'relay' | 'rotate' | 'circuit';
+    switch?: string;
+    on?: string;
+    off?: string;
+    leg?: number;
+    total?: number;
+    team_size?: number;
+    order?: string;
+    off_task?: string;
+    stations?: number;
+    rounds?: number;
+    plan?: string[];
+    items?: string[];
+}
+
 // Block type for semantic workout segments (moved before usage)
 export type BlockType = 'warmup' | 'cooldown' | 'test' | 'main';
 
@@ -26,6 +42,7 @@ export interface SteadyStateStructure {
     target_pace_max?: string;  // If present, target_pace is min, this is max
     blockType?: BlockType;     // Semantic block type (warmup, cooldown, test, main)
     tags?: string[];           // Legacy inline tags (prefer blockType)
+    sessionExtension?: SessionExtension;
 }
 
 // Fixed intervals: Repeating distance/time/calories with time-based rest
@@ -36,6 +53,7 @@ export interface IntervalStructure {
     work: IntervalStep;
     rest: RestStep; // Rest is always time on PM5
     tags?: string[];
+    sessionExtension?: SessionExtension;
 }
 
 // Variable intervals: Complex/mixed patterns (pyramids, ladders, etc.)
@@ -44,6 +62,7 @@ export interface VariableStructure {
     modality?: 'row' | 'bike' | 'ski' | 'run' | 'other';
     steps: WorkoutStep[];
     tags?: string[];
+    sessionExtension?: SessionExtension;
 }
 
 // Step within a fixed interval (work duration)
