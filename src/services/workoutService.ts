@@ -1,8 +1,6 @@
 import { supabase } from './supabase';
 import type { C2ResultDetail, C2Stroke } from '../api/concept2.types';
-import { calculateCanonicalName } from '../utils/workoutNaming';
-import { parseRWN } from '../utils/rwnParser';
-import { structureToIntervals } from '../utils/structureAdapter';
+import { deriveCanonicalNameFromIntervals, deriveCanonicalNameFromRWN } from '../utils/workoutCanonical';
 import { autoCompleteAssignmentFromErgLinkLog } from './coaching/coachingService';
 import type { ErgLinkUploadMeta } from '../types/ergSession.types';
 
@@ -53,19 +51,14 @@ export const workoutService = {
 
             // 1. Manual Override Check (New Feature)
             if (log.manual_rwn) {
-                const parsed = parseRWN(log.manual_rwn);
-                if (parsed) {
-                    const intervals = structureToIntervals(parsed);
-                    const generated = calculateCanonicalName(intervals);
-                    if (generated) canonicalName = generated;
-                }
+                const generated = deriveCanonicalNameFromRWN(log.manual_rwn);
+                if (generated) canonicalName = generated;
             }
             // 2. Auto-Detection (Legacy / Default)
             // If missing OR "Unstructured", try to generate from raw (and backfill)
             else if ((!canonicalName || canonicalName === 'Unstructured') && raw && raw.workout && raw.workout.intervals) {
-                const generated = calculateCanonicalName(raw.workout.intervals);
-                // Accept new name if it's better (not Unknown/Unstructured)
-                if (generated && generated !== 'Unknown' && generated !== 'Unstructured') {
+                const generated = deriveCanonicalNameFromIntervals(raw.workout.intervals);
+                if (generated) {
                     canonicalName = generated;
                     // Fire & Forget update
                     supabase.from('workout_logs').update({ canonical_name: canonicalName }).eq('id', log.id).then();
@@ -133,7 +126,7 @@ export const workoutService = {
         if (data.raw_data) {
             let canonicalName = data.canonical_name;
             if (!canonicalName && data.raw_data.workout?.intervals) {
-                canonicalName = calculateCanonicalName(data.raw_data.workout.intervals);
+                canonicalName = deriveCanonicalNameFromIntervals(data.raw_data.workout.intervals) || canonicalName;
             }
             // Fallback
             if (!canonicalName) canonicalName = data.workout_name;

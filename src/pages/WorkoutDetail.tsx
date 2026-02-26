@@ -8,13 +8,13 @@ import { TemplateEditor } from '../components/TemplateEditor';
 import { fetchTemplateById } from '../services/templateService';
 import { useAuth } from '../hooks/useAuth';
 import { calculateWatts } from '../utils/prCalculator';
-import { calculateCanonicalName, detectIntervalsFromStrokes } from '../utils/workoutNaming';
+import { detectIntervalsFromStrokes } from '../utils/workoutNaming';
 import { parseRWN } from '../utils/rwnParser';
-import { structureToIntervals } from '../utils/structureAdapter';
+import { deriveCanonicalNameFromIntervals, deriveCanonicalNameFromRWN } from '../utils/workoutCanonical';
 import { calculateBucketsFromStrokes, ZONES } from '../utils/zones';
 import { getMainBlockIndices, detectWarmupCooldown } from '../utils/workoutAnalysis';
 import type { WarmupCooldownDetection } from '../utils/workoutAnalysis';
-import { findBestMatchingTemplate } from '../utils/templateMatching';
+import { findBestMatchingTemplate, findTemplateMatchesWithConfidence, type MatchReason } from '../utils/templateMatching';
 import { supabase } from '../services/supabase';
 import type { C2ResultDetail, C2Stroke, C2Interval, C2Split } from '../api/concept2.types';
 import type { WorkoutTemplate, WorkoutStructure } from '../types/workoutStructure.types';
@@ -66,9 +66,12 @@ export const WorkoutDetail: React.FC = () => {
     const [suggestedTemplates, setSuggestedTemplates] = useState<Array<{
         id: string;
         name: string;
+        canonical_name: string;
         rwn: string | null;
         usage_count: number;
         user_attempts: number;
+        match_confidence: number;
+        match_reason: MatchReason;
     }>>([]);
     const [suggestionDismissed, setSuggestionDismissed] = useState(false);
     const [linkingTemplateId, setLinkingTemplateId] = useState<string | null>(null);
@@ -149,28 +152,16 @@ export const WorkoutDetail: React.FC = () => {
             // Calculate the canonical name for matching
             let matchName = '';
             if (detail.manual_rwn) {
-                const parsed = parseRWN(detail.manual_rwn);
-                if (parsed) {
-                    matchName = calculateCanonicalName(structureToIntervals(parsed));
-                }
+                matchName = deriveCanonicalNameFromRWN(detail.manual_rwn) || '';
             } else if (detail.workout?.intervals && detail.workout.intervals.length > 0) {
-                matchName = calculateCanonicalName(detail.workout.intervals);
+                matchName = deriveCanonicalNameFromIntervals(detail.workout.intervals) || '';
             }
             
             if (!matchName || matchName === 'Workout') return;
             
             try {
-                // Find templates that match this canonical name
-                const { data: templates, error } = await supabase
-                    .from('workout_templates')
-                    .select('id, name, rwn, usage_count')
-                    .eq('canonical_name', matchName)
-                    .eq('workout_type', 'erg')
-                    .order('usage_count', { ascending: false })
-                    .limit(3);
-                
-                if (error) throw error;
-                if (!templates || templates.length === 0) return;
+                const templates = await findTemplateMatchesWithConfidence(profile.user_id, matchName, 3);
+                if (templates.length === 0) return;
                 
                 // Get user's attempt count for each template
                 const templatesWithAttempts = await Promise.all(
@@ -183,6 +174,7 @@ export const WorkoutDetail: React.FC = () => {
                         
                         return {
                             ...t,
+                            rwn: null,
                             user_attempts: count || 0
                         };
                     })
@@ -254,22 +246,22 @@ export const WorkoutDetail: React.FC = () => {
 
         // Manual Override (if set and not editing)
         if (!isEditing && detail?.manual_rwn) {
-            const parsed = parseRWN(detail.manual_rwn);
-            if (parsed) {
-                return calculateCanonicalName(structureToIntervals(parsed));
-            }
+            const fromManual = deriveCanonicalNameFromRWN(detail.manual_rwn);
+            if (fromManual) return fromManual;
         }
 
         if (!detail) return 'Workout';
         const intervals = detail.workout?.intervals || [];
         if (intervals.length > 0) {
-            return calculateCanonicalName(intervals);
+            const fromIntervals = deriveCanonicalNameFromIntervals(intervals);
+            if (fromIntervals) return fromIntervals;
         }
         // Try to detect from strokes if no explicit intervals
         if (strokes.length > 0) {
             const detected = detectIntervalsFromStrokes(strokes);
             if (detected.length > 1) {
-                return calculateCanonicalName(detected);
+                const fromDetected = deriveCanonicalNameFromIntervals(detected);
+                if (fromDetected) return fromDetected;
             }
         }
         // Fallback to distance if single piece
@@ -542,8 +534,7 @@ export const WorkoutDetail: React.FC = () => {
                                             }
 
                                             try {
-                                                const ints = structureToIntervals(res);
-                                                setPreviewName(calculateCanonicalName(ints));
+                                                setPreviewName(deriveCanonicalNameFromRWN(val) || null);
                                             } catch {
                                                 setPreviewName(null);
                                             }
@@ -690,6 +681,12 @@ export const WorkoutDetail: React.FC = () => {
                             </div>
                             <p className="text-white font-medium mb-1">
                                 This workout matches: <span className="text-amber-300">{suggestedTemplates[0].name}</span>
+                            </p>
+                            <p className="text-neutral-400 text-sm">
+                                Confidence {(suggestedTemplates[0].match_confidence * 100).toFixed(0)}%
+                                {suggestedTemplates[0].match_reason === 'exact_user_template'
+                                    ? ' • Exact match to your template'
+                                    : ' • Exact community match'}
                             </p>
                             <p className="text-neutral-400 text-sm">
                                 Used by {suggestedTemplates[0].usage_count || 0} athletes
@@ -904,7 +901,7 @@ export const WorkoutDetail: React.FC = () => {
                         if (detail.manual_rwn) {
                             const res = parseRWN(detail.manual_rwn);
                             if (res) {
-                                setPreviewName(calculateCanonicalName(structureToIntervals(res)));
+                                setPreviewName(deriveCanonicalNameFromRWN(detail.manual_rwn) || null);
                             }
                         }
                     }}

@@ -7,6 +7,7 @@ import { supabase } from '../services/supabase';
 import type { WorkoutTemplate } from '../types/workoutStructure.types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatDuration, estimateDuration } from '../utils/rwnParser';
+import { structureToRWN } from '../utils/structureToRWN';
 import { useAuth } from '../hooks/useAuth';
 import { WorkoutVisualizer } from '../components/WorkoutVisualizer';
 import { TemplateEditor } from '../components/TemplateEditor';
@@ -137,7 +138,7 @@ export const TemplateDetail: React.FC = () => {
 
     // Calculate duration estimate if we have structure
     const estimate = template.workout_structure
-        ? estimateDuration(JSON.stringify(template.workout_structure))
+        ? estimateDuration(structureToRWN(template.workout_structure))
         : null;
 
     return (

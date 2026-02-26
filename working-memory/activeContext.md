@@ -23,6 +23,40 @@ Publish ErgLink uploads to C2 Logbook using the athlete's stored C2 tokens.
 - [ ] `src/pages/Documentation.tsx` — needs orchestration section in spec tab
 - [ ] Verify `rwnParser.ts` + `rwnParser.test.ts` gap analysis (parser looks complete, tests at 50/50)
 
+### Magic Layer (Template ↔ Log ↔ Canonical ↔ RWN) 🔧 IN PROGRESS (2026-02-26)
+- [x] Added shared canonical utility: `src/utils/workoutCanonical.ts`
+  - `deriveCanonicalNameFromIntervals(...)`
+  - `deriveCanonicalNameFromStructure(...)`
+  - `deriveCanonicalNameFromRWN(...)`
+  - canonical normalization/signature helper
+- [x] Wired canonical derivation to core flows:
+  - `src/services/templateService.ts` (create/update canonical_name from shared utility)
+  - `src/services/workoutService.ts` (manual RWN + raw interval canonical derivation/backfill)
+  - `src/pages/WorkoutDetail.tsx` (matching + preview + display canonical derivation)
+- [x] Fixed template duration estimation path in `src/pages/TemplateDetail.tsx` to use `structureToRWN(...)` rather than JSON stringifying structure.
+- [x] Added confidence-scored suggestion matching (read-only first):
+  - `src/utils/templateMatching.ts` now returns `match_confidence` + `match_reason`
+  - `src/pages/WorkoutDetail.tsx` suggestion banner now displays confidence and reason text
+- [ ] Next: canonical signature persistence strategy + optional DB fields for match metadata (`match_reason`, `match_confidence`) on logs.
+
+### Copilot CLI Skill Pack ✅ COMPLETE (2026-02-26)
+- [x] Added project skills under `.github/skills/`:
+  - `supabase-schema-guard` (MCP-first schema/type drift validation)
+  - `preflight-test-gate` (lint/build/test gate workflow)
+  - `rowing-domain-validator` (rowing/training checks using `kb/` physiology/coaching/injury docs)
+  - `rwn-spec-guardian` (RWN spec + surface-map guard with discovery rule)
+- [x] Skills are repository-scoped and available via `/skills` in Copilot CLI.
+
+### Copilot CLI Skill Pack Expansion ✅ COMPLETE (2026-02-26)
+- [x] Added `ui-ux-consistency-guard` (a11y/responsive/interaction consistency checks across `src/pages` + `src/components`)
+- [x] Added `concept2-reliability-guard` (Concept2 scope/token/sync/publish/reconciliation reliability checks)
+
+### Copilot CLI Skill Pack Expansion II ✅ COMPLETE (2026-02-26)
+- [x] Added `coaching-rls-guard` (team/org scoping, role hierarchy, RLS safety checks)
+- [x] Added `migration-safety-guard` (DDL rollout/backfill/policy/RPC safety checks)
+- [x] Added `analytics-integrity-guard` (metric/unit/statistical/visualization integrity checks)
+- [x] Added `edge-function-operability-guard` (auth/secrets/idempotency/observability/deploy checks)
+
 ### ErgLink ↔ LC Integration Contract (ADR-017) ✅ COMPLETE
 Defined shared TypeScript types in `src/types/ergSession.types.ts` (canonical — mirrored in ErgLink) covering:
 - **`ActiveWorkoutSpec`** — typed shape for `erg_sessions.active_workout` JSONB. Replaces local `WorkoutConfig` in `CoachSessions.tsx`.

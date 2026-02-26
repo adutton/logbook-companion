@@ -4,7 +4,12 @@
  */
 
 import { supabase } from '../services/supabase';
-import { normalizeForMatching } from './workoutNormalization';
+import { canonicalSignatureFromCanonicalName } from './workoutCanonical';
+
+export type MatchReason =
+  | 'exact_user_template'
+  | 'exact_community_template'
+  | 'no_match';
 
 export interface MatchedTemplate {
   id: string;
@@ -12,6 +17,68 @@ export interface MatchedTemplate {
   canonical_name: string;
   usage_count: number;
   created_by: string | null;
+  match_confidence: number;
+  match_reason: MatchReason;
+  canonical_signature: string;
+}
+
+function computeExactMatchConfidence(
+  isUserTemplate: boolean,
+  usageCount: number
+): { confidence: number; reason: MatchReason } {
+  const usageBonus = Math.min(Math.log10(Math.max(usageCount, 0) + 1) * 0.04, 0.08);
+  if (isUserTemplate) {
+    return {
+      confidence: Math.min(0.92 + usageBonus, 0.99),
+      reason: 'exact_user_template',
+    };
+  }
+  return {
+    confidence: Math.min(0.84 + usageBonus, 0.94),
+    reason: 'exact_community_template',
+  };
+}
+
+export async function findTemplateMatchesWithConfidence(
+  userId: string,
+  canonicalName: string | null,
+  limit = 3
+): Promise<MatchedTemplate[]> {
+  const canonicalSignature = canonicalSignatureFromCanonicalName(canonicalName);
+  if (!canonicalSignature) {
+    return [];
+  }
+
+  const { data: templates, error } = await supabase
+    .from('workout_templates')
+    .select('id, name, canonical_name, usage_count, created_by')
+    .eq('canonical_name', canonicalSignature)
+    .order('usage_count', { ascending: false })
+    .limit(Math.max(limit, 1));
+
+  if (error || !templates || templates.length === 0) {
+    return [];
+  }
+
+  const scored = templates.map((template) => {
+    const isUserTemplate = template.created_by === userId;
+    const { confidence, reason } = computeExactMatchConfidence(isUserTemplate, template.usage_count ?? 0);
+    return {
+      ...template,
+      canonical_signature: canonicalSignature,
+      match_confidence: confidence,
+      match_reason: reason,
+    };
+  });
+
+  scored.sort((a, b) => {
+    if (b.match_confidence !== a.match_confidence) {
+      return b.match_confidence - a.match_confidence;
+    }
+    return (b.usage_count ?? 0) - (a.usage_count ?? 0);
+  });
+
+  return scored.slice(0, limit);
 }
 
 /**
@@ -24,32 +91,8 @@ export async function findBestMatchingTemplate(
   userId: string,
   canonicalName: string | null
 ): Promise<MatchedTemplate | null> {
-  if (!canonicalName) {
-    return null;
-  }
-
-  // Normalize for matching (strips block tags, normalizes spacing)
-  const normalizedName = normalizeForMatching(canonicalName);
-
-  // Query all templates with matching canonical_name
-  const { data: templates, error } = await supabase
-    .from('workout_templates')
-    .select('id, name, canonical_name, usage_count, created_by')
-    .eq('canonical_name', normalizedName)
-    .order('usage_count', { ascending: false });
-
-  if (error || !templates || templates.length === 0) {
-    return null;
-  }
-
-  // Priority 1: User's own templates (created_by = userId)
-  const userTemplate = templates.find(t => t.created_by === userId);
-  if (userTemplate) {
-    return userTemplate;
-  }
-
-  // Priority 2: Most popular community template (already sorted by usage_count DESC)
-  return templates[0];
+  const matches = await findTemplateMatchesWithConfidence(userId, canonicalName, 1);
+  return matches[0] ?? null;
 }
 
 /**

@@ -4,6 +4,183 @@
 
 ---
 
+## Phase 29: Magic Layer Confidence Matching (Read-Only Suggestion Mode) (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Add confidence-scored template matching for workout suggestions without introducing breaking schema changes or auto-link behavior changes.
+
+### Changes Implemented
+
+#### 1. Confidence-scored matching utility
+- `src/utils/templateMatching.ts`
+  - Added `MatchReason` (`exact_user_template`, `exact_community_template`, `no_match`)
+  - Added `findTemplateMatchesWithConfidence(...)`
+  - `MatchedTemplate` now includes:
+    - `match_confidence`
+    - `match_reason`
+    - `canonical_signature`
+  - `findBestMatchingTemplate(...)` now delegates to confidence matcher for deterministic behavior.
+
+#### 2. Workout detail suggestion wiring
+- `src/pages/WorkoutDetail.tsx`
+  - Suggestion fetch path now uses `findTemplateMatchesWithConfidence(...)`.
+  - Suggestion banner now shows confidence % and reason text (user template vs community exact match).
+  - Existing link action remains explicit/manual (read-only suggestion mode preserved).
+
+### Verification
+
+- Targeted lint: `npx eslint src/utils/templateMatching.ts src/pages/WorkoutDetail.tsx` → ✅ pass
+- Build: `npm run build` → ✅ pass
+- Focused tests:
+  - `src/utils/rwnParser.test.ts`
+  - `src/utils/workoutEntryClassifier.test.ts`
+  - `src/utils/workoutNaming.test.ts`
+  - Result: ✅ `67/67` passing
+
+### Outcome
+
+Template suggestions now communicate confidence and match reason, making matching behavior more transparent for users while keeping the current non-breaking, user-confirmed linking workflow.
+
+---
+
+## Phase 28: Magic Layer Foundation (Canonical Derivation Unification) (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete (foundation slice)
+
+### What Was Built
+
+**Goal**: Start the magic-layer implementation by unifying canonical name derivation across templates, logs, and workout detail flows without breaking existing imports/behavior.
+
+### Changes Implemented
+
+#### 1. New shared canonical utility
+- `src/utils/workoutCanonical.ts`
+  - Added shared helpers:
+    - `deriveCanonicalNameFromIntervals(...)`
+    - `deriveCanonicalNameFromStructure(...)`
+    - `deriveCanonicalNameFromRWN(...)`
+    - `normalizeCanonicalName(...)`
+    - `canonicalSignatureFromCanonicalName(...)`
+  - Centralizes canonical normalization and filters invalid canonical values (`Unknown`, `Unstructured`, etc.).
+
+#### 2. Template + log flow wiring
+- `src/services/templateService.ts`
+  - Template create/update now uses shared canonical derivation from structure.
+- `src/services/workoutService.ts`
+  - Manual RWN and raw interval canonical generation now use shared helpers for consistent output and backfill behavior.
+
+#### 3. Workout detail consistency updates
+- `src/pages/WorkoutDetail.tsx`
+  - Canonical derivation for template suggestions, preview name, and displayed workout name now routes through shared helpers.
+
+#### 4. Template estimate correctness fix
+- `src/pages/TemplateDetail.tsx`
+  - Fixed duration estimate input by passing `structureToRWN(template.workout_structure)` instead of `JSON.stringify(workout_structure)`.
+
+### Verification
+
+- `npm run build` → ✅ pass
+- `npm run test:run` → ✅ pass (`11/11` files, `209/209` tests)
+- `npm run lint` baseline remains failing on pre-existing repository-wide lint debt (unchanged by this slice).
+
+### Outcome
+
+Canonical naming behavior is now more deterministic across key user paths, reducing drift risk between template storage, log display, and manual-RWN workflows while remaining backward compatible.
+
+---
+
+## Phase 27: Copilot Skill Pack Expansion II (Coaching/RLS, Migrations, Analytics, Edge Ops) (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Add four additional repository skills for high-risk governance areas: coaching access control, migration safety, analytics correctness, and edge-function operability.
+
+### Changes Implemented
+
+#### 1. Coaching + RLS Guard
+- `.github/skills/coaching-rls-guard/SKILL.md`
+  - Enforces team/org scoping checks, role hierarchy alignment, multi-team safety, and RLS-compatible query behavior.
+
+#### 2. Migration Safety Guard
+- `.github/skills/migration-safety-guard/SKILL.md`
+  - Enforces migration-first DDL, rollout sequencing, policy/RPC safety, and post-apply verification expectations.
+
+#### 3. Analytics Integrity Guard
+- `.github/skills/analytics-integrity-guard/SKILL.md`
+  - Enforces formula/unit consistency, filtered-population statistical correctness, and visualization semantics alignment.
+
+#### 4. Edge Function Operability Guard
+- `.github/skills/edge-function-operability-guard/SKILL.md`
+  - Enforces auth-mode intent, secret hygiene, retry/idempotency behavior, observability quality, and deployment completeness checks.
+
+### Outcome
+
+The project skill pack now covers both implementation quality and operational safety across UI, data, training domain logic, RWN, Concept2 integration, coaching access control, migrations, analytics, and edge runtimes.
+
+---
+
+## Phase 26: Copilot Skill Pack Expansion (UI/UX + Concept2) (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Extend the project skill pack with one UX-governance skill and one Concept2 reliability skill.
+
+### Changes Implemented
+
+#### 1. UI/UX Consistency Skill
+- `.github/skills/ui-ux-consistency-guard/SKILL.md`
+  - Adds checks for accessibility baseline, responsive behavior, interaction-state consistency, and cross-surface pattern alignment.
+  - Includes discovery/search rule for shared UI pattern drift in `src/pages` and `src/components`.
+
+#### 2. Concept2 Reliability Skill
+- `.github/skills/concept2-reliability-guard/SKILL.md`
+  - Adds checks for OAuth scopes, token lifecycle reliability, sync/publish idempotency, mapping consistency, and operational readiness.
+  - Anchors validation to existing C2 surfaces (`concept2.ts`, `useConcept2Sync`, callback/sync pages, reconnect prompts, reconciliation, workout service).
+
+### Outcome
+
+The skill set now directly covers UX consistency governance and Concept2 integration reliability, reducing regressions in two high-change, high-impact areas.
+
+---
+
+## Phase 25: Copilot CLI Skill Pack (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Add repository-level Copilot skills to standardize Supabase schema validation, testing gates, rowing domain validation, and RWN integrity checks.
+
+### Changes Implemented
+
+#### 1. New project skills under `.github/skills/`
+- `supabase-schema-guard/SKILL.md`
+  - MCP-first schema inspection and drift checks against `src/lib/types/database.ts`.
+- `preflight-test-gate/SKILL.md`
+  - Standard pre/post-change validation sequence (`lint`, `build`, `test:run`) with clear failure reporting.
+- `rowing-domain-validator/SKILL.md`
+  - Rowing/training validation checklist grounded in KB sources across physiology, coaching plans, and injury prevention.
+- `rwn-spec-guardian/SKILL.md`
+  - RWN source-of-truth guard (`rwn/RWN_spec.md`), known touchpoint list, discovery rule, and round-trip/spec-doc alignment checks.
+
+### Outcome
+
+The repository now has reusable, explicit Copilot skill workflows for high-risk areas (DB/schema, validation rigor, rowing-domain correctness, and RWN consistency), improving repeatability and reducing prompt-by-prompt setup overhead.
+
+---
+
 ## Phase 24: Team Invite Flow Reliability Fix (February 25, 2026)
 
 **Timeline**: February 25, 2026  
