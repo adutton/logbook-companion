@@ -28,7 +28,7 @@ import type { OrgTeamGroup } from '../../contexts/coachingContextDef';
 import type { CoachingBoating, CoachingSession, UserTeamInfo, TeamRole } from '../../services/coaching/types';
 import { format } from 'date-fns';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
-import { benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
+import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import { toast } from 'sonner';
 
@@ -779,38 +779,30 @@ export const CoachDashboard: React.FC = () => {
                                 <span className="text-neutral-300">{a.experience_level ? experienceLevelLabel[a.experience_level] : '—'}</span>
                               )}
                             </td>
-                            <td className="px-3 py-2.5 cursor-pointer" onClick={() => startEditingCell(a, 'performance_tier')}>
-                              {isEditingCell(a.id, 'performance_tier') ? (
-                                <select
-                                  autoFocus
-                                  value={editValue}
-                                  onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
-                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
-                                >
-                                  <option value="">—</option>
-                                  <option value="pool">Pool</option>
-                                  <option value="developmental">Developmental</option>
-                                  <option value="challenger">Challenger</option>
-                                  <option value="champion">Champion</option>
-                                </select>
-                              ) : (
-                                <div className="space-y-1">
-                                  {(() => {
-                                    const best2k = orgBest2kByAthlete[a.id] ?? null;
-                                    const benchmarkTier = deriveBenchmarkTier(a.squad ?? null, best2k);
-                                    if (!benchmarkTier && !a.performance_tier) return <span className="text-neutral-300">—</span>;
-                                    return (
-                                      <>
-                                        <span className="text-neutral-300">
-                                          {benchmarkTier ? benchmarkTierLabel(benchmarkTier) : performanceTierLabel[a.performance_tier!]}
+                            <td className="px-3 py-2.5">
+                              <div className="space-y-1">
+                                {(() => {
+                                  const best2k = orgBest2kByAthlete[a.id] ?? null;
+                                  const benchmarkTier = deriveBenchmarkTier(a.squad ?? null, best2k);
+                                  const criteria = benchmarkCriteriaIndicator(a.squad ?? null, best2k);
+                                  if (!benchmarkTier && !a.performance_tier && best2k == null) return <span className="text-neutral-300">—</span>;
+                                  return (
+                                    <>
+                                      {benchmarkTier ? (
+                                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${benchmarkTierBadgeClass(benchmarkTier)}`}>
+                                          {benchmarkTierLabel(benchmarkTier)}
                                         </span>
-                                        {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
-                                      </>
-                                    );
-                                  })()}
-                                </div>
-                              )}
+                                      ) : (
+                                        <span className="text-neutral-300">
+                                          {a.performance_tier ? performanceTierLabel[a.performance_tier] : 'Needs squad mapping'}
+                                        </span>
+                                      )}
+                                      {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
+                                      {criteria && <div className={`text-[10px] ${criteria.className}`}>{criteria.text}</div>}
+                                    </>
+                                  );
+                                })()}
+                              </div>
                             </td>
                             <td className="px-3 py-2.5 text-neutral-300 cursor-pointer" onClick={() => startEditingCell(a, 'height_cm')}>
                               {isEditingCell(a.id, 'height_cm') ? (

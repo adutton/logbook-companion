@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 import {
   quickScoreAndComplete,
   completeAthleteAssignment,
+  createErgScore,
+  updateAthlete,
   type CoachingAthlete,
   type AssignmentCompletion,
 } from '../../services/coaching/coachingService';
@@ -33,12 +35,14 @@ export function QuickScoreModal({
   // Pick the first missing assignment (most common: one assignment per day)
   const [selectedIdx, setSelectedIdx] = useState(0);
   const selectedCompletion = missingCompletions[selectedIdx];
+  const hasLinkedAssignment = !!selectedCompletion;
 
   // Score fields
-  const [distance, setDistance] = useState('');
+  const [distance, setDistance] = useState('2000');
   const [minutes, setMinutes] = useState('');
   const [seconds, setSeconds] = useState('');
   const [tenths, setTenths] = useState('');
+  const [weightLbs, setWeightLbs] = useState('');
   const [strokeRate, setStrokeRate] = useState('');
   const [heartRate, setHeartRate] = useState('');
   const [notes, setNotes] = useState('');
@@ -60,19 +64,19 @@ export function QuickScoreModal({
       ? Math.round(2.8 / Math.pow(split500m / 500, 3))
       : undefined;
 
-  const canSubmit = markOnlyMode || (distanceNum > 0 && totalSeconds > 0);
+  const canSubmit = (hasLinkedAssignment && markOnlyMode) || (distanceNum > 0 && totalSeconds > 0);
 
   const handleSubmit = async () => {
-    if (!canSubmit || !selectedCompletion) return;
+    if (!canSubmit) return;
     setSubmitting(true);
     try {
-      if (markOnlyMode) {
+      if (markOnlyMode && selectedCompletion) {
         // Just mark complete — no score
         await completeAthleteAssignment(
           selectedCompletion.group_assignment_id,
           athlete.id
         );
-      } else {
+      } else if (selectedCompletion) {
         await quickScoreAndComplete(teamId, coachUserId, athlete.id, selectedCompletion.group_assignment_id, {
           distance: distanceNum,
           time_seconds: totalSeconds,
@@ -82,6 +86,23 @@ export function QuickScoreModal({
           heart_rate: parseInt(heartRate) || undefined,
           notes: notes.trim() || undefined,
         });
+      } else {
+        await createErgScore(teamId, coachUserId, {
+          athlete_id: athlete.id,
+          date: new Date().toISOString().slice(0, 10),
+          distance: distanceNum,
+          time_seconds: totalSeconds,
+          split_500m: split500m,
+          watts,
+          stroke_rate: parseInt(strokeRate) || undefined,
+          heart_rate: parseInt(heartRate) || undefined,
+          notes: notes.trim() || undefined,
+        });
+      }
+      const parsedWeightLbs = parseFloat(weightLbs);
+      if (Number.isFinite(parsedWeightLbs) && parsedWeightLbs > 0) {
+        const weightKg = Math.round((parsedWeightLbs / 2.20462) * 100) / 100;
+        await updateAthlete(athlete.id, { weight_kg: weightKg });
       }
       toast.success(`Score recorded for ${athlete.name}`);
       onComplete();
@@ -137,20 +158,25 @@ export function QuickScoreModal({
           </div>
         )}
 
-        {/* Mark-only toggle */}
-        <div className="mb-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={markOnlyMode}
-              onChange={(e) => setMarkOnlyMode(e.target.checked)}
-              className="rounded border-neutral-600 bg-neutral-800 text-indigo-500 focus:ring-indigo-500"
-            />
-            <span className="text-sm text-neutral-300">
-              Just mark complete (no score)
-            </span>
-          </label>
-        </div>
+        {hasLinkedAssignment ? (
+          <div className="mb-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={markOnlyMode}
+                onChange={(e) => setMarkOnlyMode(e.target.checked)}
+                className="rounded border-neutral-600 bg-neutral-800 text-indigo-500 focus:ring-indigo-500"
+              />
+              <span className="text-sm text-neutral-300">
+                Just mark complete (no score)
+              </span>
+            </label>
+          </div>
+        ) : (
+          <p className="mb-4 text-xs text-neutral-500">
+            No open assignment selected — this will save a standalone erg score.
+          </p>
+        )}
 
         {/* Score fields (hidden in mark-only mode) */}
         {!markOnlyMode && (
@@ -233,6 +259,17 @@ export function QuickScoreModal({
             {/* Optional fields — inline row */}
             <div className="flex gap-3">
               <div className="flex-1">
+                <label className="text-xs text-neutral-500 block mb-1">Weight (lbs)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={weightLbs}
+                  onChange={(e) => setWeightLbs(e.target.value)}
+                  placeholder="Optional"
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-center placeholder-neutral-600 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                />
+              </div>
+              <div className="flex-1">
                 <label className="text-xs text-neutral-500 block mb-1">S/M</label>
                 <input
                   type="number"
@@ -268,6 +305,9 @@ export function QuickScoreModal({
               />
             </div>
           </div>
+        )}
+        {!canSubmit && (
+          <p className="mt-3 text-xs text-amber-400">Enter distance and time to enable Save.</p>
         )}
 
         {/* Actions */}

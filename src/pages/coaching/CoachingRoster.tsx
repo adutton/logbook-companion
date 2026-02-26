@@ -21,7 +21,7 @@ import { AthleteEditorModal } from '../../components/coaching/AthleteEditorModal
 import { BulkRosterModal } from '../../components/coaching/BulkRosterModal';
 import { downloadCsv } from '../../utils/csvExport';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
-import { benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
+import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
@@ -548,6 +548,13 @@ export function CoachingRoster() {
                   >
                     <ExternalLink className="w-4 h-4 text-neutral-400" />
                   </button>
+                  <button
+                    onClick={() => setQuickScoreAthlete(athlete)}
+                    className="p-2 hover:bg-neutral-700 rounded-lg transition-colors"
+                    title="Add score"
+                  >
+                    <Plus className="w-4 h-4 text-neutral-400" />
+                  </button>
                   {canTransfer && (
                     <button
                       onClick={() => setTransferringAthlete(athlete)}
@@ -645,41 +652,34 @@ export function CoachingRoster() {
                 </div>
 
                 {/* Performance Tier */}
-                <div className="cursor-pointer" onClick={() => startEditing(athlete.id, 'performance_tier')}>
+                <div>
                   <span className="text-neutral-500 text-xs">Performance Tier</span>
                   <div>
-                    {isEditing(athlete.id, 'performance_tier') ? (
-                      <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
-                        onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-full`} title="Performance tier">
-                        <option value="">Unset</option>
-                        <option value="pool">Pool</option>
-                        <option value="developmental">Developmental</option>
-                        <option value="challenger">Challenger</option>
-                        <option value="champion">Champion</option>
-                      </select>
-                    ) : (
-                      <div className="space-y-1">
-                        {(() => {
-                          const best2k = best2kByAthlete[athlete.id] ?? null;
-                          const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
-                          if (!benchmarkTier && !athlete.performance_tier) return <span className="text-neutral-600">—</span>;
-                          return (
-                            <>
-                              {benchmarkTier ? (
-                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-900/30 text-emerald-300">
-                                  {benchmarkTierLabel(benchmarkTier)}
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
-                                  {athlete.performance_tier?.charAt(0).toUpperCase()}{athlete.performance_tier?.slice(1)}
-                                </span>
-                              )}
-                              {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    )}
+                    <div className="space-y-1">
+                      {(() => {
+                        const best2k = best2kByAthlete[athlete.id] ?? null;
+                        const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
+                        const criteria = benchmarkCriteriaIndicator(athlete.squad ?? null, best2k);
+                        if (!benchmarkTier && !athlete.performance_tier && best2k == null) return <span className="text-neutral-600">—</span>;
+                        return (
+                          <>
+                            {benchmarkTier ? (
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${benchmarkTierBadgeClass(benchmarkTier)}`}>
+                                {benchmarkTierLabel(benchmarkTier)}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
+                                {athlete.performance_tier
+                                  ? `${athlete.performance_tier.charAt(0).toUpperCase()}${athlete.performance_tier.slice(1)}`
+                                  : 'Needs squad mapping'}
+                              </span>
+                            )}
+                            {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
+                            {criteria && <div className={`text-[10px] ${criteria.className}`}>{criteria.text}</div>}
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 
@@ -851,39 +851,32 @@ export function CoachingRoster() {
                     </td>
 
                     {/* Performance Tier */}
-                    <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'performance_tier')}>
-                      {isEditing(athlete.id, 'performance_tier') ? (
-                        <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-36`} title="Performance tier">
-                          <option value="">Unset</option>
-                          <option value="pool">Pool</option>
-                          <option value="developmental">Developmental</option>
-                          <option value="challenger">Challenger</option>
-                          <option value="champion">Champion</option>
-                        </select>
-                      ) : (
-                        <div className="space-y-1">
-                          {(() => {
-                            const best2k = best2kByAthlete[athlete.id] ?? null;
-                            const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
-                            if (!benchmarkTier && !athlete.performance_tier) return <span className="text-neutral-600">—</span>;
-                            return (
-                              <>
+                    <td className={cellBase}>
+                      <div className="space-y-1">
+                        {(() => {
+                          const best2k = best2kByAthlete[athlete.id] ?? null;
+                          const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
+                          const criteria = benchmarkCriteriaIndicator(athlete.squad ?? null, best2k);
+                          if (!benchmarkTier && !athlete.performance_tier && best2k == null) return <span className="text-neutral-600">—</span>;
+                          return (
+                            <>
                                 {benchmarkTier ? (
-                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-900/30 text-emerald-300">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${benchmarkTierBadgeClass(benchmarkTier)}`}>
                                     {benchmarkTierLabel(benchmarkTier)}
                                   </span>
                                 ) : (
                                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
-                                    {athlete.performance_tier?.charAt(0).toUpperCase()}{athlete.performance_tier?.slice(1)}
+                                    {athlete.performance_tier
+                                      ? `${athlete.performance_tier.charAt(0).toUpperCase()}${athlete.performance_tier.slice(1)}`
+                                      : 'Needs squad mapping'}
                                   </span>
                                 )}
-                                {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      )}
+                              {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
+                              {criteria && <div className={`text-[10px] ${criteria.className}`}>{criteria.text}</div>}
+                            </>
+                          );
+                        })()}
+                      </div>
                     </td>
 
                     {/* Height (ft/in) */}
@@ -968,6 +961,13 @@ export function CoachingRoster() {
                           title="View detail"
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-neutral-500 hover:text-indigo-400" />
+                        </button>
+                        <button
+                          onClick={() => setQuickScoreAthlete(athlete)}
+                          className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
+                          title="Add score"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-neutral-500 hover:text-indigo-400" />
                         </button>
                         {canTransfer && (
                           <button
