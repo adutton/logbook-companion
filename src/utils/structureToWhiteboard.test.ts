@@ -56,10 +56,11 @@ describe('structureToWhiteboard', () => {
 
     it('partner workout', () => {
         const lines = wb('partner(on=4x1000m/...r, off=wait)');
-        expect(lines[0]).toBe('PARTNERS');
-        expect(lines[1]).toContain('A (erg)');
-        expect(lines.some(l => l.includes('1000m'))).toBe(true);
-        expect(lines.some(l => l.startsWith('B:'))).toBe(true);
+        expect(lines[0]).toContain('PARTNERS');
+        expect(lines[0]).toContain('4 × 1000m each');
+        expect(lines[1]).toBe('A: erg');
+        expect(lines[2]).toBe('B: rest');
+        expect(lines[3]).toContain('Switch each piece');
     });
 
     it('relay', () => {

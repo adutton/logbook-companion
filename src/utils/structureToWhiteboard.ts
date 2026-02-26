@@ -318,14 +318,13 @@ function renderOrchestration(structure: WorkoutStructure): string[] {
 }
 
 function renderPartner(ext: SessionExtension, coreLines: string[]): string[] {
-    const lines: string[] = ['PARTNERS'];
+    // Header: "PARTNERS — 4 × 1000m each" (core workout as subtitle)
+    const coreSummary = coreLines.map(l => l.trimStart()).join(', ');
+    const lines: string[] = [`PARTNERS — ${coreSummary} each`];
 
-    // Lane A: erg workout
-    lines.push('A (erg):');
-    coreLines.forEach((l) => lines.push(`  ${l.trimStart()}`));
-
-    // Lane B: off-task
-    const offTask = ext.off && ext.off !== 'wait' ? ext.off : 'wait';
+    // Lane A / Lane B
+    const offTask = ext.off && ext.off !== 'wait' ? ext.off : 'rest';
+    lines.push('A: erg');
     lines.push(`B: ${offTask}`);
 
     const switchRule =
