@@ -2,17 +2,26 @@
 
 > Last updated: February 26, 2026
 
-## Current Focus: ErgLink → C2 Publishing Pipeline + Assignments Page UX Redesign
+## Current Focus: ErgLink → C2 Publishing Pipeline (blocked on C2 approval)
 
-### ErgLink → Concept2 Logbook Publishing (Option B) 🔧 IN PROGRESS
+### ErgLink → Concept2 Logbook Publishing (Option B) ⏸️ BLOCKED
 Publish ErgLink uploads to C2 Logbook using the athlete's stored C2 tokens.
 - [x] Migration: added `c2_published_at` timestamptz column to `workout_logs`
 - [x] Edge Function `publish-to-c2` deployed — reads unpublished EL uploads, POSTs to C2 API, stamps `external_id` + `c2_published_at`
 - [x] OAuth scope updated from `results:read` → `results:write` in 5 LC files (Layout, Dashboard, Sync, Callback, concept2.ts)
+- [ ] **BLOCKED**: Contact C2 (`ranking@concept2.com`) for live write API approval (dev-server testing first on `log-dev.concept2.com`)
 - [ ] Set Edge Function secrets: `CONCEPT2_CLIENT_ID`, `CONCEPT2_CLIENT_SECRET` (via Supabase Dashboard → Edge Functions → Secrets)
-- [ ] Contact C2 (`ranking@concept2.com`) for live write API approval (dev-server testing first on `log-dev.concept2.com`)
 - [ ] Wire EL to call `publish-to-c2` after uploading to `workout_logs`
 - [ ] Existing users must re-link C2 to get `results:write` scope (refresh can't upgrade scopes)
+
+### RWN Playground & Spec Updates 🔧 IN PROGRESS
+- [x] `structureToRWN.ts` — orchestration serialization (partner/relay/rotate/circuit round-trip)
+- [x] `RWNPlayground.tsx` — orchestration examples, PM5 badge, session extension panel, Rate Ladder example
+- [x] `structureToWhiteboard.ts` — coach whiteboard renderer (tabular ladders, W/U/C/D, orchestration headers)
+- [x] `structureToWhiteboard.test.ts` — 11 tests passing
+- [ ] `rwn/RWN_spec.md` — needs Section 13: Session Orchestration Extensions
+- [ ] `src/pages/Documentation.tsx` — needs orchestration section in spec tab
+- [ ] Verify `rwnParser.ts` + `rwnParser.test.ts` gap analysis (parser looks complete, tests at 50/50)
 
 ### ErgLink ↔ LC Integration Contract (ADR-017) ✅ COMPLETE
 Defined shared TypeScript types in `src/types/ergSession.types.ts` (canonical — mirrored in ErgLink) covering:
