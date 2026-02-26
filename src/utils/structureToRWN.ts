@@ -3,7 +3,7 @@
  * This is the "trinity" regeneration function: Structure → RWN
  */
 
-import type { WorkoutStructure, BlockType, IntervalStructure, VariableStructure } from '../types/workoutStructure.types';
+import type { WorkoutStructure, BlockType, IntervalStructure, VariableStructure, SessionExtension } from '../types/workoutStructure.types';
 
 // Helper: Format block tag prefix from blockType
 function getBlockTagPrefix(step: { blockType?: BlockType }): string {
@@ -19,10 +19,62 @@ function formatTime(seconds: number): string {
     return secs > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${mins}:00`;
 }
 
+function formatDistance(meters: number): string {
+    return `${meters}m`;
+}
+
+// Serialize a SessionExtension back to orchestration syntax
+function serializeSessionExtension(ext: SessionExtension, coreRWN: string): string {
+    switch (ext.kind) {
+        case 'partner': {
+            const parts: string[] = [];
+            parts.push(`on=${ext.on ?? coreRWN}`);
+            if (ext.off && ext.off !== 'wait') parts.push(`off=${ext.off}`);
+            if (ext.switch && ext.switch !== 'piece_end') parts.push(`switch=${ext.switch}`);
+            return `partner(${parts.join(', ')})`;
+        }
+        case 'relay': {
+            const parts: string[] = [];
+            if (ext.leg) parts.push(`leg=${formatDistance(ext.leg)}`);
+            if (ext.total) parts.push(`total=${formatDistance(ext.total)}`);
+            if (ext.team_size) parts.push(`team_size=${ext.team_size}`);
+            if (ext.order && ext.order !== 'round_robin') parts.push(`order=${ext.order}`);
+            if (ext.off_task && ext.off_task !== 'wait') parts.push(`off_task=${ext.off_task}`);
+            return `relay(${parts.join(', ')})`;
+        }
+        case 'rotate': {
+            const parts: string[] = [];
+            if (ext.stations) parts.push(`stations=${ext.stations}`);
+            if (ext.switch) parts.push(`switch=${ext.switch}`);
+            if (ext.rounds) parts.push(`rounds=${ext.rounds}`);
+            if (ext.plan && ext.plan.length > 0) parts.push(`plan=[${ext.plan.join(',')}]`);
+            return `rotate(${parts.join(', ')})`;
+        }
+        case 'circuit': {
+            const items = ext.items ?? [];
+            return `circuit(${items.join(', ')})`;
+        }
+        default:
+            return coreRWN;
+    }
+}
+
 export function structureToRWN(structure: WorkoutStructure): string {
     if (!structure) {
         return '';
     }
+
+    // Build core RWN first, then wrap with orchestration if needed
+    const coreRWN = structureToCoreRWN(structure);
+
+    if (structure.sessionExtension) {
+        return serializeSessionExtension(structure.sessionExtension, coreRWN);
+    }
+
+    return coreRWN;
+}
+
+function structureToCoreRWN(structure: WorkoutStructure): string {
 
     if (structure.type === 'steady_state') {
         const steadyStruct = structure as unknown as { blockType?: BlockType; value: number; unit: string; zone?: string };
