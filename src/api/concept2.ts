@@ -119,8 +119,11 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
             // Use the LATEST refresh token if possible, though 'refreshToken' arg is usually it
             params.append('refresh_token', refreshToken);
             // Explicitly request the scopes we want. This handles cases where:
-            // 1. The original token had scopes that are no longer allowed (e.g. results:write)
-            // 2. We want to ensure we stay within our desired permission set
+            // 1. The original token had scopes that differ from our desired permission set
+            // 2. We keep results:read here (not results:write) because C2 does not allow
+            //    upgrading scopes via refresh — only the initial authorization can grant
+            //    additional scopes. The Edge Function (publish-to-c2) handles its own
+            //    token refresh with results:write for users who re-authorized.
             params.append('scope', 'user:read,results:read');
 
             try {

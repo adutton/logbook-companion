@@ -135,7 +135,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                             onClick={() => {
                                 const client_id = import.meta.env.VITE_CONCEPT2_CLIENT_ID;
                                 const redirect_uri = `${window.location.origin}/callback`;
-                                const scope = 'user:read,results:read';
+                                const scope = 'user:read,results:write';
                                 window.location.href = `https://log.concept2.com/oauth/authorize?client_id=${client_id}&scope=${scope}&response_type=code&redirect_uri=${redirect_uri}`;
                             }}
                             className="flex items-center gap-3 px-4 py-3 w-full text-left text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all"

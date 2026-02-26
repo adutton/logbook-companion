@@ -65,7 +65,7 @@ export const Dashboard: React.FC = () => {
     const handleConnect = () => {
         const client_id = import.meta.env.VITE_CONCEPT2_CLIENT_ID;
         const redirect_uri = `${window.location.origin}/callback`;
-        const scope = 'user:read,results:read';
+        const scope = 'user:read,results:write';
         const url = `https://log.concept2.com/oauth/authorize?client_id=${client_id}&scope=${scope}&response_type=code&redirect_uri=${redirect_uri}`;
         window.location.href = url;
     };

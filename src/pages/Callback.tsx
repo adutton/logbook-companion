@@ -38,7 +38,7 @@ export const Callback: React.FC = () => {
             params.append('grant_type', 'authorization_code');
             params.append('code', code);
             params.append('redirect_uri', `${window.location.origin}/callback`);
-            params.append('scope', 'user:read,results:read');
+            params.append('scope', 'user:read,results:write');
 
             const response = await axios.post('https://log.concept2.com/oauth/access_token', params, {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
