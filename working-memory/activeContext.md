@@ -1,8 +1,18 @@
 # Active Context
 
-> Last updated: February 25, 2026
+> Last updated: February 26, 2026
 
-## Current Focus: Assignments Page UX Redesign + ErgLink Integration Contract
+## Current Focus: ErgLink → C2 Publishing Pipeline + Assignments Page UX Redesign
+
+### ErgLink → Concept2 Logbook Publishing (Option B) 🔧 IN PROGRESS
+Publish ErgLink uploads to C2 Logbook using the athlete's stored C2 tokens.
+- [x] Migration: added `c2_published_at` timestamptz column to `workout_logs`
+- [x] Edge Function `publish-to-c2` deployed — reads unpublished EL uploads, POSTs to C2 API, stamps `external_id` + `c2_published_at`
+- [x] OAuth scope updated from `results:read` → `results:write` in 5 LC files (Layout, Dashboard, Sync, Callback, concept2.ts)
+- [ ] Set Edge Function secrets: `CONCEPT2_CLIENT_ID`, `CONCEPT2_CLIENT_SECRET` (via Supabase Dashboard → Edge Functions → Secrets)
+- [ ] Contact C2 (`ranking@concept2.com`) for live write API approval (dev-server testing first on `log-dev.concept2.com`)
+- [ ] Wire EL to call `publish-to-c2` after uploading to `workout_logs`
+- [ ] Existing users must re-link C2 to get `results:write` scope (refresh can't upgrade scopes)
 
 ### ErgLink ↔ LC Integration Contract (ADR-017) ✅ COMPLETE
 Defined shared TypeScript types in `src/types/ergSession.types.ts` (canonical — mirrored in ErgLink) covering:
@@ -94,6 +104,7 @@ Retired `coaching_athletes` → unified `athletes` + `team_athletes` model. All 
 **Self-service routes**: `/team` → MyTeamDashboard, `/team/scores` → MyScores. `/team/notes` and `/team/settings` pages not yet created (links exist in MyTeamDashboard but will 404).
 
 ### Recent Changes
+- **Team member add 500 fix (policy recursion) (2026-02-25)**: Root-caused `POST /rest/v1/team_members` 500 on add-by-email to recursive policy evaluation. The prior INSERT policy (`Coaches and coxswains can add team members`) referenced `public.team_members` directly inside `team_members` policy logic, which can trigger internal recursion/errors. Added migration `db/migrations/20260225_fix_team_members_insert_policy_recursion.sql` introducing security-definer helper `can_manage_team_members(team_id, user_id)` and rewired policy `WITH CHECK` to call helper instead of inline subquery. Applied live via Supabase MCP migration `fix_team_members_insert_policy_recursion` on project `vmlhcbkyonemmlawnqqr`; policy verification confirms `with_check = can_manage_team_members(team_id, auth.uid())`.
 - **Join flow already-member feedback polish (2026-02-25)**: Updated `src/pages/JoinTeam.tsx` so invite-code attempts by users already on a team now show a clearer message (`You are already on this team`) with a direct `Go to My Team` action. Error styling now uses an amber informational variant for already-member state in both enter and preview steps. Build verified clean (`npm run build`).
 - **Coach invite flows fixed for existing accounts (2026-02-25)**: Root-caused invite failures to RLS + lookup mismatch. `team_members` insert policy only allowed self-joins (`auth.uid() = user_id`), blocking coach/coxswain email-adds of other users; and `teams` select policy blocked non-members from reading private teams by invite code, breaking `/join` preview/join flow. **Service fix** (`src/services/coaching/coachingService.ts`): `getTeamByInviteCode()` now calls new RPC `lookup_team_by_invite_code(p_code)` (SECURITY DEFINER) and `addTeamMemberByEmail()` now performs case-insensitive email matching via `.ilike(...)`. **DB migration**: `db/migrations/20260225_fix_team_invite_rls_and_lookup.sql` adds `team_members` INSERT policy for coach/coxswain staff and creates/grants `lookup_team_by_invite_code` RPC to authenticated users. Applied live via Supabase MCP migration `fix_team_invite_rls_and_lookup` on project `vmlhcbkyonemmlawnqqr`. Build verified clean (`npm run build`).
 - **Org dashboard assignment rows now link to results (2026-02-25)**: In `src/pages/coaching/CoachDashboard.tsx`, org-level grouped assignment list items now include direct links to assignment results (`/team-management/assignments/:assignmentId/results`) via clickable title and explicit `Results →` action. Build verified clean (`npm run build`).
