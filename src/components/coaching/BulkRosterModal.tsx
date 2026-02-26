@@ -21,6 +21,7 @@ interface RowData {
   last_name: string;
   grade: string;
   squad: string;
+  performance_tier: string;
   side: string;
   experience_level: string;
   weight_lbs: string;   // display in lbs, convert on save
@@ -46,6 +47,15 @@ const COLS: ColDef[] = [
   { key: 'last_name',         label: 'Last',        width: 'w-28',  type: 'text',   placeholder: 'Last name'  },
   { key: 'grade',             label: 'Year/Class',  width: 'w-24',  type: 'text',   placeholder: '9th, Fr, …' },
   { key: 'squad',             label: 'Squad',       width: 'w-28',  type: 'text',   placeholder: 'e.g. Varsity' },
+  { key: 'performance_tier',  label: 'Tier',        width: 'w-28',  type: 'select',
+    options: [
+      { value: '',              label: '—'             },
+      { value: 'pool',          label: 'Pool'          },
+      { value: 'developmental', label: 'Developmental' },
+      { value: 'challenger',    label: 'Challenger'    },
+      { value: 'champion',      label: 'Champion'      },
+    ],
+  },
   { key: 'side',              label: 'Side',        width: 'w-28',  type: 'select',
     options: [
       { value: '',           label: '—'          },
@@ -75,7 +85,7 @@ const COL_KEYS = COLS.map((c) => c.key);
 
 function emptyRow(): RowData {
   return {
-    first_name: '', last_name: '', grade: '', squad: '',
+    first_name: '', last_name: '', grade: '', squad: '', performance_tier: '',
     side: '', experience_level: '', weight_lbs: '', height_ft: '', height_in: '',
   };
 }
@@ -196,6 +206,7 @@ export function BulkRosterModal({ teamId, userId, existingSquads = [], onClose, 
               weight_kg: isNaN(weight_kg as number) ? undefined : weight_kg,
             },
             r.squad.trim() || null,
+            (r.performance_tier.trim() || null) as 'pool' | 'developmental' | 'challenger' | 'champion' | null,
           );
         } catch (err) {
           errs.push(

@@ -39,6 +39,20 @@ Publish ErgLink uploads to C2 Logbook using the athlete's stored C2 tokens.
   - `src/pages/WorkoutDetail.tsx` suggestion banner now displays confidence and reason text
 - [ ] Next: canonical signature persistence strategy + optional DB fields for match metadata (`match_reason`, `match_confidence`) on logs.
 
+### Coaching Analytics + Performance Tier (2026-02-26) ✅ COMPLETE
+- [x] Added team-scoped `performance_tier` model (`pool`, `developmental`, `challenger`, `champion`) with additive migration:
+  - `db/migrations/20260226_add_team_athlete_performance_tier.sql`
+- [x] Updated coaching service + types + roster editing for performance tier (`team_athletes`-scoped, separate from `experience_level`)
+- [x] Added season measured-workout leaderboard service:
+  - `getSeasonMeasuredLeaderboard(teamId, { limit })`
+  - tracks average raw rank + average W/lb rank + simple trend
+- [x] Wired top-level summary surfaces:
+  - `src/pages/coaching/CoachDashboard.tsx` (quick-view top 5 leaderboard card)
+  - `src/pages/coaching/TeamAnalytics.tsx` (analytics route leaderboard table)
+- [x] Enhanced assignment results private/public pages:
+  - added aggregate cards (avg finisher split/watts, best/worst rep, spread)
+  - added per-athlete `Best · Worst` and `Spread` columns for interval summary tables
+
 ### Copilot CLI Skill Pack ✅ COMPLETE (2026-02-26)
 - [x] Added project skills under `.github/skills/`:
   - `supabase-schema-guard` (MCP-first schema/type drift validation)
@@ -147,6 +161,10 @@ Retired `coaching_athletes` → unified `athletes` + `team_athletes` model. All 
 **Self-service routes**: `/team` → MyTeamDashboard, `/team/scores` → MyScores. `/team/notes` and `/team/settings` pages not yet created (links exist in MyTeamDashboard but will 404).
 
 ### Recent Changes
+- **Assignment-results consistency label simplification (2026-02-26)**: Updated `src/pages/coaching/AssignmentResults.tsx` and `src/pages/PublicAssignmentResultsShare.tsx` to remove the confusing `σ Splits` presentation from heatmap/summary surfaces and use `Spread` only. Heatmap final column now shows split spread (best↔worst delta), and summary tables now keep `Best · Worst` + `Spread` without extra sigma column. Validation pass: `npm run build`, `npm run test:run`.
+- **Applied `performance_tier` migration to live Supabase (2026-02-26)**: Ran `add_team_athlete_performance_tier` via Supabase MCP on project `vmlhcbkyonemmlawnqqr`. Verified live schema now includes `public.team_athletes.performance_tier` (nullable text), constraint `team_athletes_performance_tier_check`, and partial index `idx_team_athletes_team_performance_tier`.
+- **Team-management navigation + org roster inline editing pass (2026-02-26)**: Updated `src/pages/coaching/CoachDashboard.tsx` so team rows/chevrons in the org/team hierarchy now switch active team and route directly to `/team-management/roster`. Expanded org-wide grouped roster table to show full roster fields (first/last, squad, grade, side, experience, performance tier, height, weight) with inline edit behavior aligned to roster patterns, including unit-aware height/weight entry/display for imperial vs metric. Updated `src/components/coaching/BulkRosterModal.tsx` to include `performance_tier` in bulk add rows and pass it to `createAthlete(...)`. Validation pass: `npm run build` and `npm run test:run` both green.
+- **Imperial analytics + schema-fallback hotfix (2026-02-26)**: Updated `src/pages/coaching/AssignmentResults.tsx` and `src/pages/PublicAssignmentResultsShare.tsx` so heatmap ratio mode and Power-vs-Bodyweight percentile plot now honor user measurement units (`W/lb` when imperial, `W/kg` when metric), including labels/tooltips/benchmark lines and ratio math. Added schema-safe fallback in `src/services/coaching/coachingService.ts` for environments where `team_athletes.performance_tier` is not yet migrated: athlete queries now retry without the column and hydrate `performance_tier: null` instead of hard-failing with 400. Build + tests verified (`npm run build`, `npm run test:run`).
 - **Team member add 500 fix (policy recursion) (2026-02-25)**: Root-caused `POST /rest/v1/team_members` 500 on add-by-email to recursive policy evaluation. The prior INSERT policy (`Coaches and coxswains can add team members`) referenced `public.team_members` directly inside `team_members` policy logic, which can trigger internal recursion/errors. Added migration `db/migrations/20260225_fix_team_members_insert_policy_recursion.sql` introducing security-definer helper `can_manage_team_members(team_id, user_id)` and rewired policy `WITH CHECK` to call helper instead of inline subquery. Applied live via Supabase MCP migration `fix_team_members_insert_policy_recursion` on project `vmlhcbkyonemmlawnqqr`; policy verification confirms `with_check = can_manage_team_members(team_id, auth.uid())`.
 - **Join flow already-member feedback polish (2026-02-25)**: Updated `src/pages/JoinTeam.tsx` so invite-code attempts by users already on a team now show a clearer message (`You are already on this team`) with a direct `Go to My Team` action. Error styling now uses an amber informational variant for already-member state in both enter and preview steps. Build verified clean (`npm run build`).
 - **Coach invite flows fixed for existing accounts (2026-02-25)**: Root-caused invite failures to RLS + lookup mismatch. `team_members` insert policy only allowed self-joins (`auth.uid() = user_id`), blocking coach/coxswain email-adds of other users; and `teams` select policy blocked non-members from reading private teams by invite code, breaking `/join` preview/join flow. **Service fix** (`src/services/coaching/coachingService.ts`): `getTeamByInviteCode()` now calls new RPC `lookup_team_by_invite_code(p_code)` (SECURITY DEFINER) and `addTeamMemberByEmail()` now performs case-insensitive email matching via `.ilike(...)`. **DB migration**: `db/migrations/20260225_fix_team_invite_rls_and_lookup.sql` adds `team_members` INSERT policy for coach/coxswain staff and creates/grants `lookup_team_by_invite_code` RPC to authenticated users. Applied live via Supabase MCP migration `fix_team_invite_rls_and_lookup` on project `vmlhcbkyonemmlawnqqr`. Build verified clean (`npm run build`).

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Users, Calendar, Loader2, Activity, ClipboardList, BarChart3, CheckCircle2, XCircle, Settings, Plus, ChevronsRight, Building2, ChevronDown, ChevronRight, Shield, Search } from 'lucide-react';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { RowingShellIcon } from '../../components/icons/RowingIcons';
@@ -12,19 +12,42 @@ import {
   getBoatings,
   getGroupAssignments,
   getTeamStats,
+  getSeasonMeasuredLeaderboard,
   getTeamAthleteCounts,
   getOrgAthletesWithTeam,
+  updateAthlete,
+  updateAthletePerformanceTier,
+  updateAthleteSquad,
   type GroupAssignment,
   type AssignmentCompletion,
   type CoachingAthlete,
+  type SeasonLeaderboardEntry,
 } from '../../services/coaching/coachingService';
 import type { OrgTeamGroup } from '../../contexts/coachingContextDef';
 import type { CoachingBoating, CoachingSession, UserTeamInfo, TeamRole } from '../../services/coaching/types';
 import { format } from 'date-fns';
+import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
+import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
+import { toast } from 'sonner';
 
 type OrgSessionRow = CoachingSession & { team_name: string };
 type OrgAssignmentRow = GroupAssignment & { team_name: string };
 type OrgBoatingRow = CoachingBoating & { team_name: string };
+type OrgEditableField = 'first_name' | 'last_name' | 'grade' | 'side' | 'experience_level' | 'squad' | 'performance_tier' | 'height_cm' | 'weight_kg';
+
+const experienceLevelLabel: Record<string, string> = {
+  beginner: 'Beginner',
+  intermediate: 'Intermediate',
+  experienced: 'Experienced',
+  advanced: 'Advanced',
+};
+
+const performanceTierLabel: Record<string, string> = {
+  pool: 'Pool',
+  developmental: 'Developmental',
+  challenger: 'Challenger',
+  champion: 'Champion',
+};
 
 const sections = [
   { path: '/team-management/roster', label: 'Roster', icon: Users, description: 'Manage athletes' },
@@ -56,9 +79,10 @@ interface OrgCardProps {
   activeTeamId: string;
   athleteCounts: Record<string, number>;
   onSelectTeam: (teamId: string) => void;
+  onOpenTeam: (teamId: string) => void;
 }
 
-const OrgCard: React.FC<OrgCardProps> = ({ group, activeTeamId, athleteCounts, onSelectTeam }) => {
+const OrgCard: React.FC<OrgCardProps> = ({ group, activeTeamId, athleteCounts, onSelectTeam, onOpenTeam }) => {
   const [expanded, setExpanded] = useState(true);
   const isOrg = group.org_id !== null;
   const totalAthletes = group.teams.reduce((sum, t) => sum + (athleteCounts[t.team_id] ?? 0), 0);
@@ -99,7 +123,10 @@ const OrgCard: React.FC<OrgCardProps> = ({ group, activeTeamId, athleteCounts, o
               <button
                 type="button"
                 key={team.team_id}
-                onClick={() => onSelectTeam(team.team_id)}
+                onClick={() => {
+                  onSelectTeam(team.team_id);
+                  onOpenTeam(team.team_id);
+                }}
                 className={`w-full flex items-center justify-between gap-3 px-4 py-3 sm:px-5 transition-colors text-left ${
                   isActive
                     ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
@@ -140,6 +167,9 @@ const OrgCard: React.FC<OrgCardProps> = ({ group, activeTeamId, athleteCounts, o
 
 export const CoachDashboard: React.FC = () => {
   const { hasTeam, isLoadingTeam, teamId, orgId, userId, teamName, teams, teamsByOrg, switchTeam } = useCoachingContext();
+  const navigate = useNavigate();
+  const units = useMeasurementUnits();
+  const isImperial = units === 'imperial';
 
   const [todayAssignments, setTodayAssignments] = useState<GroupAssignment[]>([]);
   const [completions, setCompletions] = useState<AssignmentCompletion[]>([]);
@@ -161,6 +191,11 @@ export const CoachDashboard: React.FC = () => {
   const [orgSessions, setOrgSessions] = useState<OrgSessionRow[]>([]);
   const [orgAssignments, setOrgAssignments] = useState<OrgAssignmentRow[]>([]);
   const [orgBoatings, setOrgBoatings] = useState<OrgBoatingRow[]>([]);
+  const [seasonLeaderboard, setSeasonLeaderboard] = useState<SeasonLeaderboardEntry[]>([]);
+  const [editingCell, setEditingCell] = useState<{ athleteId: string; field: OrgEditableField } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [editValue2, setEditValue2] = useState('');
+  const [savingCell, setSavingCell] = useState(false);
 
   // All team IDs for batch athlete count fetch
   const allTeamIds = useMemo(() => teams.map((t) => t.team_id), [teams]);
@@ -175,6 +210,12 @@ export const CoachDashboard: React.FC = () => {
     const fromGroup = teamsByOrg.find((group) => group.org_id === orgId)?.org_name;
     return fromGroup ?? 'Organization';
   }, [orgId, teams, teamsByOrg]);
+  const teamIdByName = useMemo(() => new Map(teams.map((team) => [team.team_name, team.team_id])), [teams]);
+
+  const handleOpenTeam = useCallback((nextTeamId: string) => {
+    switchTeam(nextTeamId);
+    navigate('/team-management/roster');
+  }, [navigate, switchTeam]);
 
   // Fetch athlete counts for all teams (single batch query)
   useEffect(() => {
@@ -248,6 +289,91 @@ export const CoachDashboard: React.FC = () => {
     [groupedOrgRoster]
   );
 
+  const startEditingCell = useCallback((athlete: CoachingAthlete, field: OrgEditableField) => {
+    setEditingCell({ athleteId: athlete.id, field });
+    setEditValue('');
+    setEditValue2('');
+    if (field === 'height_cm') {
+      if (athlete.height_cm == null) return;
+      if (isImperial) {
+        const { feet, inches } = cmToFtIn(athlete.height_cm);
+        setEditValue(String(feet));
+        setEditValue2(String(inches));
+      } else {
+        setEditValue(String(athlete.height_cm));
+      }
+      return;
+    }
+    if (field === 'weight_kg') {
+      if (athlete.weight_kg == null) return;
+      setEditValue(String(isImperial ? kgToLbs(athlete.weight_kg) : athlete.weight_kg));
+      return;
+    }
+    const raw = athlete[field];
+    setEditValue(raw == null ? '' : String(raw));
+  }, [isImperial]);
+
+  const isEditingCell = useCallback((athleteId: string, field: OrgEditableField) => (
+    editingCell?.athleteId === athleteId && editingCell?.field === field
+  ), [editingCell]);
+
+  const commitEditingCell = useCallback(async () => {
+    if (!editingCell || savingCell) return;
+    const athlete = orgRoster.find((a) => a.id === editingCell.athleteId);
+    if (!athlete) return;
+    const field = editingCell.field;
+    const resolvedTeamId = athlete.team_id ?? (athlete.team_name ? teamIdByName.get(athlete.team_name) : null);
+    const nextOrgRoster = [...orgRoster];
+    const idx = nextOrgRoster.findIndex((a) => a.id === athlete.id);
+    if (idx < 0) return;
+
+    try {
+      setSavingCell(true);
+      if (field === 'squad') {
+        if (!resolvedTeamId) throw new Error('Unable to resolve team for squad update.');
+        const squad = editValue.trim() || null;
+        nextOrgRoster[idx] = { ...nextOrgRoster[idx], squad };
+        setOrgRoster(nextOrgRoster);
+        await updateAthleteSquad(resolvedTeamId, athlete.id, squad);
+      } else if (field === 'performance_tier') {
+        if (!resolvedTeamId) throw new Error('Unable to resolve team for tier update.');
+        const tier = (editValue.trim() || null) as CoachingAthlete['performance_tier'];
+        nextOrgRoster[idx] = { ...nextOrgRoster[idx], performance_tier: tier };
+        setOrgRoster(nextOrgRoster);
+        await updateAthletePerformanceTier(resolvedTeamId, athlete.id, tier ?? null);
+      } else if (field === 'height_cm') {
+        const height_cm = isImperial
+          ? ((editValue || editValue2) ? ftInToCm(Number(editValue) || 0, Number(editValue2) || 0) : null)
+          : (editValue ? Number(editValue) : null);
+        nextOrgRoster[idx] = { ...nextOrgRoster[idx], height_cm };
+        setOrgRoster(nextOrgRoster);
+        await updateAthlete(athlete.id, { height_cm: height_cm ?? null });
+      } else if (field === 'weight_kg') {
+        const weight_kg = editValue ? (isImperial ? lbsToKg(Number(editValue)) : Number(editValue)) : null;
+        nextOrgRoster[idx] = { ...nextOrgRoster[idx], weight_kg };
+        setOrgRoster(nextOrgRoster);
+        await updateAthlete(athlete.id, { weight_kg: weight_kg ?? null });
+      } else {
+        const value = editValue.trim();
+        const normalized = value || (field === 'first_name' ? athlete.first_name : field === 'last_name' ? athlete.last_name : undefined);
+        const updates = { [field]: normalized } as Partial<Pick<CoachingAthlete, 'first_name' | 'last_name' | 'grade' | 'side' | 'experience_level'>>;
+        nextOrgRoster[idx] = {
+          ...nextOrgRoster[idx],
+          [field]: normalized,
+          name: `${field === 'first_name' ? normalized : nextOrgRoster[idx].first_name} ${field === 'last_name' ? normalized : nextOrgRoster[idx].last_name}`.trim(),
+        };
+        setOrgRoster(nextOrgRoster);
+        await updateAthlete(athlete.id, updates);
+      }
+      setEditingCell(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save athlete update');
+      setOrgRoster((prev) => prev.map((a) => (a.id === athlete.id ? athlete : a)));
+    } finally {
+      setSavingCell(false);
+    }
+  }, [editingCell, editValue, editValue2, isImperial, orgRoster, savingCell, teamIdByName]);
+
   const groupedOrgSessions = useMemo(() => {
     const groups = new Map<string, OrgSessionRow[]>();
     for (const row of orgSessions) {
@@ -286,6 +412,7 @@ export const CoachDashboard: React.FC = () => {
     setTodayAssignments([]);
     setCompletions([]);
     setTeamStats(null);
+    setSeasonLeaderboard([]);
 
     const todayStr = format(new Date(), 'yyyy-MM-dd');
 
@@ -295,11 +422,13 @@ export const CoachDashboard: React.FC = () => {
         getAssignmentCompletions(teamId, todayStr, athletes, orgId ?? undefined)
       ),
       getTeamStats(teamId),
+      getSeasonMeasuredLeaderboard(teamId, { limit: 5 }),
     ])
-      .then(([asgn, comps, stats]) => {
+      .then(([asgn, comps, stats, leaderboard]) => {
         setTodayAssignments(asgn);
         setCompletions(comps);
         setTeamStats(stats);
+        setSeasonLeaderboard(leaderboard);
       })
       .catch(() => { /* non-critical dashboard card */ })
       .finally(() => setTodayLoading(false));
@@ -539,25 +668,183 @@ export const CoachDashboard: React.FC = () => {
                       </div>
                     )}
                     <table className="w-full text-sm">
-                      <thead className="sr-only">
+                      <thead className="text-xs text-neutral-500 uppercase tracking-wider bg-neutral-900/50">
                         <tr>
-                          <th>Name</th>
-                          <th>Side</th>
-                          <th>Squad</th>
+                          <th className="px-3 py-2 text-left">First</th>
+                          <th className="px-3 py-2 text-left">Last</th>
+                          <th className="px-3 py-2 text-left">Squad</th>
+                          <th className="px-3 py-2 text-left">Grade</th>
+                          <th className="px-3 py-2 text-left">Side</th>
+                          <th className="px-3 py-2 text-left">Experience</th>
+                          <th className="px-3 py-2 text-left">Tier</th>
+                          <th className="px-3 py-2 text-left">{isImperial ? "Height (ft')" : 'Height (cm)'}</th>
+                          <th className="px-3 py-2 text-left">{isImperial ? 'Weight (lb)' : 'Weight (kg)'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-neutral-800/50">
                         {athletes.map((a) => (
                           <tr key={`${a.id}-${groupTeamName}`} className="hover:bg-neutral-800/30 transition-colors">
-                            <td className="px-4 py-2.5 text-white font-medium">{a.name}</td>
-                            <td className="px-4 py-2.5 text-neutral-400 capitalize">{a.side ?? '—'}</td>
-                            <td className="px-4 py-2.5">
-                              {a.squad ? (
-                                <span className="inline-block px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 rounded-full">
-                                  {a.squad}
-                                </span>
+                            <td className="px-3 py-2.5 text-white font-medium cursor-pointer" onClick={() => startEditingCell(a, 'first_name')}>
+                              {isEditingCell(a.id, 'first_name') ? (
+                                <input
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
+                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                />
+                              ) : (a.first_name || '—')}
+                            </td>
+                            <td className="px-3 py-2.5 text-white font-medium cursor-pointer" onClick={() => startEditingCell(a, 'last_name')}>
+                              {isEditingCell(a.id, 'last_name') ? (
+                                <input
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
+                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                />
+                              ) : (a.last_name || '—')}
+                            </td>
+                            <td className="px-3 py-2.5 cursor-pointer" onClick={() => startEditingCell(a, 'squad')}>
+                              {isEditingCell(a.id, 'squad') ? (
+                                <input
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
+                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                />
+                              ) : a.squad ? (
+                                <span className="inline-block px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 rounded-full">{a.squad}</span>
+                              ) : <span className="text-neutral-600">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 text-neutral-300 cursor-pointer" onClick={() => startEditingCell(a, 'grade')}>
+                              {isEditingCell(a.id, 'grade') ? (
+                                <input
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
+                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                />
+                              ) : (a.grade || '—')}
+                            </td>
+                            <td className="px-3 py-2.5 text-neutral-300 cursor-pointer capitalize" onClick={() => startEditingCell(a, 'side')}>
+                              {isEditingCell(a.id, 'side') ? (
+                                <select
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                >
+                                  <option value="">—</option>
+                                  <option value="port">Port</option>
+                                  <option value="starboard">Starboard</option>
+                                  <option value="both">Both</option>
+                                  <option value="coxswain">Coxswain</option>
+                                </select>
+                              ) : (a.side || '—')}
+                            </td>
+                            <td className="px-3 py-2.5 cursor-pointer" onClick={() => startEditingCell(a, 'experience_level')}>
+                              {isEditingCell(a.id, 'experience_level') ? (
+                                <select
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                >
+                                  <option value="">—</option>
+                                  <option value="beginner">Beginner</option>
+                                  <option value="intermediate">Intermediate</option>
+                                  <option value="experienced">Experienced</option>
+                                  <option value="advanced">Advanced</option>
+                                </select>
                               ) : (
-                                <span className="text-neutral-600">—</span>
+                                <span className="text-neutral-300">{a.experience_level ? experienceLevelLabel[a.experience_level] : '—'}</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 cursor-pointer" onClick={() => startEditingCell(a, 'performance_tier')}>
+                              {isEditingCell(a.id, 'performance_tier') ? (
+                                <select
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                >
+                                  <option value="">—</option>
+                                  <option value="pool">Pool</option>
+                                  <option value="developmental">Developmental</option>
+                                  <option value="challenger">Challenger</option>
+                                  <option value="champion">Champion</option>
+                                </select>
+                              ) : (
+                                <span className="text-neutral-300">{a.performance_tier ? performanceTierLabel[a.performance_tier] : '—'}</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-neutral-300 cursor-pointer" onClick={() => startEditingCell(a, 'height_cm')}>
+                              {isEditingCell(a.id, 'height_cm') ? (
+                                isImperial ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      autoFocus
+                                      type="number"
+                                      min={0}
+                                      max={8}
+                                      value={editValue}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onBlur={commitEditingCell}
+                                      className="w-12 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                    />
+                                    <span className="text-neutral-500">ft</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={11}
+                                      value={editValue2}
+                                      onChange={(e) => setEditValue2(e.target.value)}
+                                      onBlur={commitEditingCell}
+                                      className="w-12 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                    />
+                                    <span className="text-neutral-500">in</span>
+                                  </div>
+                                ) : (
+                                  <input
+                                    autoFocus
+                                    type="number"
+                                    min={0}
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onBlur={commitEditingCell}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
+                                    className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                  />
+                                )
+                              ) : (
+                                a.height_cm != null ? (isImperial ? cmToFtIn(a.height_cm).display : `${a.height_cm} cm`) : '—'
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-neutral-300 cursor-pointer" onClick={() => startEditingCell(a, 'weight_kg')}>
+                              {isEditingCell(a.id, 'weight_kg') ? (
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  min={0}
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={commitEditingCell}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
+                                  className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
+                                />
+                              ) : (
+                                a.weight_kg != null ? (isImperial ? `${kgToLbs(a.weight_kg)} lb` : `${a.weight_kg} kg`) : '—'
                               )}
                             </td>
                           </tr>
@@ -585,6 +872,7 @@ export const CoachDashboard: React.FC = () => {
             activeTeamId={teamId}
             athleteCounts={athleteCounts}
             onSelectTeam={switchTeam}
+            onOpenTeam={handleOpenTeam}
           />
         ))}
       </div>
@@ -739,6 +1027,33 @@ export const CoachDashboard: React.FC = () => {
                     <div className="text-xs text-neutral-500 mt-1">No assignments</div>
                   </>
                 )}
+              </div>
+            </div>
+          )}
+
+          {seasonLeaderboard.length > 0 && (
+            <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-neutral-300">Season Measured Leaderboard</h3>
+                <Link to="/team-management/analytics" className="text-xs text-indigo-400 hover:text-indigo-300">Analytics →</Link>
+              </div>
+              <div className="space-y-2">
+                {seasonLeaderboard.map((row, idx) => (
+                  <div key={row.athlete_id} className="flex items-center justify-between text-sm">
+                    <div className="min-w-0">
+                      <span className="text-neutral-500 mr-2">{idx + 1}.</span>
+                      <span className="text-neutral-100">{row.athlete_name}</span>
+                      {(row.squad || row.performance_tier) && (
+                        <span className="text-[11px] text-neutral-500 ml-2">
+                          {[row.squad, row.performance_tier].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-neutral-300 font-mono shrink-0">
+                      Rank {row.avg_raw_rank != null ? row.avg_raw_rank.toFixed(2) : '—'}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

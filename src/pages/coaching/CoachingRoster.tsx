@@ -6,6 +6,7 @@ import {
   createAthlete,
   updateAthlete,
   updateAthleteSquad,
+  updateAthletePerformanceTier,
   deleteAthlete,
   transferAthlete,
   getAssignmentCompletions,
@@ -24,6 +25,7 @@ import { toast } from 'sonner';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 
 const experienceLevelOrder: Record<string, number> = { beginner: 0, intermediate: 1, experienced: 2, advanced: 3 };
+const performanceTierOrder: Record<string, number> = { pool: 0, developmental: 1, challenger: 2, champion: 3 };
 
 /** Extract a numeric grade for sorting: "8th" → 8, "10th" → 10, "12" → 12.
  *  Non-numeric grades (masters, alumni, etc.) sort after all numeric grades. */
@@ -108,7 +110,7 @@ export function CoachingRoster() {
     }
   }, [teamId, refreshCompletions]);
 
-  const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string }) => {
+  const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string; performance_tier?: CoachingAthlete['performance_tier'] }) => {
     if (!teamId) return;
     try {
       await createAthlete(teamId, userId, {
@@ -120,7 +122,7 @@ export function CoachingRoster() {
         height_cm: data.height_cm,
         weight_kg: data.weight_kg,
         notes: data.notes,
-      }, data.squad || null);
+      }, data.squad || null, data.performance_tier ?? null);
       setIsAdding(false);
       await refreshAthletes();
     } catch (err) {
@@ -163,6 +165,8 @@ export function CoachingRoster() {
       setEditValue(a.experience_level ?? 'beginner');
     } else if (field === 'squad') {
       setEditValue(a.squad ?? '');
+    } else if (field === 'performance_tier') {
+      setEditValue(a.performance_tier ?? '');
     } else if (field === 'notes') {
       setEditValue(a.notes ?? '');
     }
@@ -185,6 +189,12 @@ export function CoachingRoster() {
         if (trimmed !== (a.squad ?? null)) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, squad: trimmed } : x));
           await updateAthleteSquad(teamId, athleteId, trimmed);
+        }
+      } else if (field === 'performance_tier') {
+        const val: CoachingAthlete['performance_tier'] = (editValue.trim() || null) as CoachingAthlete['performance_tier'];
+        if (val !== (a.performance_tier ?? null)) {
+          setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, performance_tier: val } : x));
+          await updateAthletePerformanceTier(teamId, athleteId, val ?? null);
         }
       } else if (field === 'height') {
         const cm = isImperial
@@ -294,6 +304,9 @@ export function CoachingRoster() {
         case 'side': cmp = (a.side ?? '').localeCompare(b.side ?? ''); break;
         case 'experience_level':
           cmp = (experienceLevelOrder[a.experience_level ?? ''] ?? -1) - (experienceLevelOrder[b.experience_level ?? ''] ?? -1);
+          break;
+        case 'performance_tier':
+          cmp = (performanceTierOrder[a.performance_tier ?? ''] ?? -1) - (performanceTierOrder[b.performance_tier ?? ''] ?? -1);
           break;
         case 'height': cmp = (a.height_cm ?? 0) - (b.height_cm ?? 0); break;
         case 'weight': cmp = (a.weight_kg ?? 0) - (b.weight_kg ?? 0); break;
@@ -413,6 +426,7 @@ export function CoachingRoster() {
                     grade: a.grade ?? '',
                     side: a.side ?? '',
                     experience: a.experience_level ?? '',
+                    performance_tier: a.performance_tier ?? '',
                     height_cm: a.height_cm ?? '',
                     weight_kg: a.weight_kg ?? '',
                     notes: a.notes ?? '',
@@ -424,6 +438,7 @@ export function CoachingRoster() {
                     { key: 'grade', label: 'Grade' },
                     { key: 'side', label: 'Side' },
                     { key: 'experience', label: 'Experience' },
+                    { key: 'performance_tier', label: 'Performance Tier' },
                     { key: 'height_cm', label: 'Height (cm)' },
                     { key: 'weight_kg', label: 'Weight (kg)' },
                     { key: 'notes', label: 'Notes' },
@@ -610,6 +625,29 @@ export function CoachingRoster() {
                   </div>
                 </div>
 
+                {/* Performance Tier */}
+                <div className="cursor-pointer" onClick={() => startEditing(athlete.id, 'performance_tier')}>
+                  <span className="text-neutral-500 text-xs">Performance Tier</span>
+                  <div>
+                    {isEditing(athlete.id, 'performance_tier') ? (
+                      <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
+                        onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-full`} title="Performance tier">
+                        <option value="">Unset</option>
+                        <option value="pool">Pool</option>
+                        <option value="developmental">Developmental</option>
+                        <option value="challenger">Challenger</option>
+                        <option value="champion">Champion</option>
+                      </select>
+                    ) : athlete.performance_tier ? (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
+                        {athlete.performance_tier.charAt(0).toUpperCase() + athlete.performance_tier.slice(1)}
+                      </span>
+                    ) : (
+                      <span className="text-neutral-600">—</span>
+                    )}
+                  </div>
+                </div>
+
                 {/* Height */}
                 <div className="cursor-pointer" onClick={() => startEditing(athlete.id, 'height')}>
                   <span className="text-neutral-500 text-xs">Height</span>
@@ -683,6 +721,7 @@ export function CoachingRoster() {
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('grade')}>Grade {renderSortIcon('grade')}</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('side')}>Side {renderSortIcon('side')}</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('experience_level')}>Experience {renderSortIcon('experience_level')}</th>
+                  <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('performance_tier')}>Tier {renderSortIcon('performance_tier')}</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('height')}>Height {renderSortIcon('height')}</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('weight')}>Weight {renderSortIcon('weight')}</th>
                   {hasAssignmentsToday && <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">Today</th>}
@@ -770,6 +809,26 @@ export function CoachingRoster() {
                       ) : athlete.experience_level ? (
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${expBadge(athlete.experience_level)}`}>
                           {athlete.experience_level.charAt(0).toUpperCase() + athlete.experience_level.slice(1)}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-600">—</span>
+                      )}
+                    </td>
+
+                    {/* Performance Tier */}
+                    <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'performance_tier')}>
+                      {isEditing(athlete.id, 'performance_tier') ? (
+                        <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
+                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-36`} title="Performance tier">
+                          <option value="">Unset</option>
+                          <option value="pool">Pool</option>
+                          <option value="developmental">Developmental</option>
+                          <option value="challenger">Challenger</option>
+                          <option value="champion">Champion</option>
+                        </select>
+                      ) : athlete.performance_tier ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
+                          {athlete.performance_tier.charAt(0).toUpperCase() + athlete.performance_tier.slice(1)}
                         </span>
                       ) : (
                         <span className="text-neutral-600">—</span>

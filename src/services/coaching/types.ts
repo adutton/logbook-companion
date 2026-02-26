@@ -40,6 +40,7 @@ export interface Team {
 }
 
 export type TeamRole = 'coach' | 'coxswain' | 'member';
+export type PerformanceTier = 'pool' | 'developmental' | 'challenger' | 'champion';
 
 /** Lightweight team summary returned by getTeamsForUser */
 export interface UserTeamInfo {
@@ -89,6 +90,7 @@ export interface Athlete {
 export interface CoachingAthlete extends Athlete {
   name: string; // computed: `${first_name} ${last_name}`.trim()
   squad?: string | null; // from team_athletes junction
+  performance_tier?: PerformanceTier | null; // from team_athletes junction
   team_id?: string;   // populated for org-wide queries
   team_name?: string;  // populated for org-wide queries
 }
@@ -100,6 +102,7 @@ export interface TeamAthlete {
   athlete_id: string;
   status: 'active' | 'inactive' | 'graduated';
   squad?: string | null;
+  performance_tier?: PerformanceTier | null;
   joined_at: string;
   left_at?: string | null;
 }

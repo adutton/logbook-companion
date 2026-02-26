@@ -58,6 +58,7 @@ import { toast } from 'sonner';
 
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
+import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import {
   getGroupAssignments,
   getAssignmentResultsWithAthletes,
@@ -77,7 +78,7 @@ import { supabase } from '../../services/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate' | 'consistency';
+type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate';
 type SortDir = 'asc' | 'desc';
 
 interface EnrichedRow extends AssignmentResultRow {
@@ -95,6 +96,12 @@ interface EnrichedRow extends AssignmentResultRow {
   consistency_sigma: number | null;
   /** Rep splits in order, from result_intervals */
   rep_splits: (number | null)[];
+  /** Best (fastest) completed rep split */
+  rep_best_split_seconds: number | null;
+  /** Worst (slowest) completed rep split */
+  rep_worst_split_seconds: number | null;
+  /** Spread between worst and best rep split */
+  rep_split_spread_seconds: number | null;
   /** True when athlete did not finish — sorts to the very bottom */
   dnf: boolean;
   /** True when athlete completed some reps but DNF'd others — sorts below finishers, above full DNF */
@@ -222,7 +229,29 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
     const wplb = wpkg != null ? wpkg / 2.20462 : null;
     const rep_splits = calcRepSplits(row);
     const consistency_sigma = calcSigma(rep_splits);
-    return { ...row, avg_split_seconds, watts, wpkg, wplb, effective_weight_kg: effectiveWeightKg, consistency_sigma, rep_splits, dnf, partialDnf, completeNoData };
+    const validRepSplits = rep_splits.filter((v): v is number => v != null);
+    const rep_best_split_seconds = validRepSplits.length > 0 ? Math.min(...validRepSplits) : null;
+    const rep_worst_split_seconds = validRepSplits.length > 0 ? Math.max(...validRepSplits) : null;
+    const rep_split_spread_seconds =
+      rep_best_split_seconds != null && rep_worst_split_seconds != null
+        ? rep_worst_split_seconds - rep_best_split_seconds
+        : null;
+    return {
+      ...row,
+      avg_split_seconds,
+      watts,
+      wpkg,
+      wplb,
+      effective_weight_kg: effectiveWeightKg,
+      consistency_sigma,
+      rep_splits,
+      rep_best_split_seconds,
+      rep_worst_split_seconds,
+      rep_split_spread_seconds,
+      dnf,
+      partialDnf,
+      completeNoData,
+    };
   });
 }
 
@@ -485,7 +514,7 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
 
 // ─── Chart: Percentile Dot Plot ───────────────────────────────────────────────
 
-function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
+function PercentileDotPlot({ rows, isImperial }: { rows: EnrichedRow[]; isImperial: boolean }) {
   const completed = rows.filter((r) => r.completed && r.avg_split_seconds != null && !r.dnf && !r.partialDnf);
   const weighted = completed.filter((r) => r.watts != null && r.effective_weight_kg != null);
   if (weighted.length < 3) return null;
@@ -510,11 +539,11 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
     teamNames.map((team, i) => [team, teamPalette[i % teamPalette.length]]),
   );
 
-  const minWeight = Math.min(...weighted.map((r) => r.effective_weight_kg!));
-  const maxWeight = Math.max(...weighted.map((r) => r.effective_weight_kg!));
+  const minWeight = Math.min(...weighted.map((r) => isImperial ? r.effective_weight_kg! * 2.20462 : r.effective_weight_kg!));
+  const maxWeight = Math.max(...weighted.map((r) => isImperial ? r.effective_weight_kg! * 2.20462 : r.effective_weight_kg!));
 
-  const sortedWpkg = weighted
-    .map((r) => r.wpkg)
+  const sortedRatio = weighted
+    .map((r) => isImperial ? r.wplb : r.wpkg)
     .filter((v): v is number => v != null && Number.isFinite(v) && v > 0)
     .sort((a, b) => a - b);
 
@@ -525,9 +554,9 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
   };
 
   const ratioBenchmarks = [
-    { label: 'P25', ratio: quantile(sortedWpkg, 0.25), color: '#64748b', dotClass: 'bg-slate-500' },
-    { label: 'P50', ratio: quantile(sortedWpkg, 0.5), color: '#94a3b8', dotClass: 'bg-slate-400' },
-    { label: 'P75', ratio: quantile(sortedWpkg, 0.75), color: '#cbd5e1', dotClass: 'bg-slate-300' },
+    { label: 'P25', ratio: quantile(sortedRatio, 0.25), color: '#64748b', dotClass: 'bg-slate-500' },
+    { label: 'P50', ratio: quantile(sortedRatio, 0.5), color: '#94a3b8', dotClass: 'bg-slate-400' },
+    { label: 'P75', ratio: quantile(sortedRatio, 0.75), color: '#cbd5e1', dotClass: 'bg-slate-300' },
   ].filter((b) => b.ratio > 0);
 
   const maxRatio = Math.max(...ratioBenchmarks.map((b) => b.ratio), 0);
@@ -545,14 +574,14 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
   const data = weighted
     .map((r) => {
       const watts = r.watts!;
-      const weightKg = r.effective_weight_kg!;
+      const weightValue = isImperial ? r.effective_weight_kg! * 2.20462 : r.effective_weight_kg!;
       const team = (r.team_name ?? '').trim() || 'No Team';
       return {
         name: r.athlete_name.split(' ')[0],
         fullName: r.athlete_name,
         team,
         watts,
-        weightKg,
+        weightValue,
         split: r.avg_split_seconds,
         wpkg: r.wpkg,
         wplb: r.wplb,
@@ -564,7 +593,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
   return (
     <div className="bg-neutral-800/50 rounded-xl p-4 space-y-3">
       <h3 className="text-sm font-semibold text-neutral-300">Power vs Body Weight</h3>
-      <p className="text-xs text-neutral-500">X = body weight (kg), Y = power (watts). Diagonal lines are W/kg percentile benchmarks.</p>
+      <p className="text-xs text-neutral-500">X = body weight ({isImperial ? 'lb' : 'kg'}), Y = power (watts). Diagonal lines are {isImperial ? 'W/lb' : 'W/kg'} percentile benchmarks.</p>
       {teamNames.length > 1 && (
         <div className="flex flex-wrap gap-2 text-[11px] text-neutral-400">
           {teamNames.map((team) => (
@@ -580,7 +609,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
           {ratioBenchmarks.map((b) => (
             <span key={b.label} className="inline-flex items-center gap-1.5 rounded-full border border-neutral-700 px-2 py-0.5">
               <span className={`h-2 w-2 rounded-full ${b.dotClass}`} />
-              {b.label}: {b.ratio.toFixed(2)} W/kg
+              {b.label}: {b.ratio.toFixed(2)} {isImperial ? 'W/lb' : 'W/kg'}
             </span>
           ))}
         </div>
@@ -593,11 +622,11 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
           <XAxis
             type="number"
-            dataKey="weightKg"
-            name="Body weight (kg)"
+            dataKey="weightValue"
+            name={`Body weight (${isImperial ? 'lb' : 'kg'})`}
             reversed
             tick={{ fill: '#9ca3af', fontSize: 11 }}
-            label={{ value: 'Body Weight (kg, lighter →)', position: 'insideBottom', offset: -6, fill: '#9ca3af', fontSize: 11 }}
+            label={{ value: `Body Weight (${isImperial ? 'lb' : 'kg'}, lighter →)`, position: 'insideBottom', offset: -6, fill: '#9ca3af', fontSize: 11 }}
           />
           <YAxis
             type="number"
@@ -619,7 +648,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
               stroke={b.color}
               strokeDasharray="6 4"
               strokeOpacity={0.75}
-              label={{ value: `${b.label} ${b.ratio.toFixed(2)} W/kg`, fill: b.color, fontSize: 10 }}
+              label={{ value: `${b.label} ${b.ratio.toFixed(2)} ${isImperial ? 'W/lb' : 'W/kg'}`, fill: b.color, fontSize: 10 }}
             />
           ))}
           <Tooltip
@@ -631,7 +660,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
                 fullName: string;
                 team: string;
                 watts: number;
-                weightKg: number;
+                weightValue: number;
                 split: number;
                 wpkg: number | null;
                 wplb: number | null;
@@ -640,7 +669,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
                 <div className="p-2 text-xs text-neutral-200">
                   <div className="font-semibold">{d.fullName}</div>
                   <div>Team: {d.team}</div>
-                  <div>Weight: {d.weightKg.toFixed(1)} kg</div>
+                  <div>Weight: {d.weightValue.toFixed(1)} {isImperial ? 'lb' : 'kg'}</div>
                   <div>Power: {fmtWatts(d.watts)}</div>
                   <div>Split: {fmtSplit(d.split)}</div>
                   <div>Power-to-weight: {fmtPowerToWeight(d.wpkg, d.wplb)}</div>
@@ -830,14 +859,16 @@ function RepProgressionChart({
 
 // ─── Chart: Rep Heatmap ───────────────────────────────────────────────────────
 
-type HeatmapSortCol = 'name' | 'avg' | 'sigma' | number; // number = rep index
+type HeatmapSortCol = 'name' | 'avg' | 'spread' | number; // number = rep index
 
 function RepHeatmap({
   rows,
   repLabels,
+  isImperial,
 }: {
   rows: EnrichedRow[];
   repLabels: string[];
+  isImperial: boolean;
 }) {
   const [sortCol, setSortCol] = useState<HeatmapSortCol>('avg');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -869,7 +900,7 @@ function RepHeatmap({
         if (split == null || split <= 0 || row.effective_weight_kg == null || row.effective_weight_kg <= 0) return null;
         const repWatts = splitToWatts(split);
         if (!Number.isFinite(repWatts) || repWatts <= 0) return null;
-        return repWatts / row.effective_weight_kg;
+        return isImperial ? repWatts / (row.effective_weight_kg * 2.20462) : repWatts / row.effective_weight_kg;
       });
       return [row.athlete_id, vals];
     }),
@@ -895,7 +926,7 @@ function RepHeatmap({
       if (pct < 0.03) return 'bg-amber-500/40';
       return 'bg-red-500/60';
     }
-    const pct = (value - median) / median; // positive = better for W/kg
+    const pct = (value - median) / median; // positive = better for ratio
     if (pct > 0.03) return 'bg-emerald-500/70';
     if (pct > 0.01) return 'bg-emerald-500/40';
     if (pct > -0.01) return 'bg-neutral-600/50';
@@ -914,10 +945,11 @@ function RepHeatmap({
     if (sortCol === 'name') return row.athlete_name;
     if (sortCol === 'avg') {
       if (metric === 'split') return row.avg_split_seconds ?? null;
-      if (row.wpkg != null) return -row.wpkg;
+      const ratio = isImperial ? row.wplb : row.wpkg;
+      if (ratio != null) return -ratio;
       return null;
     }
-    if (sortCol === 'sigma') return row.consistency_sigma ?? null;
+    if (sortCol === 'spread') return row.rep_split_spread_seconds ?? null;
     // sortCol is a rep index
     if (metric === 'split') return row.rep_splits[sortCol] ?? null;
     const ratio = repWpkgByAthlete.get(row.athlete_id)?.[sortCol] ?? null;
@@ -960,7 +992,7 @@ function RepHeatmap({
             onClick={() => setMetric('wpkg')}
             className={`px-2.5 py-1 font-semibold transition-colors ${metric === 'wpkg' ? 'bg-indigo-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200'}`}
           >
-            W/kg
+            {isImperial ? 'W/lb' : 'W/kg'}
           </button>
         </div>
       </div>
@@ -971,7 +1003,7 @@ function RepHeatmap({
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-red-500/60" /> {metric === 'split' ? '>3% slower' : '>3% lower'}</span>
       </div>
       {metric === 'wpkg' && (
-        <p className="text-[10px] text-neutral-500">Rep cells show per-rep W/kg derived from split and assignment/profile weight.</p>
+        <p className="text-[10px] text-neutral-500">Rep cells show per-rep {isImperial ? 'W/lb' : 'W/kg'} derived from split and assignment/profile weight.</p>
       )}
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
@@ -994,9 +1026,9 @@ function RepHeatmap({
               ))}
               <th
                 className="px-2 py-2 text-center text-neutral-400 font-medium cursor-pointer hover:text-neutral-200 transition-colors select-none"
-                onClick={() => toggleSort('sigma')}
+                onClick={() => toggleSort('spread')}
               >
-                σ {heatmapSortIcon('sigma')}
+                Spread {heatmapSortIcon('spread')}
               </th>
             </tr>
           </thead>
@@ -1048,7 +1080,7 @@ function RepHeatmap({
                     );
                   })}
                   <td className="px-2 py-1.5 text-center border-t border-neutral-800/30 text-neutral-400 font-mono">
-                    {row.consistency_sigma != null ? `±${fmtSplit(row.consistency_sigma)}` : '—'}
+                    {row.rep_split_spread_seconds != null ? fmtSplit(row.rep_split_spread_seconds) : '—'}
                   </td>
                 </tr>
               </Fragment>
@@ -1177,7 +1209,6 @@ function SummaryTable({
         case 'distance': av = a.result_distance_meters ?? null; bv = b.result_distance_meters ?? null; break;
         case 'time': av = a.result_time_seconds ?? null; bv = b.result_time_seconds ?? null; break;
         case 'stroke_rate': av = a.result_stroke_rate ?? null; bv = b.result_stroke_rate ?? null; break;
-        case 'consistency': av = a.consistency_sigma; bv = b.consistency_sigma; break;
       }
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
@@ -1272,7 +1303,8 @@ function SummaryTable({
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
-              {isInterval && <SortTh label="σ Splits" field="consistency" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Best · Worst</th>}
+              {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Spread</th>}
             </tr>
           </thead>
           <tbody>
@@ -1356,8 +1388,15 @@ function SummaryTable({
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds)}</td>
                   <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
                   {isInterval && (
-                    <td className="px-3 py-2 text-right font-mono text-neutral-400 text-xs">
-                      {row.consistency_sigma != null ? `±${fmtSplit(row.consistency_sigma)}` : '—'}
+                    <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                      {row.rep_best_split_seconds != null && row.rep_worst_split_seconds != null
+                        ? `${fmtSplit(row.rep_best_split_seconds)} · ${fmtSplit(row.rep_worst_split_seconds)}`
+                        : '—'}
+                    </td>
+                  )}
+                  {isInterval && (
+                    <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                      {row.rep_split_spread_seconds != null ? fmtSplit(row.rep_split_spread_seconds) : '—'}
                     </td>
                   )}
                   </tr>
@@ -1399,6 +1438,7 @@ export function AssignmentResults() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
   const { teamId, orgId, isLoadingTeam } = useCoachingContext();
+  const isImperial = useMeasurementUnits() === 'imperial';
 
   const [assignment, setAssignment] = useState<GroupAssignment | null>(null);
   const [rawRows, setRawRows] = useState<AssignmentResultRow[]>([]);
@@ -1533,6 +1573,17 @@ export function AssignmentResults() {
   const completedCount = finishedCount + dnfCount; // attempted (finished + DNF)
   const totalCount = allRows.length;
   const filteredTotal = rows.length;
+  const finisherRows = rows.filter((r) => r.completed && !r.dnf && !r.partialDnf && r.avg_split_seconds != null);
+  const avgFinisherSplit = finisherRows.length > 0
+    ? finisherRows.reduce((sum, row) => sum + (row.avg_split_seconds ?? 0), 0) / finisherRows.length
+    : null;
+  const avgFinisherWatts = finisherRows.filter((r) => r.watts != null).length > 0
+    ? finisherRows.reduce((sum, row) => sum + (row.watts ?? 0), 0) / finisherRows.filter((r) => r.watts != null).length
+    : null;
+  const intervalRepSplits = rows.flatMap((r) => r.rep_splits.filter((v): v is number => v != null));
+  const bestRepSplit = intervalRepSplits.length > 0 ? Math.min(...intervalRepSplits) : null;
+  const worstRepSplit = intervalRepSplits.length > 0 ? Math.max(...intervalRepSplits) : null;
+  const overallRepSpread = bestRepSplit != null && worstRepSplit != null ? worstRepSplit - bestRepSplit : null;
 
   if (isLoading || isLoadingTeam) {
     return (
@@ -1702,6 +1753,27 @@ export function AssignmentResults() {
             )}
           </div>
 
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+              <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Avg Finisher Split</div>
+              <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtSplit(avgFinisherSplit)}</div>
+            </div>
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+              <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Avg Finisher Watts</div>
+              <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtWatts(avgFinisherWatts)}</div>
+            </div>
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+              <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Best · Worst Rep</div>
+              <div className="text-sm font-semibold text-neutral-100 font-mono">
+                {bestRepSplit != null && worstRepSplit != null ? `${fmtSplit(bestRepSplit)} · ${fmtSplit(worstRepSplit)}` : '—'}
+              </div>
+            </div>
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+              <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Rep Spread</div>
+              <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtSplit(overallRepSpread)}</div>
+            </div>
+          </div>
+
           {/* ── Missing athletes notice ── */}
           {(() => {
             const missing = rows.filter((r) => !r.completed && !r.is_coxswain);
@@ -1732,8 +1804,8 @@ export function AssignmentResults() {
               {/* Interval-specific charts (prioritized) */}
               {isInterval && repLabels.length > 0 && (
                 <div className="space-y-5">
-                  <RepHeatmap rows={rows} repLabels={repLabels} />
-                  <PercentileDotPlot rows={rows} />
+                  <RepHeatmap rows={rows} repLabels={repLabels} isImperial={isImperial} />
+                  <PercentileDotPlot rows={rows} isImperial={isImperial} />
                   <RepProgressionChart rows={rows} repLabels={repLabels} />
                 </div>
               )}
@@ -1743,7 +1815,7 @@ export function AssignmentResults() {
                 <SplitBarChart rows={rows} />
                 <WattsBarChart rows={rows} />
                 <WpkgBarChart rows={rows} />
-                {!isInterval && <PercentileDotPlot rows={rows} />}
+                {!isInterval && <PercentileDotPlot rows={rows} isImperial={isImperial} />}
               </div>
             </div>
           )}

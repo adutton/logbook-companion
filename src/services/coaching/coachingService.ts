@@ -9,6 +9,7 @@ import type {
   TeamMember,
   TeamMemberWithProfile,
   TeamRole,
+  PerformanceTier,
   UserTeamInfo,
   CoachingSession,
   CoachingAthleteNote,
@@ -34,6 +35,7 @@ export type {
   TeamMember,
   TeamMemberWithProfile,
   TeamRole,
+  PerformanceTier,
   UserTeamInfo,
   CoachingSession,
   CoachingAthleteNote,
@@ -58,6 +60,7 @@ function throwOnError<T>(result: { data: T | null; error: PostgrestError | null 
 }
 
 let resultWeightColumnAvailable: boolean | null = null;
+let performanceTierColumnAvailable: boolean | null = null;
 
 function markResultWeightColumnAvailable(value: boolean): void {
   if (value) {
@@ -71,6 +74,30 @@ function markResultWeightColumnAvailable(value: boolean): void {
 
 export function getResultWeightColumnAvailability(): boolean | null {
   return resultWeightColumnAvailable;
+}
+
+function markPerformanceTierColumnAvailable(value: boolean): void {
+  if (value) {
+    if (performanceTierColumnAvailable !== false) {
+      performanceTierColumnAvailable = true;
+    }
+    return;
+  }
+  performanceTierColumnAvailable = false;
+}
+
+function isMissingPerformanceTierColumn(error: PostgrestError | null): boolean {
+  if (!error) return false;
+  const code = (error.code ?? '').toLowerCase();
+  const message = `${error.message ?? ''} ${error.details ?? ''} ${error.hint ?? ''}`.toLowerCase();
+  if (code === 'pgrst204' || code === '42703') {
+    return true;
+  }
+  return message.includes('performance_tier') && (
+    message.includes('column') ||
+    message.includes('schema cache') ||
+    message.includes('could not find')
+  );
 }
 
 function isMissingResultWeightColumn(error: PostgrestError | null): boolean {
@@ -420,24 +447,48 @@ export async function getOrgAthletes(orgId: string): Promise<CoachingAthlete[]> 
   if (teams.length === 0) return [];
   const teamIds = teams.map((t) => t.id);
 
-  const rows = throwOnError(
-    await supabase
+  let rows: (Athlete & { team_athletes: TeamAthlete[] })[] | null = null;
+  let rowErr: PostgrestError | null = null;
+
+  if (performanceTierColumnAvailable !== false) {
+    const primary = await supabase
+      .from('athletes')
+      .select('*, team_athletes!inner(team_id, status, squad, performance_tier)')
+      .in('team_athletes.team_id', teamIds)
+      .eq('team_athletes.status', 'active')
+      .order('last_name');
+    rows = primary.data as (Athlete & { team_athletes: TeamAthlete[] })[] | null;
+    rowErr = primary.error;
+    if (!rowErr) markPerformanceTierColumnAvailable(true);
+    if (isMissingPerformanceTierColumn(rowErr)) markPerformanceTierColumnAvailable(false);
+  }
+
+  if (performanceTierColumnAvailable === false || rowErr) {
+    const fallback = await supabase
       .from('athletes')
       .select('*, team_athletes!inner(team_id, status, squad)')
       .in('team_athletes.team_id', teamIds)
       .eq('team_athletes.status', 'active')
-      .order('last_name')
-  ) as (Athlete & { team_athletes: TeamAthlete[] })[];
+      .order('last_name');
+    if (!fallback.error) {
+      rows = ((fallback.data as (Athlete & { team_athletes: TeamAthlete[] })[] | null) ?? [])
+        .map((r) => ({ ...r, team_athletes: (r.team_athletes ?? []).map((ta) => ({ ...ta, performance_tier: null })) }));
+      rowErr = null;
+    }
+  }
+
+  if (rowErr) throw rowErr;
 
   // De-duplicate by athlete ID (an athlete may appear on multiple teams within the org)
   const seen = new Set<string>();
   const result: CoachingAthlete[] = [];
-  for (const { team_athletes, ...athlete } of rows) {
+  for (const { team_athletes, ...athlete } of rows ?? []) {
     if (seen.has(athlete.id)) continue;
     seen.add(athlete.id);
     result.push({
       ...toCoachingAthlete(athlete as Athlete),
       squad: team_athletes[0]?.squad ?? null,
+      performance_tier: (team_athletes[0]?.performance_tier as PerformanceTier | null | undefined) ?? null,
     });
   }
   return result;
@@ -745,7 +796,7 @@ export async function transferAthlete(
   throwOnError(
     await supabase
       .from('team_athletes')
-      .update({ team_id: toTeamId, squad: null })
+      .update({ team_id: toTeamId, squad: null, performance_tier: null })
       .eq('athlete_id', athleteId)
       .eq('team_id', fromTeamId)
       .select()
@@ -754,18 +805,42 @@ export async function transferAthlete(
 
 export async function getAthletes(teamId: string): Promise<CoachingAthlete[]> {
   // Query athletes that belong to this team via inner join on team_athletes
-  const rows = throwOnError(
-    await supabase
+  let rows: (Athlete & { team_athletes: TeamAthlete[] })[] | null = null;
+  let rowErr: PostgrestError | null = null;
+
+  if (performanceTierColumnAvailable !== false) {
+    const primary = await supabase
+      .from('athletes')
+      .select('*, team_athletes!inner(team_id, status, squad, performance_tier)')
+      .eq('team_athletes.team_id', teamId)
+      .eq('team_athletes.status', 'active')
+      .order('last_name');
+    rows = primary.data as (Athlete & { team_athletes: TeamAthlete[] })[] | null;
+    rowErr = primary.error;
+    if (!rowErr) markPerformanceTierColumnAvailable(true);
+    if (isMissingPerformanceTierColumn(rowErr)) markPerformanceTierColumnAvailable(false);
+  }
+
+  if (performanceTierColumnAvailable === false || rowErr) {
+    const fallback = await supabase
       .from('athletes')
       .select('*, team_athletes!inner(team_id, status, squad)')
       .eq('team_athletes.team_id', teamId)
       .eq('team_athletes.status', 'active')
-      .order('last_name')
-  ) as (Athlete & { team_athletes: TeamAthlete[] })[];
+      .order('last_name');
+    if (!fallback.error) {
+      rows = ((fallback.data as (Athlete & { team_athletes: TeamAthlete[] })[] | null) ?? [])
+        .map((r) => ({ ...r, team_athletes: (r.team_athletes ?? []).map((ta) => ({ ...ta, performance_tier: null })) }));
+      rowErr = null;
+    }
+  }
 
-  return rows.map(({ team_athletes, ...athlete }) => ({
+  if (rowErr) throw rowErr;
+
+  return (rows ?? []).map(({ team_athletes, ...athlete }) => ({
     ...toCoachingAthlete(athlete as Athlete),
     squad: team_athletes[0]?.squad ?? null,
+    performance_tier: (team_athletes[0]?.performance_tier as PerformanceTier | null | undefined) ?? null,
   }));
 }
 
@@ -780,6 +855,24 @@ export async function getTeamSquads(teamId: string): Promise<string[]> {
   ) as { squad: string }[];
 
   return [...new Set(rows.map((r) => r.squad))].sort();
+}
+
+/** Get distinct performance tiers for a team */
+export async function getTeamPerformanceTiers(teamId: string): Promise<PerformanceTier[]> {
+  if (performanceTierColumnAvailable === false) return [];
+  const query = await supabase
+    .from('team_athletes')
+    .select('performance_tier')
+    .eq('team_id', teamId)
+    .not('performance_tier', 'is', null);
+  if (isMissingPerformanceTierColumn(query.error)) {
+    markPerformanceTierColumnAvailable(false);
+    return [];
+  }
+  const rows = throwOnError(query) as { performance_tier: PerformanceTier }[];
+  markPerformanceTierColumnAvailable(true);
+
+  return [...new Set(rows.map((r) => r.performance_tier))].sort();
 }
 
 /** Update an athlete's squad assignment within a team */
@@ -798,11 +891,35 @@ export async function updateAthleteSquad(
   );
 }
 
+/** Update an athlete's performance tier within a team */
+export async function updateAthletePerformanceTier(
+  teamId: string,
+  athleteId: string,
+  performanceTier: PerformanceTier | null
+): Promise<void> {
+  if (performanceTierColumnAvailable === false) {
+    throw new Error('Performance tier is unavailable until the latest migration is applied.');
+  }
+  const result = await supabase
+    .from('team_athletes')
+    .update({ performance_tier: performanceTier })
+    .eq('team_id', teamId)
+    .eq('athlete_id', athleteId)
+    .select();
+  if (isMissingPerformanceTierColumn(result.error)) {
+    markPerformanceTierColumnAvailable(false);
+    throw new Error('Performance tier is unavailable until the latest migration is applied.');
+  }
+  throwOnError(result);
+  markPerformanceTierColumnAvailable(true);
+}
+
 export async function createAthlete(
   teamId: string,
   createdBy: string,
   athlete: Pick<Athlete, 'first_name' | 'last_name' | 'grade' | 'experience_level' | 'side' | 'height_cm' | 'weight_kg' | 'notes'>,
-  squad?: string | null
+  squad?: string | null,
+  performanceTier?: PerformanceTier | null
 ): Promise<CoachingAthlete> {
   // 1. Insert into athletes
   const newAthlete = throwOnError(
@@ -814,15 +931,27 @@ export async function createAthlete(
   ) as Athlete;
 
   // 2. Link to team via team_athletes (with optional squad)
-  throwOnError(
-    await supabase
+  let linkErr: PostgrestError | null = null;
+  if (performanceTierColumnAvailable !== false) {
+    const linkWithTier = await supabase
+      .from('team_athletes')
+      .insert({ team_id: teamId, athlete_id: newAthlete.id, status: 'active', squad: squad ?? null, performance_tier: performanceTier ?? null })
+      .select()
+      .single();
+    linkErr = linkWithTier.error;
+    if (!linkErr) markPerformanceTierColumnAvailable(true);
+    if (isMissingPerformanceTierColumn(linkErr)) markPerformanceTierColumnAvailable(false);
+  }
+  if (performanceTierColumnAvailable === false || linkErr) {
+    const fallback = await supabase
       .from('team_athletes')
       .insert({ team_id: teamId, athlete_id: newAthlete.id, status: 'active', squad: squad ?? null })
       .select()
-      .single()
-  );
+      .single();
+    throwOnError(fallback);
+  }
 
-  return { ...toCoachingAthlete(newAthlete), squad: squad ?? null };
+  return { ...toCoachingAthlete(newAthlete), squad: squad ?? null, performance_tier: performanceTier ?? null };
 }
 
 export async function updateAthlete(
@@ -1583,6 +1712,7 @@ export interface AssignmentResultRow {
   athlete_id: string;
   athlete_name: string;
   squad?: string | null;
+  performance_tier?: PerformanceTier | null;
   team_id?: string | null;
   team_name?: string | null;
   weight_kg?: number | null;
@@ -1718,13 +1848,35 @@ export async function getAssignmentResultsWithAthletes(
       weight_kg: a.weight_kg,
       side: a.side ?? null,
       user_id: a.user_id ?? null,
-      team_athletes: [{ squad: a.squad }],
+      team_athletes: [{ squad: a.squad, performance_tier: a.performance_tier ?? null }],
     }));
   } else {
-    const { data, error: athErr } = await supabase
-      .from('athletes')
-      .select('id, first_name, last_name, weight_kg, side, user_id, team_athletes!inner(team_id, squad)')
-      .eq('team_athletes.team_id', teamId);
+    let data: Array<Record<string, unknown>> | null = null;
+    let athErr: PostgrestError | null = null;
+    if (performanceTierColumnAvailable !== false) {
+      const primary = await supabase
+        .from('athletes')
+        .select('id, first_name, last_name, weight_kg, side, user_id, team_athletes!inner(team_id, squad, performance_tier)')
+        .eq('team_athletes.team_id', teamId);
+      data = primary.data;
+      athErr = primary.error;
+      if (!athErr) markPerformanceTierColumnAvailable(true);
+      if (isMissingPerformanceTierColumn(athErr)) markPerformanceTierColumnAvailable(false);
+    }
+    if (performanceTierColumnAvailable === false || athErr) {
+      const fallback = await supabase
+        .from('athletes')
+        .select('id, first_name, last_name, weight_kg, side, user_id, team_athletes!inner(team_id, squad)')
+        .eq('team_athletes.team_id', teamId);
+      if (!fallback.error) {
+        data = (fallback.data as Array<Record<string, unknown>> | null)?.map((row) => ({
+          ...row,
+          team_athletes: ((row.team_athletes as Array<Record<string, unknown>> | undefined) ?? [])
+            .map((ta) => ({ ...ta, performance_tier: null })),
+        })) ?? null;
+        athErr = null;
+      }
+    }
     if (athErr) throw athErr;
     athleteRows = data;
   }
@@ -1746,15 +1898,22 @@ export async function getAssignmentResultsWithAthletes(
   }
 
   // Build lookup map
-  type AthleteInfo = { name: string; squad: string | null; weight_kg: number | null; side: string | null; is_coxswain: boolean };
+  type AthleteInfo = { name: string; squad: string | null; performance_tier: PerformanceTier | null; weight_kg: number | null; side: string | null; is_coxswain: boolean };
   const athleteMap = new Map<string, AthleteInfo>();
   for (const a of athleteRows ?? []) {
-    const ta = (a.team_athletes as unknown as Array<{ squad: string | null }>)[0];
+    const ta = (a.team_athletes as unknown as Array<{ squad: string | null; performance_tier: PerformanceTier | null }>)[0];
     const name = [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || 'Unknown';
     const side = (a.side as string | null) ?? null;
     const userId = (a.user_id as string | null) ?? null;
     const is_coxswain = side === 'coxswain' || (userId != null && coxswainUserIds.has(userId));
-    athleteMap.set(a.id as string, { name, squad: ta?.squad ?? null, weight_kg: (a.weight_kg as number | null) ?? null, side, is_coxswain });
+    athleteMap.set(a.id as string, {
+      name,
+      squad: ta?.squad ?? null,
+      performance_tier: ta?.performance_tier ?? null,
+      weight_kg: (a.weight_kg as number | null) ?? null,
+      side,
+      is_coxswain,
+    });
   }
 
   return (rows ?? []).map((row) => {
@@ -1765,6 +1924,7 @@ export async function getAssignmentResultsWithAthletes(
       athlete_id: row.athlete_id as string,
       athlete_name: info?.name ?? 'Unknown',
       squad: info?.squad ?? null,
+      performance_tier: info?.performance_tier ?? null,
       team_id: rowTeamId,
       team_name: rowTeamId ? (teamLookup.get(rowTeamId) ?? null) : null,
       weight_kg: info?.weight_kg ?? null,
@@ -2128,6 +2288,153 @@ export async function getTeamStats(teamId: string): Promise<{
     weeklyCompletionRate,
     sessionsThisWeek: sessions.length,
   };
+}
+
+type LeaderboardDailyRow = {
+  group_assignment_id: string;
+  athlete_id: string;
+  completed: boolean;
+  result_split_seconds?: number | null;
+  result_weight_kg?: number | null;
+  result_intervals?: IntervalResult[] | null;
+};
+
+function calcLeaderboardAvgSplit(row: LeaderboardDailyRow): number | null {
+  if (row.result_intervals && row.result_intervals.length > 0) {
+    const repsWithBoth = row.result_intervals.filter(
+      (r): r is IntervalResult & { split_seconds: number; distance_meters: number } =>
+        typeof r.split_seconds === 'number' && typeof r.distance_meters === 'number' && r.distance_meters > 0
+    );
+    if (repsWithBoth.length > 0) {
+      const totalDist = repsWithBoth.reduce((sum, r) => sum + r.distance_meters, 0);
+      const weightedSum = repsWithBoth.reduce((sum, r) => sum + r.split_seconds * r.distance_meters, 0);
+      return weightedSum / totalDist;
+    }
+    const repSplits = row.result_intervals
+      .filter((r): r is IntervalResult & { split_seconds: number } => typeof r.split_seconds === 'number')
+      .map((r) => r.split_seconds);
+    if (repSplits.length > 0) {
+      return repSplits.reduce((sum, v) => sum + v, 0) / repSplits.length;
+    }
+  }
+  return row.result_split_seconds ?? null;
+}
+
+function wattsFromSplit(splitSeconds: number): number {
+  return 2.8 / Math.pow(splitSeconds / 500, 3);
+}
+
+export interface SeasonLeaderboardEntry {
+  athlete_id: string;
+  athlete_name: string;
+  squad?: string | null;
+  performance_tier?: PerformanceTier | null;
+  assignment_count: number;
+  avg_raw_rank: number | null;
+  avg_wplb_rank: number | null;
+  trend_raw_rank: number | null;
+}
+
+/**
+ * Season-to-date leaderboard from measured workouts (template `is_test = true`).
+ * Lower average rank is better (1.0 = best).
+ */
+export async function getSeasonMeasuredLeaderboard(
+  teamId: string,
+  opts?: { from?: string; to?: string; limit?: number }
+): Promise<SeasonLeaderboardEntry[]> {
+  const assignments = await getGroupAssignments(teamId, { from: opts?.from, to: opts?.to })
+    .then((rows) => rows.filter((a) => a.is_test_template));
+  if (assignments.length === 0) return [];
+
+  const assignmentIds = assignments.map((a) => a.id);
+  const athletes = await getAthletes(teamId);
+  const athleteMap = new Map(athletes.map((a) => [a.id, a]));
+
+  let rows: LeaderboardDailyRow[] | null = null;
+  if (resultWeightColumnAvailable !== false) {
+    const primary = await supabase
+      .from('daily_workout_assignments')
+      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_weight_kg, result_intervals')
+      .eq('team_id', teamId)
+      .in('group_assignment_id', assignmentIds);
+    if (!primary.error) {
+      rows = (primary.data as LeaderboardDailyRow[] | null) ?? [];
+      markResultWeightColumnAvailable(true);
+    } else if (isMissingResultWeightColumn(primary.error)) {
+      markResultWeightColumnAvailable(false);
+    }
+  }
+
+  if (!rows) {
+    const fallback = await supabase
+      .from('daily_workout_assignments')
+      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_intervals')
+      .eq('team_id', teamId)
+      .in('group_assignment_id', assignmentIds);
+    if (fallback.error) throw fallback.error;
+    rows = ((fallback.data as Omit<LeaderboardDailyRow, 'result_weight_kg'>[] | null) ?? [])
+      .map((r) => ({ ...r, result_weight_kg: null }));
+  }
+
+  const perAthleteRanks = new Map<string, { raw: number[]; wplb: number[]; rawByDate: Array<{ date: string; rank: number }> }>();
+  for (const assignment of assignments) {
+    const perAssignmentRows = (rows ?? [])
+      .filter((r) => r.group_assignment_id === assignment.id && r.completed)
+      .map((r) => {
+        const athlete = athleteMap.get(r.athlete_id);
+        const split = calcLeaderboardAvgSplit(r);
+        const effectiveWeightKg = (r.result_weight_kg && r.result_weight_kg > 0)
+          ? r.result_weight_kg
+          : (athlete?.weight_kg && athlete.weight_kg > 0 ? athlete.weight_kg : null);
+        const watts = split && split > 0 ? wattsFromSplit(split) : null;
+        const wplb = watts != null && effectiveWeightKg ? (watts / effectiveWeightKg) / 2.20462 : null;
+        return { athleteId: r.athlete_id, split, wplb };
+      })
+      .filter((r) => r.split != null);
+    if (perAssignmentRows.length === 0) continue;
+
+    const rawSorted = [...perAssignmentRows].sort((a, b) => (a.split ?? Number.POSITIVE_INFINITY) - (b.split ?? Number.POSITIVE_INFINITY));
+    rawSorted.forEach((row, idx) => {
+      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], rawByDate: [] };
+      entry.raw.push(idx + 1);
+      entry.rawByDate.push({ date: assignment.scheduled_date, rank: idx + 1 });
+      perAthleteRanks.set(row.athleteId, entry);
+    });
+
+    const weighted = perAssignmentRows.filter((r) => r.wplb != null);
+    const wplbSorted = [...weighted].sort((a, b) => (b.wplb ?? 0) - (a.wplb ?? 0));
+    wplbSorted.forEach((row, idx) => {
+      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], rawByDate: [] };
+      entry.wplb.push(idx + 1);
+      perAthleteRanks.set(row.athleteId, entry);
+    });
+  }
+
+  const leaderboard = Array.from(perAthleteRanks.entries()).map(([athleteId, ranks]) => {
+    const athlete = athleteMap.get(athleteId);
+    const sortedTrend = [...ranks.rawByDate].sort((a, b) => a.date.localeCompare(b.date));
+    const trend = sortedTrend.length >= 2 ? sortedTrend[sortedTrend.length - 1].rank - sortedTrend[0].rank : null;
+    return {
+      athlete_id: athleteId,
+      athlete_name: athlete?.name ?? 'Unknown',
+      squad: athlete?.squad ?? null,
+      performance_tier: athlete?.performance_tier ?? null,
+      assignment_count: ranks.raw.length,
+      avg_raw_rank: ranks.raw.length > 0 ? ranks.raw.reduce((sum, v) => sum + v, 0) / ranks.raw.length : null,
+      avg_wplb_rank: ranks.wplb.length > 0 ? ranks.wplb.reduce((sum, v) => sum + v, 0) / ranks.wplb.length : null,
+      trend_raw_rank: trend,
+    } as SeasonLeaderboardEntry;
+  });
+
+  leaderboard.sort((a, b) => {
+    const ar = a.avg_raw_rank ?? Number.POSITIVE_INFINITY;
+    const br = b.avg_raw_rank ?? Number.POSITIVE_INFINITY;
+    if (ar !== br) return ar - br;
+    return (a.avg_wplb_rank ?? Number.POSITIVE_INFINITY) - (b.avg_wplb_rank ?? Number.POSITIVE_INFINITY);
+  });
+
+  return opts?.limit ? leaderboard.slice(0, opts.limit) : leaderboard;
 }
 
 // ─── Team Analytics ────────────────────────────────────────────────────────

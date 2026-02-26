@@ -9,9 +9,11 @@ import {
   getOrgTrainingZoneDistribution,
   getOrgAthletesWithTeam,
   getTeamsForOrg,
+  getSeasonMeasuredLeaderboard,
   type CoachingAthlete,
   type TeamErgComparison,
   type ZoneDistribution,
+  type SeasonLeaderboardEntry,
 } from '../../services/coaching/coachingService';
 import type { Team } from '../../services/coaching/types';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
@@ -26,6 +28,7 @@ export function TeamAnalytics() {
   const [ergComparison, setErgComparison] = useState<TeamErgComparison[]>([]);
   const [zoneDistribution, setZoneDistribution] = useState<{ zones: ZoneDistribution[]; total: number } | null>(null);
   const [orgTeams, setOrgTeams] = useState<Team[]>([]);
+  const [seasonLeaderboard, setSeasonLeaderboard] = useState<SeasonLeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [teamFilter, setTeamFilter] = useState<string>('all');
@@ -50,18 +53,21 @@ export function TeamAnalytics() {
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
         setZoneDistribution(zoneDist);
+        setSeasonLeaderboard([]);
       } else {
         // Single team
-        const [loadedAthletes, ergData, zoneDist] = await Promise.all([
+        const [loadedAthletes, ergData, zoneDist, leaderboard] = await Promise.all([
           getAthletes(teamId),
           getTeamErgComparison(teamId).catch(() => [] as TeamErgComparison[]),
           getTeamTrainingZoneDistribution(teamId).catch(() => null),
+          getSeasonMeasuredLeaderboard(teamId, { limit: 10 }).catch(() => [] as SeasonLeaderboardEntry[]),
         ]);
         setOrgTeams([]);
         // Exclude coxswain-sided athletes — they don't erg
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
         setZoneDistribution(zoneDist);
+        setSeasonLeaderboard(leaderboard);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load analytics');
@@ -229,6 +235,54 @@ export function TeamAnalytics() {
               </p>
             )}
           </>
+        )}
+
+        {/* Season leaderboard */}
+        {!isLoading && !isOrg && seasonLeaderboard.length > 0 && (
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
+            <h3 className="text-sm font-medium text-neutral-400 mb-4">Measured Workout Leaderboard (Season-to-date)</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-neutral-500 border-b border-neutral-800">
+                    <th className="text-left py-2 pr-3">#</th>
+                    <th className="text-left py-2 pr-3">Athlete</th>
+                    <th className="text-right py-2 pr-3">Avg Rank</th>
+                    <th className="text-right py-2 pr-3">Avg W/lb Rank</th>
+                    <th className="text-right py-2 pr-3">Tests</th>
+                    <th className="text-right py-2">Trend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {seasonLeaderboard.slice(0, 10).map((row, idx) => (
+                    <tr key={row.athlete_id} className="border-b border-neutral-800/50">
+                      <td className="py-2 pr-3 text-neutral-400">{idx + 1}</td>
+                      <td className="py-2 pr-3">
+                        <div className="text-white">{row.athlete_name}</div>
+                        <div className="text-[11px] text-neutral-500">
+                          {[row.squad, row.performance_tier].filter(Boolean).join(' · ') || '—'}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3 text-right font-mono text-neutral-200">{row.avg_raw_rank != null ? row.avg_raw_rank.toFixed(2) : '—'}</td>
+                      <td className="py-2 pr-3 text-right font-mono text-neutral-200">{row.avg_wplb_rank != null ? row.avg_wplb_rank.toFixed(2) : '—'}</td>
+                      <td className="py-2 pr-3 text-right font-mono text-neutral-300">{row.assignment_count}</td>
+                      <td className="py-2 text-right font-mono">
+                        {row.trend_raw_rank == null ? (
+                          <span className="text-neutral-500">—</span>
+                        ) : row.trend_raw_rank < 0 ? (
+                          <span className="text-emerald-400">{row.trend_raw_rank.toFixed(0)}</span>
+                        ) : row.trend_raw_rank > 0 ? (
+                          <span className="text-amber-400">+{row.trend_raw_rank.toFixed(0)}</span>
+                        ) : (
+                          <span className="text-neutral-400">0</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </div>
     </div>

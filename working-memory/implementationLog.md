@@ -4,6 +4,205 @@
 
 ---
 
+## Phase 34: Assignment Results UI Simplification — Remove Sigma Labels (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- `src/pages/coaching/AssignmentResults.tsx`
+  - Removed `σ Splits` header/cell from summary table.
+  - Heatmap trailing metric now uses `Spread` label/value instead of sigma notation.
+  - Removed consistency-sort branch from summary table sorting.
+
+- `src/pages/PublicAssignmentResultsShare.tsx`
+  - Same parity updates as private page:
+    - removed `σ Splits` summary column,
+    - heatmap trailing metric now `Spread`,
+    - removed consistency-sort branch.
+
+### Validation
+
+- `npm run build` → ✅ pass
+- `npm run test:run` → ✅ pass (`209/209`)
+
+### Outcome
+
+Assignment results now present one interval-variance concept (`Spread`) with simpler labels and less table noise.
+
+---
+
+## Phase 33: Live Supabase Migration Apply — `performance_tier` (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- Applied migration to production Supabase via MCP:
+  - migration name: `add_team_athlete_performance_tier`
+  - project: `vmlhcbkyonemmlawnqqr`
+
+### Verification
+
+- Confirmed migration exists in live migration history.
+- Confirmed schema objects exist:
+  - column: `public.team_athletes.performance_tier` (`text`, nullable)
+  - check constraint: `team_athletes_performance_tier_check`
+  - index: `idx_team_athletes_team_performance_tier` (partial, `performance_tier IS NOT NULL`)
+
+### Outcome
+
+Performance-tier reads/writes now align with live schema, removing the migration gap for tier persistence and roster editing.
+
+---
+
+## Phase 32: Team Management Team-Route Navigation + Org Roster Edit Parity (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- `src/pages/coaching/CoachDashboard.tsx`
+  - Team rows in the org/team list now switch active team **and navigate to team roster route** (`/team-management/roster`) from the chevron row action.
+  - Org-wide roster section (grouped by team) expanded from minimal columns to full editable roster fields:
+    - first name, last name, squad, grade, side, experience level, performance tier, height, weight.
+  - Added inline cell editing flows in org roster table using existing coaching services:
+    - `updateAthlete(...)`
+    - `updateAthleteSquad(...)`
+    - `updateAthletePerformanceTier(...)`
+  - Height/weight editing respects unit preference with imperial conversion support.
+
+- `src/components/coaching/BulkRosterModal.tsx`
+  - Added `performance_tier` as a bulk-entry column.
+  - Bulk create now passes selected tier through `createAthlete(...)`.
+
+### Validation
+
+- `npm run build` → ✅ pass
+- `npm run test:run` → ✅ pass (`209/209`)
+
+### Outcome
+
+Team-management navigation now supports direct drill-down to a selected team roster from the org/team hierarchy, and the org-wide grouped roster has near-parity editing coverage with the dedicated roster experience.
+
+---
+
+## Phase 31: Imperial Analytics Unit Fidelity + Performance Tier Schema Fallback (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Fix unit fidelity so imperial users see ratio analytics in W/lb (not W/kg), and prevent runtime 400 failures when `performance_tier` migration is not yet applied on live Supabase.
+
+### Changes Implemented
+
+#### 1. Unit-aware ratio analytics (private + public assignment results pages)
+- `src/pages/coaching/AssignmentResults.tsx`
+- `src/pages/PublicAssignmentResultsShare.tsx`
+  - Heatmap ratio mode now computes/labels by selected unit:
+    - metric users: W/kg
+    - imperial users: W/lb
+  - Power-vs-bodyweight percentile plot now uses unit-consistent ratio benchmarks and axis labels:
+    - metric: bodyweight kg, benchmark lines in W/kg
+    - imperial: bodyweight lb, benchmark lines in W/lb
+  - Updated tooltip and benchmark label text to match selected ratio unit.
+  - Public page power-to-weight bar chart now respects unit preference (W/lb vs W/kg).
+
+#### 2. Live-schema-safe fallback for missing `performance_tier`
+- `src/services/coaching/coachingService.ts`
+  - Added missing-column detection and availability tracking for `team_athletes.performance_tier`.
+  - `getAthletes`, `getOrgAthletes`, and `getAssignmentResultsWithAthletes` now retry without `performance_tier` when column is absent and hydrate `performance_tier: null`.
+  - `createAthlete` now falls back to insert without `performance_tier` if migration is not applied.
+  - `getTeamPerformanceTiers` returns empty when column unavailable.
+  - `updateAthletePerformanceTier` now returns a clear migration-required error when column is missing.
+
+### Verification
+
+- `npm run build` → ✅ pass
+- `npm run test:run` → ✅ pass (`209/209`)
+
+### Outcome
+
+Imperial users now get coherent ratio analytics in W/lb across heatmap and decomposition plot, and coaching pages no longer hard-fail in pre-migration environments where `performance_tier` hasn’t been applied yet.
+
+---
+
+## Phase 30: Coaching Performance Tier + Measured Leaderboard + Assignment Metrics Expansion (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Introduce a dedicated team-scoped competitive classification (`performance_tier`), ship season-to-date measured leaderboards, and expand assignment results with clearer aggregates and interval quality metrics.
+
+### Changes Implemented
+
+#### 1. Team-scoped Performance Tier model
+- Added migration: `db/migrations/20260226_add_team_athlete_performance_tier.sql`
+  - `team_athletes.performance_tier` (nullable text)
+  - check constraint: `pool | developmental | challenger | champion`
+  - index on `(team_id, performance_tier)` for filter/reporting performance
+- Updated coaching types:
+  - `PerformanceTier` union in `src/services/coaching/types.ts`
+  - `performance_tier` added to `CoachingAthlete` and `TeamAthlete`
+- Updated coaching service wiring (`src/services/coaching/coachingService.ts`):
+  - team-athlete select joins now include `performance_tier`
+  - added `getTeamPerformanceTiers(...)`
+  - added `updateAthletePerformanceTier(...)`
+  - `createAthlete(...)` and transfer logic now support/reset tier appropriately
+
+#### 2. Measured-workout season leaderboard service
+- Added `getSeasonMeasuredLeaderboard(teamId, { from, to, limit })` in `src/services/coaching/coachingService.ts`
+  - source set: group assignments where template `is_test = true`
+  - rank models:
+    - raw rank by lower split (distance-weighted where interval distances available)
+    - W/lb rank from split-derived watts and effective weight (`result_weight_kg` fallback to profile `weight_kg`)
+  - returns per-athlete:
+    - `avg_raw_rank`
+    - `avg_wplb_rank`
+    - `assignment_count`
+    - `trend_raw_rank`
+    - `squad` + `performance_tier`
+
+#### 3. Top-level summary surfaces
+- `src/pages/coaching/CoachDashboard.tsx`
+  - added quick-view season measured leaderboard card (top 5) with link to Analytics
+- `src/pages/coaching/TeamAnalytics.tsx`
+  - added measured leaderboard table (top 10) on team analytics route
+  - includes average rank, average W/lb rank, test count, and trend
+
+#### 4. Assignment results metrics expansion (private + public)
+- `src/pages/coaching/AssignmentResults.tsx`
+- `src/pages/PublicAssignmentResultsShare.tsx`
+  - enriched per-athlete interval stats:
+    - `rep_best_split_seconds`
+    - `rep_worst_split_seconds`
+    - `rep_split_spread_seconds`
+  - summary table now shows interval `Best · Worst` and `Spread` columns
+  - added assignment-level aggregate cards:
+    - avg finisher split
+    - avg finisher watts
+    - best/worst rep (overall)
+    - rep spread (overall)
+
+### Verification
+
+- `npm run build` → ✅ pass
+- `npm run test:run` → ✅ pass (`209/209`)
+- `npm run lint` → ❌ fails on pre-existing repository-wide baseline lint debt (unrelated `scripts/*`, `src/App.tsx`, etc.)
+
+### Outcome
+
+The coaching stack now separates long-term rowing maturity (`experience_level`) from season-ready competitive classification (`performance_tier`), provides measurable season standings from benchmark workouts, and improves assignment-results interpretability with explicit best/worst interval and aggregate performance summaries.
+
+---
+
 ## Phase 29: Magic Layer Confidence Matching (Read-Only Suggestion Mode) (February 26, 2026)
 
 **Timeline**: February 26, 2026  

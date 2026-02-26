@@ -25,6 +25,7 @@ import {
 } from '../services/coaching/coachingService';
 import { splitToWatts, formatSplit } from '../utils/zones';
 import { parseWorkoutStructureForEntry } from '../utils/workoutEntryClassifier';
+import { useMeasurementUnits } from '../hooks/useMeasurementUnits';
 
 interface EnrichedRow extends AssignmentResultRow {
   avg_split_seconds: number | null;
@@ -33,15 +34,18 @@ interface EnrichedRow extends AssignmentResultRow {
   wplb: number | null;
   effective_weight_kg: number | null;
   rep_splits: (number | null)[];
+  rep_best_split_seconds: number | null;
+  rep_worst_split_seconds: number | null;
+  rep_split_spread_seconds: number | null;
   consistency_sigma: number | null;
   dnf: boolean;
   partialDnf: boolean;
   completeNoData: boolean;
 }
 
-type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate' | 'consistency';
+type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate';
 type SortDir = 'asc' | 'desc';
-type HeatmapSortCol = 'name' | 'avg' | 'sigma' | number;
+type HeatmapSortCol = 'name' | 'avg' | 'spread' | number;
 type RatioZone = { lower: number; upper: number; fill: string };
 
 function RatioZoneShading({
@@ -175,8 +179,30 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
     const wplb = wpkg != null ? wpkg / 2.20462 : null;
     const rep_splits = calcRepSplits(row);
     const consistency_sigma = calcSigma(rep_splits);
+    const validRepSplits = rep_splits.filter((v): v is number => v != null);
+    const rep_best_split_seconds = validRepSplits.length > 0 ? Math.min(...validRepSplits) : null;
+    const rep_worst_split_seconds = validRepSplits.length > 0 ? Math.max(...validRepSplits) : null;
+    const rep_split_spread_seconds =
+      rep_best_split_seconds != null && rep_worst_split_seconds != null
+        ? rep_worst_split_seconds - rep_best_split_seconds
+        : null;
 
-    return { ...row, avg_split_seconds, watts, wplb, wpkg, effective_weight_kg: effectiveWeightKg, rep_splits, consistency_sigma, dnf, partialDnf, completeNoData };
+    return {
+      ...row,
+      avg_split_seconds,
+      watts,
+      wplb,
+      wpkg,
+      effective_weight_kg: effectiveWeightKg,
+      rep_splits,
+      rep_best_split_seconds,
+      rep_worst_split_seconds,
+      rep_split_spread_seconds,
+      consistency_sigma,
+      dnf,
+      partialDnf,
+      completeNoData,
+    };
   });
 }
 
@@ -237,11 +263,11 @@ function WattsBarChart({ rows }: { rows: EnrichedRow[] }) {
   );
 }
 
-function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
+function WpkgBarChart({ rows, isImperial }: { rows: EnrichedRow[]; isImperial: boolean }) {
   const data = [...rows]
-    .filter((r) => r.completed && r.wpkg != null)
-    .sort((a, b) => (b.wpkg ?? 0) - (a.wpkg ?? 0))
-    .map((r) => ({ name: r.athlete_name.split(' ')[0], wpkg: Number((r.wpkg ?? 0).toFixed(2)) }));
+    .filter((r) => r.completed && (isImperial ? r.wplb : r.wpkg) != null)
+    .sort((a, b) => ((isImperial ? b.wplb : b.wpkg) ?? 0) - ((isImperial ? a.wplb : a.wpkg) ?? 0))
+    .map((r) => ({ name: r.athlete_name.split(' ')[0], ratio: Number(((isImperial ? r.wplb : r.wpkg) ?? 0).toFixed(2)) }));
 
   if (data.length === 0) return null;
 
@@ -255,16 +281,16 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
           <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} width={46} />
           <Tooltip
             contentStyle={LIGHT_TOOLTIP_STYLE}
-            formatter={(v: number | undefined) => [v != null ? `${v.toFixed(2)} W/kg` : '—', 'W/kg']}
+            formatter={(v: number | undefined) => [v != null ? `${v.toFixed(2)} ${isImperial ? 'W/lb' : 'W/kg'}` : '—', isImperial ? 'W/lb' : 'W/kg']}
           />
-          <Bar dataKey="wpkg" radius={[4, 4, 0, 0]} fill="#22c55e" />
+          <Bar dataKey="ratio" radius={[4, 4, 0, 0]} fill="#22c55e" />
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
+function PercentileDotPlot({ rows, isImperial }: { rows: EnrichedRow[]; isImperial: boolean }) {
   const completed = rows.filter((r) => r.completed && r.avg_split_seconds != null && !r.dnf && !r.partialDnf);
   const weighted = completed.filter((r) => r.watts != null && r.effective_weight_kg != null);
   if (weighted.length < 3) return null;
@@ -289,11 +315,11 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
     teamNames.map((team, i) => [team, teamPalette[i % teamPalette.length]]),
   );
 
-  const minWeight = Math.min(...weighted.map((r) => r.effective_weight_kg!));
-  const maxWeight = Math.max(...weighted.map((r) => r.effective_weight_kg!));
+  const minWeight = Math.min(...weighted.map((r) => isImperial ? r.effective_weight_kg! * 2.20462 : r.effective_weight_kg!));
+  const maxWeight = Math.max(...weighted.map((r) => isImperial ? r.effective_weight_kg! * 2.20462 : r.effective_weight_kg!));
 
-  const sortedWpkg = weighted
-    .map((r) => r.wpkg)
+  const sortedRatio = weighted
+    .map((r) => isImperial ? r.wplb : r.wpkg)
     .filter((v): v is number => v != null && Number.isFinite(v) && v > 0)
     .sort((a, b) => a - b);
 
@@ -304,9 +330,9 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
   };
 
   const ratioBenchmarks = [
-    { label: 'P25', ratio: quantile(sortedWpkg, 0.25), color: '#64748b', dotClass: 'bg-slate-500' },
-    { label: 'P50', ratio: quantile(sortedWpkg, 0.5), color: '#94a3b8', dotClass: 'bg-slate-400' },
-    { label: 'P75', ratio: quantile(sortedWpkg, 0.75), color: '#cbd5e1', dotClass: 'bg-slate-300' },
+    { label: 'P25', ratio: quantile(sortedRatio, 0.25), color: '#64748b', dotClass: 'bg-slate-500' },
+    { label: 'P50', ratio: quantile(sortedRatio, 0.5), color: '#94a3b8', dotClass: 'bg-slate-400' },
+    { label: 'P75', ratio: quantile(sortedRatio, 0.75), color: '#cbd5e1', dotClass: 'bg-slate-300' },
   ].filter((b) => b.ratio > 0);
 
   const maxRatio = Math.max(...ratioBenchmarks.map((b) => b.ratio), 0);
@@ -324,14 +350,14 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
   const data = weighted
     .map((r) => {
       const watts = r.watts!;
-      const weightKg = r.effective_weight_kg!;
+      const weightValue = isImperial ? r.effective_weight_kg! * 2.20462 : r.effective_weight_kg!;
       const team = (r.team_name ?? '').trim() || 'No Team';
       return {
         name: r.athlete_name.split(' ')[0],
         fullName: r.athlete_name,
         team,
         watts,
-        weightKg,
+        weightValue,
         split: r.avg_split_seconds,
         wpkg: r.wpkg,
         wplb: r.wplb,
@@ -343,7 +369,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
   return (
     <div className="bg-neutral-800/70 rounded-xl p-4 space-y-3 border border-neutral-700/40">
       <h3 className="text-sm font-semibold text-neutral-200">Power vs Body Weight</h3>
-      <p className="text-xs text-neutral-500">X = body weight (kg), Y = power (watts). Diagonal lines are W/kg percentile benchmarks.</p>
+      <p className="text-xs text-neutral-500">X = body weight ({isImperial ? 'lb' : 'kg'}), Y = power (watts). Diagonal lines are {isImperial ? 'W/lb' : 'W/kg'} percentile benchmarks.</p>
       {teamNames.length > 1 && (
         <div className="flex flex-wrap gap-2 text-[11px] text-neutral-500">
           {teamNames.map((team) => (
@@ -359,7 +385,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
           {ratioBenchmarks.map((b) => (
             <span key={b.label} className="inline-flex items-center gap-1.5 rounded-full border border-neutral-600/60 px-2 py-0.5">
               <span className={`h-2 w-2 rounded-full ${b.dotClass}`} />
-              {b.label}: {b.ratio.toFixed(2)} W/kg
+              {b.label}: {b.ratio.toFixed(2)} {isImperial ? 'W/lb' : 'W/kg'}
             </span>
           ))}
         </div>
@@ -372,10 +398,10 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
           <XAxis
             type="number"
-            dataKey="weightKg"
+            dataKey="weightValue"
             reversed
             tick={{ fill: '#9ca3af', fontSize: 11 }}
-            label={{ value: 'Body Weight (kg, lighter →)', position: 'insideBottom', offset: -6, fill: '#64748b', fontSize: 11 }}
+            label={{ value: `Body Weight (${isImperial ? 'lb' : 'kg'}, lighter →)`, position: 'insideBottom', offset: -6, fill: '#64748b', fontSize: 11 }}
           />
           <YAxis
             type="number"
@@ -396,7 +422,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
               stroke={b.color}
               strokeDasharray="6 4"
               strokeOpacity={0.75}
-              label={{ value: `${b.label} ${b.ratio.toFixed(2)} W/kg`, fill: b.color, fontSize: 10 }}
+              label={{ value: `${b.label} ${b.ratio.toFixed(2)} ${isImperial ? 'W/lb' : 'W/kg'}`, fill: b.color, fontSize: 10 }}
             />
           ))}
           <Tooltip
@@ -407,7 +433,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
                 fullName: string;
                 team: string;
                 watts: number;
-                weightKg: number;
+                weightValue: number;
                 split: number | null;
                 wpkg: number | null;
                 wplb: number | null;
@@ -416,7 +442,7 @@ function PercentileDotPlot({ rows }: { rows: EnrichedRow[] }) {
                 <div className="p-2 text-xs text-slate-800">
                   <div className="font-semibold">{point.fullName}</div>
                   <div>Team: {point.team}</div>
-                  <div>Weight: {point.weightKg.toFixed(1)} kg</div>
+                  <div>Weight: {point.weightValue.toFixed(1)} {isImperial ? 'lb' : 'kg'}</div>
                   <div>Power: {fmtWatts(point.watts)}</div>
                   <div>Split: {fmtSplit(point.split)}</div>
                   <div>Power-to-weight: {fmtPowerToWeight(point.wpkg, point.wplb)}</div>
@@ -480,7 +506,7 @@ function RepProgressionChart({ rows, repLabels }: { rows: EnrichedRow[]; repLabe
   );
 }
 
-function RepHeatmap({ rows, repLabels }: { rows: EnrichedRow[]; repLabels: string[] }) {
+function RepHeatmap({ rows, repLabels, isImperial }: { rows: EnrichedRow[]; repLabels: string[]; isImperial: boolean }) {
   const [sortCol, setSortCol] = useState<HeatmapSortCol>('avg');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [metric, setMetric] = useState<'split' | 'wpkg'>('split');
@@ -510,7 +536,7 @@ function RepHeatmap({ rows, repLabels }: { rows: EnrichedRow[]; repLabels: strin
         if (split == null || split <= 0 || row.effective_weight_kg == null || row.effective_weight_kg <= 0) return null;
         const repWatts = splitToWatts(split);
         if (!Number.isFinite(repWatts) || repWatts <= 0) return null;
-        return repWatts / row.effective_weight_kg;
+        return isImperial ? repWatts / (row.effective_weight_kg * 2.20462) : repWatts / row.effective_weight_kg;
       });
       return [row.athlete_id, vals];
     }),
@@ -553,10 +579,11 @@ function RepHeatmap({ rows, repLabels }: { rows: EnrichedRow[]; repLabels: strin
     if (sortCol === 'name') return row.athlete_name;
     if (sortCol === 'avg') {
       if (metric === 'split') return row.avg_split_seconds ?? null;
-      if (row.wpkg != null) return -row.wpkg;
+      const ratio = isImperial ? row.wplb : row.wpkg;
+      if (ratio != null) return -ratio;
       return null;
     }
-    if (sortCol === 'sigma') return row.consistency_sigma ?? null;
+    if (sortCol === 'spread') return row.rep_split_spread_seconds ?? null;
     if (metric === 'split') return row.rep_splits[sortCol] ?? null;
     const ratio = repWpkgByAthlete.get(row.athlete_id)?.[sortCol] ?? null;
     return ratio != null ? -ratio : null;
@@ -599,7 +626,7 @@ function RepHeatmap({ rows, repLabels }: { rows: EnrichedRow[]; repLabels: strin
             onClick={() => setMetric('wpkg')}
             className={`px-2 py-1 border-l border-neutral-700 ${metric === 'wpkg' ? 'bg-indigo-600/30 text-indigo-300' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200'}`}
           >
-            W/kg
+            {isImperial ? 'W/lb' : 'W/kg'}
           </button>
         </div>
       </div>
@@ -624,9 +651,9 @@ function RepHeatmap({ rows, repLabels }: { rows: EnrichedRow[]; repLabels: strin
               ))}
               <th
                 className="px-2 py-2 text-center text-neutral-400 cursor-pointer"
-                onClick={() => toggleSort('sigma')}
+                onClick={() => toggleSort('spread')}
               >
-                σ {heatmapSortIcon('sigma')}
+                Spread {heatmapSortIcon('spread')}
               </th>
             </tr>
           </thead>
@@ -668,9 +695,7 @@ function RepHeatmap({ rows, repLabels }: { rows: EnrichedRow[]; repLabels: strin
                   );
                 })}
                 <td className="px-2 py-1.5 text-center border-t border-neutral-800/30 text-neutral-400 font-mono">
-                  {metric === 'split'
-                    ? (row.consistency_sigma != null ? `±${fmtSplit(row.consistency_sigma)}` : '—')
-                    : '—'}
+                  {row.rep_split_spread_seconds != null ? fmtSplit(row.rep_split_spread_seconds) : '—'}
                 </td>
                 </tr>
               </Fragment>
@@ -782,7 +807,6 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
         case 'distance': av = a.result_distance_meters ?? null; bv = b.result_distance_meters ?? null; break;
         case 'time': av = a.result_time_seconds ?? null; bv = b.result_time_seconds ?? null; break;
         case 'stroke_rate': av = a.result_stroke_rate ?? null; bv = b.result_stroke_rate ?? null; break;
-        case 'consistency': av = a.consistency_sigma; bv = b.consistency_sigma; break;
       }
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
@@ -883,7 +907,8 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
-              {isInterval && <SortTh label="σ Splits" field="consistency" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Best · Worst</th>}
+              {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Spread</th>}
             </tr>
           </thead>
           <tbody>
@@ -967,8 +992,15 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
                     <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds)}</td>
                     <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
                     {isInterval && (
-                      <td className="px-3 py-2 text-right font-mono text-neutral-400 text-xs">
-                        {row.consistency_sigma != null ? `±${fmtSplit(row.consistency_sigma)}` : '—'}
+                      <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                        {row.rep_best_split_seconds != null && row.rep_worst_split_seconds != null
+                          ? `${fmtSplit(row.rep_best_split_seconds)} · ${fmtSplit(row.rep_worst_split_seconds)}`
+                          : '—'}
+                      </td>
+                    )}
+                    {isInterval && (
+                      <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                        {row.rep_split_spread_seconds != null ? fmtSplit(row.rep_split_spread_seconds) : '—'}
                       </td>
                     )}
                   </tr>
@@ -1005,6 +1037,7 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
 }
 
 export function PublicAssignmentResultsShare() {
+  const isImperial = useMeasurementUnits() === 'imperial';
   const shareToken = window.location.pathname.split('/').pop() ?? null;
   const [isLoading, setIsLoading] = useState(true);
   const [payload, setPayload] = useState<AssignmentResultsShareData | null>(null);
@@ -1125,6 +1158,17 @@ export function PublicAssignmentResultsShare() {
   const finished = scopedRows.filter((r) => r.completed && !r.dnf).length;
   const dnf = scopedRows.filter((r) => r.dnf).length;
   const completed = scopedRows.filter((r) => r.completed).length;
+  const finisherRows = scopedRows.filter((r) => r.completed && !r.dnf && !r.partialDnf && r.avg_split_seconds != null);
+  const avgFinisherSplit = finisherRows.length > 0
+    ? finisherRows.reduce((sum, row) => sum + (row.avg_split_seconds ?? 0), 0) / finisherRows.length
+    : null;
+  const avgFinisherWatts = finisherRows.filter((r) => r.watts != null).length > 0
+    ? finisherRows.reduce((sum, row) => sum + (row.watts ?? 0), 0) / finisherRows.filter((r) => r.watts != null).length
+    : null;
+  const intervalRepSplits = scopedRows.flatMap((r) => r.rep_splits.filter((v): v is number => v != null));
+  const bestRepSplit = intervalRepSplits.length > 0 ? Math.min(...intervalRepSplits) : null;
+  const worstRepSplit = intervalRepSplits.length > 0 ? Math.max(...intervalRepSplits) : null;
+  const overallRepSpread = bestRepSplit != null && worstRepSplit != null ? worstRepSplit - bestRepSplit : null;
 
   return (
     <div className="public-share-light min-h-screen bg-slate-50 text-slate-900">
@@ -1198,6 +1242,27 @@ export function PublicAssignmentResultsShare() {
           )}
         </div>
 
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-neutral-700 bg-neutral-800/70 p-3">
+            <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Avg Finisher Split</div>
+            <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtSplit(avgFinisherSplit)}</div>
+          </div>
+          <div className="rounded-xl border border-neutral-700 bg-neutral-800/70 p-3">
+            <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Avg Finisher Watts</div>
+            <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtWatts(avgFinisherWatts)}</div>
+          </div>
+          <div className="rounded-xl border border-neutral-700 bg-neutral-800/70 p-3">
+            <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Best · Worst Rep</div>
+            <div className="text-sm font-semibold text-neutral-100 font-mono">
+              {bestRepSplit != null && worstRepSplit != null ? `${fmtSplit(bestRepSplit)} · ${fmtSplit(worstRepSplit)}` : '—'}
+            </div>
+          </div>
+          <div className="rounded-xl border border-neutral-700 bg-neutral-800/70 p-3">
+            <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Rep Spread</div>
+            <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtSplit(overallRepSpread)}</div>
+          </div>
+        </div>
+
         <PublicSummaryTable rows={scopedRows} isInterval={isInterval} />
 
         <div className="space-y-5">
@@ -1208,8 +1273,8 @@ export function PublicAssignmentResultsShare() {
 
           {isInterval && repLabels.length > 0 && (
             <div className="space-y-5">
-              <RepHeatmap rows={chartRows} repLabels={repLabels} />
-              <PercentileDotPlot rows={chartRows} />
+              <RepHeatmap rows={chartRows} repLabels={repLabels} isImperial={isImperial} />
+              <PercentileDotPlot rows={chartRows} isImperial={isImperial} />
               <RepProgressionChart rows={chartRows} repLabels={repLabels} />
             </div>
           )}
@@ -1217,8 +1282,8 @@ export function PublicAssignmentResultsShare() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <SplitBarChart rows={chartRows} />
             <WattsBarChart rows={chartRows} />
-            <WpkgBarChart rows={chartRows} />
-            {!isInterval && <PercentileDotPlot rows={chartRows} />}
+            <WpkgBarChart rows={chartRows} isImperial={isImperial} />
+            {!isInterval && <PercentileDotPlot rows={chartRows} isImperial={isImperial} />}
           </div>
         </div>
       </div>
