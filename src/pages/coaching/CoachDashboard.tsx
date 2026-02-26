@@ -15,6 +15,7 @@ import {
   getSeasonMeasuredLeaderboard,
   getTeamAthleteCounts,
   getOrgAthletesWithTeam,
+  getErgScores,
   updateAthlete,
   updateAthletePerformanceTier,
   updateAthleteSquad,
@@ -27,6 +28,7 @@ import type { OrgTeamGroup } from '../../contexts/coachingContextDef';
 import type { CoachingBoating, CoachingSession, UserTeamInfo, TeamRole } from '../../services/coaching/types';
 import { format } from 'date-fns';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
+import { benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import { toast } from 'sonner';
 
@@ -191,6 +193,7 @@ export const CoachDashboard: React.FC = () => {
   const [orgSessions, setOrgSessions] = useState<OrgSessionRow[]>([]);
   const [orgAssignments, setOrgAssignments] = useState<OrgAssignmentRow[]>([]);
   const [orgBoatings, setOrgBoatings] = useState<OrgBoatingRow[]>([]);
+  const [orgBest2kByAthlete, setOrgBest2kByAthlete] = useState<Record<string, number>>({});
   const [seasonLeaderboard, setSeasonLeaderboard] = useState<SeasonLeaderboardEntry[]>([]);
   const [editingCell, setEditingCell] = useState<{ athleteId: string; field: OrgEditableField } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -254,13 +257,19 @@ export const CoachDashboard: React.FC = () => {
     if (!orgId && !teamId) return;
     setOrgRosterLoading(true);
     const load = orgId
-      ? getOrgAthletesWithTeam(orgId)
-      : getAthletes(teamId);
+      ? Promise.all([
+          getOrgAthletesWithTeam(orgId),
+          Promise.all(orgTeams.map((team) => getErgScores(team.team_id))).then((byTeam) => byTeam.flat()),
+        ]).then(([athletes, scores]) => ({ athletes, best2k: buildBest2kByAthlete(scores) }))
+      : Promise.all([getAthletes(teamId), getErgScores(teamId)]).then(([athletes, scores]) => ({ athletes, best2k: buildBest2kByAthlete(scores) }));
     load
-      .then(setOrgRoster)
+      .then(({ athletes, best2k }) => {
+        setOrgRoster(athletes);
+        setOrgBest2kByAthlete(best2k);
+      })
       .catch(() => { /* non-critical */ })
       .finally(() => setOrgRosterLoading(false));
-  }, [showOrgRoster, orgRoster.length, orgId, teamId]);
+  }, [showOrgRoster, orgRoster.length, orgId, teamId, orgTeams]);
 
   // Group org roster by team name, with search filter
   const groupedOrgRoster = useMemo(() => {
@@ -786,7 +795,21 @@ export const CoachDashboard: React.FC = () => {
                                   <option value="champion">Champion</option>
                                 </select>
                               ) : (
-                                <span className="text-neutral-300">{a.performance_tier ? performanceTierLabel[a.performance_tier] : '—'}</span>
+                                <div className="space-y-1">
+                                  {(() => {
+                                    const best2k = orgBest2kByAthlete[a.id] ?? null;
+                                    const benchmarkTier = deriveBenchmarkTier(a.squad ?? null, best2k);
+                                    if (!benchmarkTier && !a.performance_tier) return <span className="text-neutral-300">—</span>;
+                                    return (
+                                      <>
+                                        <span className="text-neutral-300">
+                                          {benchmarkTier ? benchmarkTierLabel(benchmarkTier) : performanceTierLabel[a.performance_tier!]}
+                                        </span>
+                                        {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
                               )}
                             </td>
                             <td className="px-3 py-2.5 text-neutral-300 cursor-pointer" onClick={() => startEditingCell(a, 'height_cm')}>

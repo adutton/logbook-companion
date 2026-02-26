@@ -10,6 +10,7 @@ import {
   deleteAthlete,
   transferAthlete,
   getAssignmentCompletions,
+  getErgScores,
   type CoachingAthlete,
   type AssignmentCompletion,
 } from '../../services/coaching/coachingService';
@@ -20,6 +21,7 @@ import { AthleteEditorModal } from '../../components/coaching/AthleteEditorModal
 import { BulkRosterModal } from '../../components/coaching/BulkRosterModal';
 import { downloadCsv } from '../../utils/csvExport';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
+import { benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
@@ -54,6 +56,7 @@ export function CoachingRoster() {
   const [completions, setCompletions] = useState<AssignmentCompletion[]>([]);
   const [hasAssignmentsToday, setHasAssignmentsToday] = useState(false);
   const [quickScoreAthlete, setQuickScoreAthlete] = useState<CoachingAthlete | null>(null);
+  const [best2kByAthlete, setBest2kByAthlete] = useState<Record<string, number>>({});
 
   // Inline editing: which cell is being edited?  { athleteId, field }
   const [editingCell, setEditingCell] = useState<{ athleteId: string; field: string } | null>(null);
@@ -75,6 +78,16 @@ export function CoachingRoster() {
     : [];
   const canTransfer = siblingTeams.length > 0;
 
+  const refresh2kBenchmarks = useCallback(async () => {
+    if (!teamId) return;
+    try {
+      const scores = await getErgScores(teamId);
+      setBest2kByAthlete(buildBest2kByAthlete(scores));
+    } catch {
+      // non-critical
+    }
+  }, [teamId]);
+
   const refreshCompletions = useCallback(async (loadedAthletes: CoachingAthlete[]) => {
     if (!teamId) return;
     try {
@@ -92,23 +105,29 @@ export function CoachingRoster() {
     getAthletes(teamId)
       .then(async (loadedAthletes) => {
         setAthletes(loadedAthletes);
-        await refreshCompletions(loadedAthletes);
+        await Promise.all([
+          refreshCompletions(loadedAthletes),
+          refresh2kBenchmarks(),
+        ]);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load athletes'))
       .finally(() => setIsLoading(false));
-  }, [teamId, isLoadingTeam, refreshCompletions]);
+  }, [teamId, isLoadingTeam, refreshCompletions, refresh2kBenchmarks]);
 
   const refreshAthletes = useCallback(async () => {
     if (teamId) {
       try {
         const loadedAthletes = await getAthletes(teamId);
         setAthletes(loadedAthletes);
-        await refreshCompletions(loadedAthletes);
+        await Promise.all([
+          refreshCompletions(loadedAthletes),
+          refresh2kBenchmarks(),
+        ]);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to refresh');
       }
     }
-  }, [teamId, refreshCompletions]);
+  }, [teamId, refreshCompletions, refresh2kBenchmarks]);
 
   const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string; performance_tier?: CoachingAthlete['performance_tier'] }) => {
     if (!teamId) return;
@@ -638,12 +657,28 @@ export function CoachingRoster() {
                         <option value="challenger">Challenger</option>
                         <option value="champion">Champion</option>
                       </select>
-                    ) : athlete.performance_tier ? (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
-                        {athlete.performance_tier.charAt(0).toUpperCase() + athlete.performance_tier.slice(1)}
-                      </span>
                     ) : (
-                      <span className="text-neutral-600">—</span>
+                      <div className="space-y-1">
+                        {(() => {
+                          const best2k = best2kByAthlete[athlete.id] ?? null;
+                          const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
+                          if (!benchmarkTier && !athlete.performance_tier) return <span className="text-neutral-600">—</span>;
+                          return (
+                            <>
+                              {benchmarkTier ? (
+                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-900/30 text-emerald-300">
+                                  {benchmarkTierLabel(benchmarkTier)}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
+                                  {athlete.performance_tier?.charAt(0).toUpperCase()}{athlete.performance_tier?.slice(1)}
+                                </span>
+                              )}
+                              {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
+                            </>
+                          );
+                        })()}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -826,12 +861,28 @@ export function CoachingRoster() {
                           <option value="challenger">Challenger</option>
                           <option value="champion">Champion</option>
                         </select>
-                      ) : athlete.performance_tier ? (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
-                          {athlete.performance_tier.charAt(0).toUpperCase() + athlete.performance_tier.slice(1)}
-                        </span>
                       ) : (
-                        <span className="text-neutral-600">—</span>
+                        <div className="space-y-1">
+                          {(() => {
+                            const best2k = best2kByAthlete[athlete.id] ?? null;
+                            const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
+                            if (!benchmarkTier && !athlete.performance_tier) return <span className="text-neutral-600">—</span>;
+                            return (
+                              <>
+                                {benchmarkTier ? (
+                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-900/30 text-emerald-300">
+                                    {benchmarkTierLabel(benchmarkTier)}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/30 text-indigo-300">
+                                    {athlete.performance_tier?.charAt(0).toUpperCase()}{athlete.performance_tier?.slice(1)}
+                                  </span>
+                                )}
+                                {best2k != null && <div className="text-[10px] text-neutral-500">Best 2k: {formatErgTime(best2k)}</div>}
+                              </>
+                            );
+                          })()}
+                        </div>
                       )}
                     </td>
 

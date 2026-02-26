@@ -4,6 +4,47 @@
 
 ---
 
+## Phase 35: Rubric-Based Performance Tier Rendering (Squad + 2k) (February 26, 2026)
+
+**Timeline**: February 26, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- Added `src/utils/performanceTierRubric.ts`:
+  - centralized squad-normalization + benchmark tier derivation,
+  - labels for `Developmental`, `Competitive`, `Challenger`, `National Team`,
+  - best-2k map builder from erg scores (`distance = 2000`),
+  - `formatErgTime(...)` display helper.
+
+- `src/pages/coaching/CoachingRoster.tsx`
+  - now loads team erg scores and computes best 2k per athlete,
+  - performance-tier display now shows rubric-derived benchmark tier (when available) plus best-2k reference.
+
+- `src/pages/coaching/CoachDashboard.tsx`
+  - org roster load now also fetches per-team erg scores and computes org-wide best 2k map,
+  - org roster tier column now shows rubric-derived benchmark tier and best-2k reference.
+
+### Rubric Notes
+
+- Freshman thresholds use coach-provided example:
+  - `>7:40 developmental`
+  - `7:40–7:20 competitive`
+  - `7:20–7:10 challenger`
+  - `<=7:10 national team`
+- Novice/JV/Varsity currently use centralized defaults in the same file for immediate rendering and can be tuned in one place once the full rubric matrix is provided.
+
+### Validation
+
+- `npm run build` → ✅ pass
+- `npm run test:run` → ✅ pass (`209/209`)
+
+### Outcome
+
+Main org and team roster surfaces now support automatic benchmark-tier labeling from squad + 2k performance, with rubric logic centralized and editable.
+
+---
+
 ## Phase 34: Assignment Results UI Simplification — Remove Sigma Labels (February 26, 2026)
 
 **Timeline**: February 26, 2026  
