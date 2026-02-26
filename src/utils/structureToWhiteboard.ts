@@ -320,11 +320,13 @@ function renderOrchestration(structure: WorkoutStructure): string[] {
 function renderPartner(ext: SessionExtension, coreLines: string[]): string[] {
     const lines: string[] = ['PARTNERS'];
 
-    // Core erg workout
-    coreLines.forEach((l) => lines.push(l.startsWith('  ') ? l : `${l}`));
+    // Lane A: erg workout
+    lines.push('A (erg):');
+    coreLines.forEach((l) => lines.push(`  ${l.trimStart()}`));
 
+    // Lane B: off-task
     const offTask = ext.off && ext.off !== 'wait' ? ext.off : 'wait';
-    lines.push(`A: erg  B: ${offTask}`);
+    lines.push(`B: ${offTask}`);
 
     const switchRule =
         ext.switch === 'piece_end' || !ext.switch
