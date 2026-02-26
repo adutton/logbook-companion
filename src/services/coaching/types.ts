@@ -1,5 +1,6 @@
 // Coaching module types — mirrors Supabase athletes + coaching_* tables
 // Unified model: athletes table + team_athletes junction, team-scoped coaching data
+import type { PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
 
 // ─── Organization ───────────────────────────────────────────────────────────
 
@@ -9,6 +10,7 @@ export interface Organization {
   name: string;
   description?: string | null;
   invite_code: string;
+  performance_tier_rubric?: PerformanceTierRubricConfig | null;
   created_by: string;
   created_at: string;
   updated_at: string;

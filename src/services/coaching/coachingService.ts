@@ -316,7 +316,7 @@ export async function createOrganization(
 /** Update an organization's editable fields */
 export async function updateOrganization(
   orgId: string,
-  updates: { name?: string; description?: string | null }
+  updates: { name?: string; description?: string | null; performance_tier_rubric?: Organization['performance_tier_rubric'] }
 ): Promise<Organization> {
   return throwOnError(
     await supabase
@@ -324,6 +324,7 @@ export async function updateOrganization(
       .update({
         ...(updates.name !== undefined ? { name: updates.name } : {}),
         ...(updates.description !== undefined ? { description: updates.description } : {}),
+        ...(updates.performance_tier_rubric !== undefined ? { performance_tier_rubric: updates.performance_tier_rubric } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq('id', orgId)

@@ -1,20 +1,22 @@
 export type BenchmarkTier = 'developmental' | 'competitor' | 'challenger' | 'champion' | 'nationals';
 
-type SquadKey = 'novice' | 'freshman' | 'jv' | 'varsity';
+export type SquadKey = 'novice' | 'freshman' | 'jv' | 'varsity';
 
-type SquadThresholds = {
+export type SquadThresholds = {
   developmentalAbove: number;
   competitorAbove: number;
   challengerAbove: number;
   championAbove: number;
 };
 
+export type PerformanceTierRubricConfig = Partial<Record<SquadKey, Partial<SquadThresholds>>>;
+
 function toSeconds(mmss: string): number {
   const [m, s] = mmss.split(':').map(Number);
   return m * 60 + s;
 }
 
-const RUBRIC_BY_SQUAD: Record<SquadKey, SquadThresholds> = {
+const DEFAULT_RUBRIC_BY_SQUAD: Record<SquadKey, SquadThresholds> = {
   // slower than 7:40 developmental, 7:40-7:20 competitor, 7:20-7:10 challenger, 7:10-7:00 champion, <=7:00 nationals
   freshman: { developmentalAbove: toSeconds('7:40'), competitorAbove: toSeconds('7:20'), challengerAbove: toSeconds('7:10'), championAbove: toSeconds('7:00') },
   // defaulting novice to freshman bands
@@ -24,6 +26,7 @@ const RUBRIC_BY_SQUAD: Record<SquadKey, SquadThresholds> = {
   // 7:10, 7:00, 6:50, 6:40, 6:20 (nationals)
   varsity: { developmentalAbove: toSeconds('7:10'), competitorAbove: toSeconds('7:00'), challengerAbove: toSeconds('6:50'), championAbove: toSeconds('6:20') },
 };
+export const PERFORMANCE_TIER_SQUADS: SquadKey[] = ['freshman', 'novice', 'jv', 'varsity'];
 
 const TIER_LABELS: Record<BenchmarkTier, string> = {
   developmental: 'Developmental',
@@ -43,11 +46,36 @@ function normalizeSquad(rawSquad: string | null | undefined): SquadKey | null {
   return null;
 }
 
-export function deriveBenchmarkTier(squad: string | null | undefined, best2kSeconds: number | null | undefined): BenchmarkTier | null {
+export function getDefaultBenchmarkRubric(): Record<SquadKey, SquadThresholds> {
+  return {
+    freshman: { ...DEFAULT_RUBRIC_BY_SQUAD.freshman },
+    novice: { ...DEFAULT_RUBRIC_BY_SQUAD.novice },
+    jv: { ...DEFAULT_RUBRIC_BY_SQUAD.jv },
+    varsity: { ...DEFAULT_RUBRIC_BY_SQUAD.varsity },
+  };
+}
+
+function getSquadRubric(squadKey: SquadKey, rubricConfig?: PerformanceTierRubricConfig | null): SquadThresholds {
+  const base = DEFAULT_RUBRIC_BY_SQUAD[squadKey];
+  const override = rubricConfig?.[squadKey];
+  if (!override) return base;
+  return {
+    developmentalAbove: Number.isFinite(override.developmentalAbove) ? Number(override.developmentalAbove) : base.developmentalAbove,
+    competitorAbove: Number.isFinite(override.competitorAbove) ? Number(override.competitorAbove) : base.competitorAbove,
+    challengerAbove: Number.isFinite(override.challengerAbove) ? Number(override.challengerAbove) : base.challengerAbove,
+    championAbove: Number.isFinite(override.championAbove) ? Number(override.championAbove) : base.championAbove,
+  };
+}
+
+export function deriveBenchmarkTier(
+  squad: string | null | undefined,
+  best2kSeconds: number | null | undefined,
+  rubricConfig?: PerformanceTierRubricConfig | null
+): BenchmarkTier | null {
   if (best2kSeconds == null || best2kSeconds <= 0) return null;
   const squadKey = normalizeSquad(squad);
   if (!squadKey) return null;
-  const rubric = RUBRIC_BY_SQUAD[squadKey];
+  const rubric = getSquadRubric(squadKey, rubricConfig);
 
   if (best2kSeconds > rubric.developmentalAbove) return 'developmental';
   if (best2kSeconds > rubric.competitorAbove) return 'competitor';
@@ -83,14 +111,15 @@ function nextTierCutoffSeconds(tier: BenchmarkTier, rubric: SquadThresholds): nu
 export function benchmarkCriteriaIndicator(
   squad: string | null | undefined,
   best2kSeconds: number | null | undefined,
-  tolerancePct = 0.02
+  tolerancePct = 0.02,
+  rubricConfig?: PerformanceTierRubricConfig | null
 ): { text: string; className: string } | null {
   if (best2kSeconds == null || best2kSeconds <= 0) return null;
   const squadKey = normalizeSquad(squad);
   if (!squadKey) return null;
-  const tier = deriveBenchmarkTier(squad, best2kSeconds);
+  const tier = deriveBenchmarkTier(squad, best2kSeconds, rubricConfig);
   if (!tier) return null;
-  const rubric = RUBRIC_BY_SQUAD[squadKey];
+  const rubric = getSquadRubric(squadKey, rubricConfig);
   const nextCutoff = nextTierCutoffSeconds(tier, rubric);
   if (nextCutoff != null && best2kSeconds > nextCutoff && best2kSeconds <= nextCutoff * (1 + tolerancePct)) {
     return { text: 'Within 2% of next tier', className: 'text-amber-400' };
@@ -103,6 +132,17 @@ export function formatErgTime(seconds: number | null | undefined): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.round(seconds % 60);
   return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+export function parseErgTimeInput(value: string): number | null {
+  const raw = value.trim();
+  if (!raw) return null;
+  const parts = raw.split(':');
+  if (parts.length !== 2) return null;
+  const mins = Number(parts[0]);
+  const secs = Number(parts[1]);
+  if (!Number.isInteger(mins) || !Number.isInteger(secs) || mins < 0 || secs < 0 || secs > 59) return null;
+  return mins * 60 + secs;
 }
 
 export type ErgScoreLike = { athlete_id: string; distance: number; time_seconds: number };

@@ -19,6 +19,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
+import { formatErgTime, getDefaultBenchmarkRubric, parseErgTimeInput, PERFORMANCE_TIER_SQUADS, type SquadKey } from '../../utils/performanceTierRubric';
 import {
   getTeam,
   updateTeam,
@@ -37,6 +38,44 @@ import {
   updateOrganization,
 } from '../../services/coaching/coachingService';
 import type { Team, TeamMemberWithProfile, TeamRole, Organization } from '../../services/coaching/types';
+
+type RubricFormState = Record<SquadKey, {
+  developmentalAbove: string;
+  competitorAbove: string;
+  challengerAbove: string;
+  championAbove: string;
+}>;
+
+function buildRubricForm(org: Organization | null | undefined): RubricFormState {
+  const defaults = getDefaultBenchmarkRubric();
+  const config = org?.performance_tier_rubric ?? {};
+  return {
+    freshman: {
+      developmentalAbove: formatErgTime(config.freshman?.developmentalAbove ?? defaults.freshman.developmentalAbove),
+      competitorAbove: formatErgTime(config.freshman?.competitorAbove ?? defaults.freshman.competitorAbove),
+      challengerAbove: formatErgTime(config.freshman?.challengerAbove ?? defaults.freshman.challengerAbove),
+      championAbove: formatErgTime(config.freshman?.championAbove ?? defaults.freshman.championAbove),
+    },
+    novice: {
+      developmentalAbove: formatErgTime(config.novice?.developmentalAbove ?? defaults.novice.developmentalAbove),
+      competitorAbove: formatErgTime(config.novice?.competitorAbove ?? defaults.novice.competitorAbove),
+      challengerAbove: formatErgTime(config.novice?.challengerAbove ?? defaults.novice.challengerAbove),
+      championAbove: formatErgTime(config.novice?.championAbove ?? defaults.novice.championAbove),
+    },
+    jv: {
+      developmentalAbove: formatErgTime(config.jv?.developmentalAbove ?? defaults.jv.developmentalAbove),
+      competitorAbove: formatErgTime(config.jv?.competitorAbove ?? defaults.jv.competitorAbove),
+      challengerAbove: formatErgTime(config.jv?.challengerAbove ?? defaults.jv.challengerAbove),
+      championAbove: formatErgTime(config.jv?.championAbove ?? defaults.jv.championAbove),
+    },
+    varsity: {
+      developmentalAbove: formatErgTime(config.varsity?.developmentalAbove ?? defaults.varsity.developmentalAbove),
+      competitorAbove: formatErgTime(config.varsity?.competitorAbove ?? defaults.varsity.competitorAbove),
+      challengerAbove: formatErgTime(config.varsity?.challengerAbove ?? defaults.varsity.challengerAbove),
+      championAbove: formatErgTime(config.varsity?.championAbove ?? defaults.varsity.championAbove),
+    },
+  };
+}
 
 const ROLE_CONFIG: Record<TeamRole, { label: string; color: string; icon: typeof Shield }> = {
   coach: { label: 'Coach', color: 'text-indigo-400', icon: ShieldAlert },
@@ -97,6 +136,9 @@ export function CoachingSettings() {
   const [editOrgName, setEditOrgName] = useState('');
   const [isSavingOrgName, setIsSavingOrgName] = useState(false);
   const [orgNameSaveSuccess, setOrgNameSaveSuccess] = useState(false);
+  const [rubricForm, setRubricForm] = useState<RubricFormState>(buildRubricForm(null));
+  const [isSavingOrgRubric, setIsSavingOrgRubric] = useState(false);
+  const [orgRubricSaveSuccess, setOrgRubricSaveSuccess] = useState(false);
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
@@ -111,6 +153,7 @@ export function CoachingSettings() {
         setSelectedOrgId(t?.org_id ?? 'none');
         const selectedOrg = userOrgs.find((org) => org.id === (t?.org_id ?? ''));
         setEditOrgName(selectedOrg?.name ?? '');
+        setRubricForm(buildRubricForm(selectedOrg));
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load team'))
       .finally(() => setIsLoading(false));
@@ -246,6 +289,7 @@ export function CoachingSettings() {
       setTeam((prev) => prev ? { ...prev, org_id: newOrgId === 'none' ? null : newOrgId } : prev);
       const selectedOrg = orgs.find((o) => o.id === newOrgId);
       setEditOrgName(selectedOrg?.name ?? '');
+      setRubricForm(buildRubricForm(selectedOrg));
       setOrgSaveSuccess(true);
       setTimeout(() => setOrgSaveSuccess(false), 2000);
     } catch (err) {
@@ -268,6 +312,7 @@ export function CoachingSettings() {
       setSelectedOrgId(newOrg.id);
       setTeam((prev) => prev ? { ...prev, org_id: newOrg.id } : prev);
       setEditOrgName(newOrg.name);
+      setRubricForm(buildRubricForm(newOrg));
       setShowNewOrgForm(false);
       setNewOrgName('');
       setNewOrgDescription('');
@@ -293,6 +338,48 @@ export function CoachingSettings() {
       setError(err instanceof Error ? err.message : 'Failed to update organization name');
     } finally {
       setIsSavingOrgName(false);
+    }
+  };
+
+  const handleRubricInputChange = (squad: SquadKey, field: keyof RubricFormState[SquadKey], value: string) => {
+    setRubricForm((prev) => ({
+      ...prev,
+      [squad]: { ...prev[squad], [field]: value },
+    }));
+  };
+
+  const handleSaveOrgRubric = async () => {
+    if (selectedOrgId === 'none') return;
+    setIsSavingOrgRubric(true);
+    try {
+      const parsed = PERFORMANCE_TIER_SQUADS.reduce<Record<SquadKey, { developmentalAbove: number; competitorAbove: number; challengerAbove: number; championAbove: number }>>((acc, squad) => {
+        const row = rubricForm[squad];
+        const developmentalAbove = parseErgTimeInput(row.developmentalAbove);
+        const competitorAbove = parseErgTimeInput(row.competitorAbove);
+        const challengerAbove = parseErgTimeInput(row.challengerAbove);
+        const championAbove = parseErgTimeInput(row.championAbove);
+        if (
+          developmentalAbove == null ||
+          competitorAbove == null ||
+          challengerAbove == null ||
+          championAbove == null ||
+          !(developmentalAbove > competitorAbove && competitorAbove > challengerAbove && challengerAbove > championAbove)
+        ) {
+          throw new Error(`Invalid rubric values for ${squad}. Use m:ss and descending cutoffs.`);
+        }
+        acc[squad] = { developmentalAbove, competitorAbove, challengerAbove, championAbove };
+        return acc;
+      }, {} as Record<SquadKey, { developmentalAbove: number; competitorAbove: number; challengerAbove: number; championAbove: number }>);
+
+      const updated = await updateOrganization(selectedOrgId, { performance_tier_rubric: parsed });
+      setOrgs((prev) => prev.map((org) => (org.id === updated.id ? updated : org)));
+      setRubricForm(buildRubricForm(updated));
+      setOrgRubricSaveSuccess(true);
+      setTimeout(() => setOrgRubricSaveSuccess(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save performance rubric');
+    } finally {
+      setIsSavingOrgRubric(false);
     }
   };
 
@@ -431,6 +518,51 @@ export function CoachingSettings() {
                 )}
                 {orgNameSaveSuccess ? 'Saved!' : 'Save Organization Name'}
               </button>
+
+              <div className="pt-3 border-t border-neutral-700 space-y-2">
+                <h3 className="text-sm font-semibold text-white">Performance Tier Rubric (2k cutoffs)</h3>
+                <p className="text-xs text-neutral-400">Format all fields as m:ss. Slower-to-faster thresholds must descend left to right.</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-neutral-400 border-b border-neutral-700">
+                        <th className="text-left py-2 pr-2">Squad</th>
+                        <th className="text-left py-2 pr-2">Dev cutoff</th>
+                        <th className="text-left py-2 pr-2">Competitor cutoff</th>
+                        <th className="text-left py-2 pr-2">Challenger cutoff</th>
+                        <th className="text-left py-2">Champion cutoff</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {PERFORMANCE_TIER_SQUADS.map((squad) => (
+                        <tr key={squad} className="border-b border-neutral-800/70">
+                          <td className="py-2 pr-2 text-neutral-200 capitalize">{squad}</td>
+                          <td className="py-2 pr-2">
+                            <input value={rubricForm[squad].developmentalAbove} onChange={(e) => handleRubricInputChange(squad, 'developmentalAbove', e.target.value)} className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-white" />
+                          </td>
+                          <td className="py-2 pr-2">
+                            <input value={rubricForm[squad].competitorAbove} onChange={(e) => handleRubricInputChange(squad, 'competitorAbove', e.target.value)} className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-white" />
+                          </td>
+                          <td className="py-2 pr-2">
+                            <input value={rubricForm[squad].challengerAbove} onChange={(e) => handleRubricInputChange(squad, 'challengerAbove', e.target.value)} className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-white" />
+                          </td>
+                          <td className="py-2">
+                            <input value={rubricForm[squad].championAbove} onChange={(e) => handleRubricInputChange(squad, 'championAbove', e.target.value)} className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-white" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  onClick={handleSaveOrgRubric}
+                  disabled={isSavingOrgRubric}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 text-sm"
+                >
+                  {isSavingOrgRubric ? <Loader2 className="w-4 h-4 animate-spin" /> : orgRubricSaveSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                  {orgRubricSaveSuccess ? 'Saved!' : 'Save Rubric'}
+                </button>
+              </div>
             </div>
           )}
 

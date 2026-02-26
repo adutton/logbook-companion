@@ -16,6 +16,7 @@ import {
   getTeamAthleteCounts,
   getOrgAthletesWithTeam,
   getErgScores,
+  getOrganizationsForUser,
   updateAthlete,
   updateAthletePerformanceTier,
   updateAthleteSquad,
@@ -28,7 +29,7 @@ import type { OrgTeamGroup } from '../../contexts/coachingContextDef';
 import type { CoachingBoating, CoachingSession, UserTeamInfo, TeamRole } from '../../services/coaching/types';
 import { format } from 'date-fns';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
-import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
+import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import { toast } from 'sonner';
 
@@ -194,6 +195,7 @@ export const CoachDashboard: React.FC = () => {
   const [orgAssignments, setOrgAssignments] = useState<OrgAssignmentRow[]>([]);
   const [orgBoatings, setOrgBoatings] = useState<OrgBoatingRow[]>([]);
   const [orgBest2kByAthlete, setOrgBest2kByAthlete] = useState<Record<string, number>>({});
+  const [orgRubric, setOrgRubric] = useState<PerformanceTierRubricConfig | null>(null);
   const [seasonLeaderboard, setSeasonLeaderboard] = useState<SeasonLeaderboardEntry[]>([]);
   const [editingCell, setEditingCell] = useState<{ athleteId: string; field: OrgEditableField } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -227,6 +229,19 @@ export const CoachDashboard: React.FC = () => {
       .then(setAthleteCounts)
       .catch(() => { /* non-critical */ });
   }, [allTeamIds]);
+
+  useEffect(() => {
+    if (!userId || !orgId) {
+      setOrgRubric(null);
+      return;
+    }
+    getOrganizationsForUser(userId)
+      .then((organizations) => {
+        const org = organizations.find((o) => o.id === orgId);
+        setOrgRubric(org?.performance_tier_rubric ?? null);
+      })
+      .catch(() => setOrgRubric(null));
+  }, [userId, orgId]);
 
   // Compute org groups with named orgs first, standalone last
   const sortedOrgGroups = useMemo(() => {
@@ -783,8 +798,8 @@ export const CoachDashboard: React.FC = () => {
                               <div className="space-y-1">
                                 {(() => {
                                   const best2k = orgBest2kByAthlete[a.id] ?? null;
-                                  const benchmarkTier = deriveBenchmarkTier(a.squad ?? null, best2k);
-                                  const criteria = benchmarkCriteriaIndicator(a.squad ?? null, best2k);
+                                  const benchmarkTier = deriveBenchmarkTier(a.squad ?? null, best2k, orgRubric);
+                                  const criteria = benchmarkCriteriaIndicator(a.squad ?? null, best2k, 0.02, orgRubric);
                                   if (!benchmarkTier && !a.performance_tier && best2k == null) return <span className="text-neutral-300">—</span>;
                                   return (
                                     <>

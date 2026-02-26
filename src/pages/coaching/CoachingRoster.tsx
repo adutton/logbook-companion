@@ -11,6 +11,7 @@ import {
   transferAthlete,
   getAssignmentCompletions,
   getErgScores,
+  getOrganizationsForUser,
   type CoachingAthlete,
   type AssignmentCompletion,
 } from '../../services/coaching/coachingService';
@@ -21,7 +22,7 @@ import { AthleteEditorModal } from '../../components/coaching/AthleteEditorModal
 import { BulkRosterModal } from '../../components/coaching/BulkRosterModal';
 import { downloadCsv } from '../../utils/csvExport';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
-import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime } from '../../utils/performanceTierRubric';
+import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
@@ -57,6 +58,7 @@ export function CoachingRoster() {
   const [hasAssignmentsToday, setHasAssignmentsToday] = useState(false);
   const [quickScoreAthlete, setQuickScoreAthlete] = useState<CoachingAthlete | null>(null);
   const [best2kByAthlete, setBest2kByAthlete] = useState<Record<string, number>>({});
+  const [orgRubric, setOrgRubric] = useState<PerformanceTierRubricConfig | null>(null);
 
   // Inline editing: which cell is being edited?  { athleteId, field }
   const [editingCell, setEditingCell] = useState<{ athleteId: string; field: string } | null>(null);
@@ -99,6 +101,19 @@ export function CoachingRoster() {
       // non-critical
     }
   }, [teamId, orgId]);
+
+  useEffect(() => {
+    if (!userId || !orgId) {
+      setOrgRubric(null);
+      return;
+    }
+    getOrganizationsForUser(userId)
+      .then((organizations) => {
+        const org = organizations.find((o) => o.id === orgId);
+        setOrgRubric(org?.performance_tier_rubric ?? null);
+      })
+      .catch(() => setOrgRubric(null));
+  }, [userId, orgId]);
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
@@ -658,8 +673,8 @@ export function CoachingRoster() {
                     <div className="space-y-1">
                       {(() => {
                         const best2k = best2kByAthlete[athlete.id] ?? null;
-                        const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
-                        const criteria = benchmarkCriteriaIndicator(athlete.squad ?? null, best2k);
+                        const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k, orgRubric);
+                        const criteria = benchmarkCriteriaIndicator(athlete.squad ?? null, best2k, 0.02, orgRubric);
                         if (!benchmarkTier && !athlete.performance_tier && best2k == null) return <span className="text-neutral-600">—</span>;
                         return (
                           <>
@@ -855,8 +870,8 @@ export function CoachingRoster() {
                       <div className="space-y-1">
                         {(() => {
                           const best2k = best2kByAthlete[athlete.id] ?? null;
-                          const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k);
-                          const criteria = benchmarkCriteriaIndicator(athlete.squad ?? null, best2k);
+                          const benchmarkTier = deriveBenchmarkTier(athlete.squad ?? null, best2k, orgRubric);
+                          const criteria = benchmarkCriteriaIndicator(athlete.squad ?? null, best2k, 0.02, orgRubric);
                           if (!benchmarkTier && !athlete.performance_tier && best2k == null) return <span className="text-neutral-600">—</span>;
                           return (
                             <>
