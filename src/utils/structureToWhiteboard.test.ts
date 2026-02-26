@@ -83,4 +83,13 @@ describe('structureToWhiteboard', () => {
         expect(lines.some(l => l.includes('500m'))).toBe(true);
         expect(lines.some(l => l.includes('3:00 rest'))).toBe(true);
     });
+
+    it('sub-segment breakdown (rate build)', () => {
+        const lines = wb('2000m[500m@r22 + 500m@r24 + 500m@r26 + 500m@r30]');
+        expect(lines[0]).toContain('2000m');
+        expect(lines.length).toBe(5); // header + 4 segments
+        expect(lines[1]).toContain('500m');
+        expect(lines[1]).toContain('r22');
+        expect(lines[4]).toContain('r30');
+    });
 });

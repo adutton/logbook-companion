@@ -43,6 +43,9 @@ export interface SteadyStateStructure {
     blockType?: BlockType;     // Semantic block type (warmup, cooldown, test, main)
     tags?: string[];           // Legacy inline tags (prefer blockType)
     sessionExtension?: SessionExtension;
+    splitValue?: number;       // PM5 split resolution (meters or seconds)
+    splitUnit?: 'meters' | 'seconds';
+    subSegments?: WorkoutStep[]; // Sub-segment breakdown (e.g., 2000m[500m@r22 + 500m@r24 ...])
 }
 
 // Fixed intervals: Repeating distance/time/calories with time-based rest

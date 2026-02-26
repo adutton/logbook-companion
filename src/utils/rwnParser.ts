@@ -653,6 +653,76 @@ function parseRepeatedGroup(text: string, modality?: WorkoutStructure['modality'
     };
 }
 
+// Bracket notation: PM5 splits or sub-segment breakdowns
+// "10000m [1000m]" → PM5 split (single bare value)
+// "2000m[500m@r22 + 500m@r24 + ...]" → sub-segment breakdown (has + or @)
+interface BracketResult {
+    coreText: string;
+    kind: 'split' | 'sub_segments';
+    splitValue?: number;
+    splitUnit?: 'meters' | 'seconds';
+    subSegments?: WorkoutStep[];
+}
+
+function extractBracketNotation(text: string): BracketResult | null {
+    // Match trailing [...] — with or without space before bracket
+    // But NOT [w], [c], [t] block tags at the START
+    const bracketMatch = text.match(/^(.+?)\s*\[([^\]]+)\]\s*$/);
+    if (!bracketMatch) return null;
+
+    const coreText = bracketMatch[1].trim();
+    const bracketContent = bracketMatch[2].trim();
+
+    // Skip if core text is empty (bracket at start = block tag territory)
+    if (!coreText) return null;
+
+    // Disambiguate: single bare value = PM5 split, anything with + or @ = sub-segments
+    const hasSegmentSyntax = bracketContent.includes('+') || bracketContent.includes('@');
+
+    if (!hasSegmentSyntax) {
+        // PM5 split resolution: "1000m" or "5:00"
+        const comp = parseComponent(bracketContent);
+        if (comp) {
+            return {
+                coreText,
+                kind: 'split',
+                splitValue: comp.value,
+                splitUnit: comp.type === 'distance' ? 'meters' : 'seconds',
+            };
+        }
+        return null;
+    }
+
+    // Sub-segment breakdown: parse inner content as a variable workout
+    const innerParts = splitRefined(bracketContent, '+');
+    const steps: WorkoutStep[] = [];
+
+    for (const part of innerParts) {
+        const comp = parseComponent(part.trim());
+        if (comp) {
+            steps.push({
+                type: 'work',
+                duration_type: comp.type,
+                value: comp.value,
+                target_rate: comp.guidance?.target_rate,
+                target_rate_max: comp.guidance?.target_rate_max,
+                target_pace: comp.guidance?.target_pace,
+                target_pace_max: comp.guidance?.target_pace_max,
+                blockType: comp.blockType,
+                tags: comp.tags,
+            });
+        }
+    }
+
+    if (steps.length === 0) return null;
+
+    return {
+        coreText,
+        kind: 'sub_segments',
+        subSegments: steps,
+    };
+}
+
 
 export function parseRWN(input: string): WorkoutStructure | null {
     if (!input || !input.trim()) return null;
@@ -666,6 +736,32 @@ export function parseRWN(input: string): WorkoutStructure | null {
         modality = modalityMatch[1].toLowerCase() as 'row' | 'bike' | 'ski' | 'run' | 'other';
         text = modalityMatch[2].trim();
     }
+
+    // 0.1 Extract trailing bracket notation: splits or sub-segments
+    // e.g., "10000m [1000m]" or "10000m[1000m]" or "2000m[500m@r22 + 500m@r24 ...]"
+    // Must come before orchestration parsing since brackets are not parens
+    const bracketResult = extractBracketNotation(text);
+    if (bracketResult) {
+        text = bracketResult.coreText;
+    }
+
+    const result = parseRWNCore(text, modality);
+    if (!result) return null;
+
+    // Apply bracket notation to the result
+    if (bracketResult && result.type === 'steady_state') {
+        if (bracketResult.kind === 'split') {
+            result.splitValue = bracketResult.splitValue;
+            result.splitUnit = bracketResult.splitUnit;
+        } else if (bracketResult.kind === 'sub_segments') {
+            result.subSegments = bracketResult.subSegments;
+        }
+    }
+
+    return result;
+}
+
+function parseRWNCore(text: string, modality: WorkoutStructure['modality']): WorkoutStructure | null {
 
     // 0.4 Session orchestration syntax (additive extension)
     // Examples:

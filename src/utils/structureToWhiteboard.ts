@@ -111,6 +111,22 @@ function renderSteadyState(s: SteadyStateStructure): string[] {
     const guide = fmtGuidance(s);
     const label = blockLabel(s.blockType);
 
+    // Sub-segment breakdown: tabular with parent header
+    if (s.subSegments && s.subSegments.length > 0) {
+        const lines: string[] = [];
+        const header = label ? `${label}:  ${mod}${val}` : `${mod}${val}`;
+        lines.push(header);
+
+        const values = s.subSegments.map(seg => fmtVal(seg.value, seg.duration_type));
+        const maxW = Math.max(...values.map(v => v.length));
+        for (let i = 0; i < s.subSegments.length; i++) {
+            const seg = s.subSegments[i];
+            const segGuide = fmtGuidance(seg);
+            lines.push(`  ${values[i].padStart(maxW)}${segGuide ? `   ${segGuide}` : ''}`);
+        }
+        return lines;
+    }
+
     if (label) {
         return [`${label}:  ${mod}${val}${guide ? `  ${guide}` : ''}`];
     }

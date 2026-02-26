@@ -69,6 +69,8 @@ export const RWNPlayground: React.FC = () => {
         { label: 'Grouped', value: '3x(750m/3:00r + 500m/3:00r)', desc: 'Nested blocks', category: 'Advanced' },
         { label: 'Undefined Rest', value: '4x2000m/...r', desc: 'Open rest', category: 'Advanced' },
         { label: 'Rate Ladder', value: '4000m@r20 + 3000m@r22 + 2000m@r24 + 1000m@r28', desc: '10K rate build', category: 'Advanced' },
+        { label: 'PM5 Splits', value: '10000m [1000m]', desc: 'Split every 1k', category: 'Advanced' },
+        { label: 'Rate Build', value: '2000m[500m@r22 + 500m@r24 + 500m@r26 + 500m@r30]', desc: 'Sub-segments', category: 'Advanced' },
         // Multi-Modal
         { label: 'BikeErg', value: 'Bike: 15000m', desc: 'Single modality', category: 'Multi-Modal' },
         { label: 'SkiErg', value: 'Ski: 8x500m/3:30r', desc: 'Ski intervals', category: 'Multi-Modal' },

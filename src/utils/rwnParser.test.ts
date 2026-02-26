@@ -721,4 +721,66 @@ describe('RWN Parser - Session Orchestration Extensions (Additive)', () => {
             expect(result.rest.value).toBe(180);
         }
     });
+
+    // Split / Sub-Segment Notation
+    describe('Split and Sub-Segment Notation', () => {
+        it('parses PM5 split with space: 10000m [1000m]', () => {
+            const result = parseRWN('10000m [1000m]');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.value).toBe(10000);
+                expect(result!.unit).toBe('meters');
+                expect(result!.splitValue).toBe(1000);
+                expect(result!.splitUnit).toBe('meters');
+            }
+        });
+
+        it('parses PM5 split without space: 10000m[2000m]', () => {
+            const result = parseRWN('10000m[2000m]');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.value).toBe(10000);
+                expect(result!.splitValue).toBe(2000);
+                expect(result!.splitUnit).toBe('meters');
+            }
+        });
+
+        it('parses time-based PM5 split: 30:00 [5:00]', () => {
+            const result = parseRWN('30:00 [5:00]');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.value).toBe(1800);
+                expect(result!.splitValue).toBe(300);
+                expect(result!.splitUnit).toBe('seconds');
+            }
+        });
+
+        it('parses sub-segment breakdown: 2000m[500m@r22 + 500m@r24 + 500m@r26 + 500m@r30]', () => {
+            const result = parseRWN('2000m[500m@r22 + 500m@r24 + 500m@r26 + 500m@r30]');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.value).toBe(2000);
+                expect(result!.subSegments).toBeDefined();
+                expect(result!.subSegments!.length).toBe(4);
+                expect(result!.subSegments![0].value).toBe(500);
+                expect(result!.subSegments![0].target_rate).toBe(22);
+                expect(result!.subSegments![3].target_rate).toBe(30);
+            }
+        });
+
+        it('does not conflict with block tags: [w]10:00', () => {
+            const result = parseRWN('[w]10:00');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.blockType).toBe('warmup');
+                expect(result!.splitValue).toBeUndefined();
+                expect(result!.subSegments).toBeUndefined();
+            }
+        });
+    });
 });

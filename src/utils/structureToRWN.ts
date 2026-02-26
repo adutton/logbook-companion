@@ -77,16 +77,36 @@ export function structureToRWN(structure: WorkoutStructure): string {
 function structureToCoreRWN(structure: WorkoutStructure): string {
 
     if (structure.type === 'steady_state') {
-        const steadyStruct = structure as unknown as { blockType?: BlockType; value: number; unit: string; zone?: string };
+        const steadyStruct = structure as unknown as { blockType?: BlockType; value: number; unit: string; zone?: string; splitValue?: number; splitUnit?: string; subSegments?: { value: number; duration_type: string; target_rate?: number; target_rate_max?: number; target_pace?: string; target_pace_max?: string }[] };
         const prefix = getBlockTagPrefix(steadyStruct);
         
+        let base: string;
         if (steadyStruct.unit === 'meters') {
             const zone = steadyStruct.zone ? `@${steadyStruct.zone}` : '';
-            return `${prefix}${steadyStruct.value}m${zone}`;
+            base = `${prefix}${steadyStruct.value}m${zone}`;
         } else {
             const zone = steadyStruct.zone ? `@${steadyStruct.zone}` : '';
-            return `${prefix}${formatTime(steadyStruct.value)}${zone}`;
+            base = `${prefix}${formatTime(steadyStruct.value)}${zone}`;
         }
+
+        // Append sub-segments or split notation
+        if (steadyStruct.subSegments && steadyStruct.subSegments.length > 0) {
+            const segs = steadyStruct.subSegments.map(s => {
+                const val = s.duration_type === 'distance' ? formatDistance(s.value) : formatTime(s.value);
+                const parts = [val];
+                if (s.target_rate) parts.push(`@r${s.target_rate}`);
+                if (s.target_pace) parts.push(`@${s.target_pace}`);
+                return parts.join('');
+            });
+            return `${base}[${segs.join(' + ')}]`;
+        } else if (steadyStruct.splitValue) {
+            const splitStr = steadyStruct.splitUnit === 'meters'
+                ? formatDistance(steadyStruct.splitValue)
+                : formatTime(steadyStruct.splitValue);
+            return `${base} [${splitStr}]`;
+        }
+
+        return base;
     }
 
     if (structure.type === 'interval') {
