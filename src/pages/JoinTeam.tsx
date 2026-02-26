@@ -21,6 +21,8 @@ export function JoinTeam() {
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isAlreadyMemberError = (error ?? '').toLowerCase().includes('already a member');
+
   // Auto-lookup if code came from URL
   useEffect(() => {
     if (urlCode && urlCode.length >= 6) {
@@ -65,7 +67,12 @@ export function JoinTeam() {
       await joinTeamByInviteCode(user.id, inviteCode);
       setStep('success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join team');
+      const message = err instanceof Error ? err.message : 'Failed to join team';
+      if (message.toLowerCase().includes('already a member')) {
+        setError('You are already on this team. Use My Team to view your team dashboard.');
+      } else {
+        setError(message);
+      }
     } finally {
       setIsJoining(false);
     }
@@ -89,9 +96,19 @@ export function JoinTeam() {
 
           {/* Error */}
           {error && (
-            <div className="bg-red-900/20 border border-red-800/30 rounded-xl p-4 text-red-400 text-sm mb-6 flex items-start gap-2">
+            <div className={`${isAlreadyMemberError ? 'bg-amber-900/20 border-amber-800/40 text-amber-300' : 'bg-red-900/20 border-red-800/30 text-red-400'} border rounded-xl p-4 text-sm mb-6 flex items-start gap-2`}>
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              {error}
+              <div className="space-y-2">
+                <p>{error}</p>
+                {isAlreadyMemberError && (
+                  <button
+                    onClick={() => navigate('/team')}
+                    className="text-sm underline hover:text-white transition-colors"
+                  >
+                    Go to My Team
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -158,9 +175,19 @@ export function JoinTeam() {
 
           {/* Error */}
           {error && (
-            <div className="bg-red-900/20 border border-red-800/30 rounded-xl p-4 text-red-400 text-sm mb-6 flex items-start gap-2">
+            <div className={`${isAlreadyMemberError ? 'bg-amber-900/20 border-amber-800/40 text-amber-300' : 'bg-red-900/20 border-red-800/30 text-red-400'} border rounded-xl p-4 text-sm mb-6 flex items-start gap-2`}>
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              {error}
+              <div className="space-y-2">
+                <p>{error}</p>
+                {isAlreadyMemberError && (
+                  <button
+                    onClick={() => navigate('/team')}
+                    className="text-sm underline hover:text-white transition-colors"
+                  >
+                    Go to My Team
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

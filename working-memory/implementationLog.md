@@ -4,6 +4,50 @@
 
 ---
 
+## Phase 24: Team Invite Flow Reliability Fix (February 25, 2026)
+
+**Timeline**: February 25, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+**Goal**: Fix coach invite failures affecting both add-by-email and invite-code join paths for existing accounts.
+
+### Root Cause
+
+1. `team_members` RLS allowed only self-insert (`auth.uid() = user_id`), so coaches/coxswains could not add another existing user by email.
+2. `teams` SELECT policy prevented non-members from reading private teams, so invite-code lookup could not resolve private team previews/joins.
+
+### Changes Implemented
+
+#### 1. Service Layer Hardening
+- `src/services/coaching/coachingService.ts`
+   - `getTeamByInviteCode()` now uses RPC `lookup_team_by_invite_code(p_code)` instead of direct `teams` query.
+   - `addTeamMemberByEmail()` now performs case-insensitive email lookup with `.ilike('email', normalizedEmail)`.
+
+#### 2. Database Migration
+- `db/migrations/20260225_fix_team_invite_rls_and_lookup.sql`
+   - Added policy: **"Coaches and coxswains can add team members"** on `public.team_members` (INSERT).
+   - Added security-definer RPC: `public.lookup_team_by_invite_code(p_code text)` returning `SETOF public.teams`.
+   - Granted execute on RPC to `authenticated` and revoked public execute.
+
+#### 3. Live Environment Application
+- Applied to Supabase project `vmlhcbkyonemmlawnqqr` via MCP migration:
+   - `mcp_supabase_apply_migration` name: `fix_team_invite_rls_and_lookup`
+
+### Verification
+
+- `npm run build` (LogbookCompanion) → ✅ success (`tsc -b` + `vite build`)
+- Type diagnostics on `coachingService.ts` → ✅ no errors
+
+### Outcome
+
+Inviting existing users now works across both entry points:
+- Coaches/coxswains can add an existing account directly by email.
+- Existing authenticated users can resolve private teams by invite code and join successfully.
+
+---
+
 ## Phase 23: PM5 Adapter-Level Lowering Classification (February 25, 2026)
 
 **Timeline**: February 25, 2026  

@@ -493,15 +493,17 @@ export async function addTeamMemberByEmail(
   email: string,
   role: TeamRole = 'member'
 ): Promise<TeamMemberWithProfile> {
+  const normalizedEmail = email.trim().toLowerCase();
+
   // 1. Find user by email in user_profiles
   const { data: profile, error: profileErr } = await supabase
     .from('user_profiles')
     .select('user_id, display_name, email')
-    .eq('email', email.trim().toLowerCase())
+    .ilike('email', normalizedEmail)
     .maybeSingle();
 
   if (profileErr) throw profileErr;
-  if (!profile) throw new Error(`No account found for "${email}". They need to sign up first.`);
+  if (!profile) throw new Error(`No account found for "${normalizedEmail}". They need to sign up first.`);
 
   // 2. Check if already a member
   const { data: existing } = await supabase
@@ -593,14 +595,18 @@ export async function sendTeamInviteEmail(params: {
 
 /** Look up a team by its invite code */
 export async function getTeamByInviteCode(code: string): Promise<Team | null> {
-  const { data, error } = await supabase
-    .from('teams')
-    .select('*')
-    .eq('invite_code', code.toUpperCase().trim())
-    .maybeSingle();
+  const normalizedCode = code.toUpperCase().trim();
+  const { data, error } = await supabase.rpc('lookup_team_by_invite_code', {
+    p_code: normalizedCode,
+  });
 
   if (error) throw error;
-  return data as Team | null;
+
+  const row = Array.isArray(data)
+    ? (data[0] ?? null)
+    : (data ?? null);
+
+  return row as Team | null;
 }
 
 /** Join a team using an invite code. Returns the role assigned. */
