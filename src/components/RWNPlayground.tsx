@@ -144,7 +144,7 @@ export const RWNPlayground: React.FC = () => {
                             {['Basic', 'Pace', 'Advanced', 'Multi-Modal', 'Orchestration'].map(category => (
                                 <div key={category}>
                                     <div className="text-[10px] font-semibold text-neutral-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                        {category === 'Orchestration' && <Users2 size={10} className="text-violet-500" />}
+                                        {category === 'Orchestration' && <Users2 size={10} className="text-blue-400" />}
                                         {category}
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
@@ -154,13 +154,13 @@ export const RWNPlayground: React.FC = () => {
                                                 onClick={() => setInput(ex.value)}
                                                 className={`text-left px-3 py-2 rounded-lg border transition-all group ${
                                                     category === 'Orchestration'
-                                                        ? 'border-violet-900/30 bg-violet-950/20 hover:bg-violet-900/20 hover:border-violet-800/40'
+                                                        ? 'border-blue-700/40 bg-blue-950/30 hover:bg-blue-900/30 hover:border-blue-600/50'
                                                         : 'border-neutral-800 bg-neutral-900 hover:bg-neutral-800 hover:border-neutral-700'
                                                 }`}
                                             >
                                                 <div className={`text-xs font-medium transition-colors ${
                                                     category === 'Orchestration'
-                                                        ? 'text-violet-300 group-hover:text-violet-200'
+                                                        ? 'text-blue-300 group-hover:text-blue-200'
                                                         : 'text-neutral-300 group-hover:text-emerald-400'
                                                 }`}>
                                                     {ex.label}
@@ -183,7 +183,7 @@ export const RWNPlayground: React.FC = () => {
                             <div className="flex gap-2 flex-wrap">
                                 {parsed.tags.map((tag: string) => (
                                     <span key={tag} className={`px-2 py-0.5 rounded text-xs font-mono border ${
-                                        tag === 'orchestration' ? 'bg-violet-900/20 text-violet-400 border-violet-800/30'
+                                        tag === 'orchestration' ? 'bg-blue-900/30 text-blue-300 border-blue-700/40'
                                         : 'bg-yellow-900/20 text-yellow-500 border-yellow-800/30'
                                     }`}>
                                         #{tag}
@@ -255,18 +255,18 @@ export const RWNPlayground: React.FC = () => {
 
                             {/* Session Extension detail */}
                             {parsed.sessionExtension && (
-                                <div className="bg-violet-950/20 p-3 rounded-lg border border-violet-900/30">
+                                <div className="bg-blue-950/30 p-3 rounded-lg border border-blue-700/40">
                                     <div className="flex items-center gap-1.5 mb-2">
-                                        <Users2 size={13} className="text-violet-400" />
-                                        <span className="text-xs font-semibold text-violet-300 uppercase tracking-wider">
+                                        <Users2 size={13} className="text-blue-400" />
+                                        <span className="text-xs font-semibold text-blue-300 uppercase tracking-wider">
                                             Session Extension: {parsed.sessionExtension.kind}
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                                         {Object.entries(parsed.sessionExtension).filter(([k]) => k !== 'kind').map(([key, val]) => (
                                             <div key={key} className="flex justify-between">
-                                                <span className="text-neutral-500">{key}</span>
-                                                <span className="text-violet-300 font-mono truncate max-w-[120px]" title={String(val)}>
+                                                <span className="text-neutral-400">{key}</span>
+                                                <span className="text-blue-300 font-mono truncate max-w-[120px]" title={String(val)}>
                                                     {Array.isArray(val) ? val.join(', ') : String(val)}
                                                 </span>
                                             </div>
