@@ -185,10 +185,14 @@ function parseComponent(str: string): ParsedComponent | null {
             }
 
             // Regex for Training Zone Abbreviations: UT2, UT1, AT, TR, AN
+            // Also recognize 'open' as intentional no-restriction guidance
             if (!guidance.target_pace) {
-                const zoneMatch = part.match(/^(UT2|UT1|AT|TR|AN)$/i);
+                const zoneMatch = part.match(/^(UT2|UT1|AT|TR|AN|open)$/i);
                 if (zoneMatch) {
-                    guidance.target_pace = zoneMatch[1].toUpperCase();
+                    // Keep 'open' lowercase, uppercase for standard zones
+                    guidance.target_pace = zoneMatch[1].toLowerCase() === 'open'
+                        ? 'open'
+                        : zoneMatch[1].toUpperCase();
                     continue;
                 }
             }
@@ -724,10 +728,31 @@ function extractBracketNotation(text: string): BracketResult | null {
 }
 
 
+/**
+ * Normalize minute/second shorthand to canonical MM:SS form.
+ * Coaches write 3' (3 minutes), 30" (30 seconds), 3'30" (3:30).
+ * Must match combined form first to avoid partial matches.
+ */
+function normalizeMinuteSecondShorthand(input: string): string {
+    // Combined: 3'30" → 3:30, 1'5" → 1:05
+    let result = input.replace(/(\d+)'(\d{1,2})"/g, (_, m, s) => {
+        return `${m}:${s.padStart(2, '0')}`;
+    });
+    // Minutes only: 3' → 3:00 (but not if already consumed by combined pattern)
+    result = result.replace(/(\d+)'/g, '$1:00');
+    // Seconds only: 30" → 0:30
+    result = result.replace(/(\d+)"/g, (_, s) => {
+        return `0:${s.padStart(2, '0')}`;
+    });
+    return result;
+}
+
+
 export function parseRWN(input: string): WorkoutStructure | null {
     if (!input || !input.trim()) return null;
 
-    let text = input.trim();
+    // Normalize minute/second shorthand: 3' → 3:00, 30" → 0:30, 3'30" → 3:30
+    let text = normalizeMinuteSecondShorthand(input.trim());
     let modality: WorkoutStructure['modality'] = undefined;
 
     // 0. Check for Modality Prefix (e.g., "Bike: 4x500m")

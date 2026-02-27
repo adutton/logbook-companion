@@ -19,6 +19,9 @@ Publish ErgLink uploads to C2 Logbook using the athlete's stored C2 tokens.
 - [x] `RWNPlayground.tsx` — orchestration examples, PM5 badge, session extension panel, Rate Ladder example
 - [x] `structureToWhiteboard.ts` — coach whiteboard renderer (tabular ladders, W/U/C/D, orchestration headers)
 - [x] `structureToWhiteboard.test.ts` — 11 tests passing
+- [x] `rwn/RWN_spec.md` — §4.4 `@open` guidance, §5.3 sub-interval guidance via `+`, §11.2 `'`/`"` shorthand
+- [x] `rwnParser.ts` — `'`/`"` normalization + `@open` guidance parsing (67 tests passing)
+- [x] `docs/RWN_WorkoutWhiteboardExample.md` — annotated whiteboard → RWN mapping
 - [ ] `rwn/RWN_spec.md` — needs Section 13: Session Orchestration Extensions
 - [ ] `src/pages/Documentation.tsx` — needs orchestration section in spec tab
 - [ ] Verify `rwnParser.ts` + `rwnParser.test.ts` gap analysis (parser looks complete, tests at 50/50)

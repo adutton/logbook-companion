@@ -783,4 +783,141 @@ describe('RWN Parser - Session Orchestration Extensions (Additive)', () => {
             }
         });
     });
+
+    // ============================================================
+    // Minute/Second Shorthand (Input Tolerance)
+    // ============================================================
+    describe('Minute/Second Shorthand', () => {
+        it("parses minutes shorthand: 3' → 3:00 steady state", () => {
+            const result = parseRWN("3'");
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.unit).toBe('seconds');
+                expect(result!.value).toBe(180);
+            }
+        });
+
+        it('parses seconds shorthand: 30" → 0:30 steady state', () => {
+            const result = parseRWN('30"');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.unit).toBe('seconds');
+                expect(result!.value).toBe(30);
+            }
+        });
+
+        it("parses combined shorthand: 3'30\" → 3:30 steady state", () => {
+            const result = parseRWN("3'30\"");
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.unit).toBe('seconds');
+                expect(result!.value).toBe(210);
+            }
+        });
+
+        it("parses combined shorthand with zero-padding: 1'5\" → 1:05", () => {
+            const result = parseRWN("1'5\"");
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.unit).toBe('seconds');
+                expect(result!.value).toBe(65);
+            }
+        });
+
+        it("parses interval with shorthand: 10x3'/30\"r", () => {
+            const result = parseRWN("10x3'/30\"r");
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('interval');
+            if (result!.type === 'interval') {
+                expect(result!.repeats).toBe(10);
+                expect(result!.work.type).toBe('time');
+                expect(result!.work.value).toBe(180);
+                expect(result!.rest.value).toBe(30);
+            }
+        });
+
+        it("parses shorthand with guidance: 2'30\"@r24..26", () => {
+            const result = parseRWN("2'30\"@r24..26");
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.value).toBe(150);
+                expect(result!.target_rate).toBe(24);
+                expect(result!.target_rate_max).toBe(26);
+            }
+        });
+
+        it("parses compound segments with shorthand: 2'30\"@r24..26 + 30\"@open", () => {
+            const result = parseRWN("2'30\"@r24..26 + 30\"@open");
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('variable');
+            if (result!.type === 'variable') {
+                expect(result!.steps.length).toBe(2);
+                expect(result!.steps[0].value).toBe(150);
+                expect(result!.steps[0].target_rate).toBe(24);
+                expect(result!.steps[1].value).toBe(30);
+                expect(result!.steps[1].target_pace).toBe('open');
+            }
+        });
+    });
+
+    // ============================================================
+    // @open Guidance Keyword
+    // ============================================================
+    describe('@open Guidance', () => {
+        it('parses @open as guidance on steady state', () => {
+            const result = parseRWN('0:30@open');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.value).toBe(30);
+                expect(result!.target_pace).toBe('open');
+            }
+        });
+
+        it('parses @open on distance', () => {
+            const result = parseRWN('500m@open');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.value).toBe(500);
+                expect(result!.target_pace).toBe('open');
+            }
+        });
+
+        it('parses @open case-insensitively', () => {
+            const result = parseRWN('500m@OPEN');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.target_pace).toBe('open');
+            }
+        });
+
+        it('parses @open chained with rate: 0:30@open@r30', () => {
+            const result = parseRWN('0:30@open@r30');
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe('steady_state');
+            if (result!.type === 'steady_state') {
+                expect(result!.target_pace).toBe('open');
+                expect(result!.target_rate).toBe(30);
+            }
+        });
+
+        it('parses @open in compound segment (whiteboard pattern)', () => {
+            const result = parseRWN('10x(2:30@r24..26 + 0:30@open)/30sr');
+            expect(result).not.toBeNull();
+            // This should be a variable workout with grouped repeats
+            if (result!.type === 'variable') {
+                const workSteps = result!.steps.filter(s => s.type === 'work');
+                const openStep = workSteps.find(s => s.target_pace === 'open');
+                expect(openStep).toBeDefined();
+                expect(openStep!.value).toBe(30);
+            }
+        });
+    });
 });

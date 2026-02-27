@@ -137,7 +137,19 @@ Subjective or heart-rate based intensity zones.
 - `3x20:00/2:00r@UT2`
 - `10x1:00/1:00r@AN`
 
-### 4.4 Chaining Guidance Parameters
+### 4.4 Open Guidance
+The `@open` keyword denotes an intentionally unrestricted segment — the athlete should sprint or go at their own discretion. This is semantically distinct from omitting guidance (unspecified vs. intentionally unrestricted).
+
+**Syntax:** `@open`
+
+**Examples:**
+- `0:30@open` → 30 seconds open (sprint)
+- `500m@open` → 500m open
+- `10x(2:30@r24..26 + 0:30@open)/30sr` → 10×3min pieces, last 30s open
+
+> **Note:** `@open` is a coaching instruction, not a PM5 setting. PM5 programs it as a normal interval with no pace/rate restriction. It is meaningful for display, training plans, and whiteboard rendering.
+
+### 4.5 Chaining Guidance Parameters
 Multiple guidance parameters can be chained together using multiple `@` symbols to specify both pace/zone and rate simultaneously.
 
 **Syntax:** `@[Pace/Zone]@[Rate]` or `@[Rate]@[Pace/Zone]`
@@ -166,7 +178,21 @@ For complex pieces with internal rate changes (e.g., "10min at 22, 5min at 26"):
 
 > **PM5 Note:** These map to **Variable Interval** workouts with **Undefined (0) Rest**. This ensures the monitor advances precisely at the segment boundary, capturing split data for each specific rate step.
 
-### 5.3 Complex Repeats (Parenthesis Grouping)
+### 5.3 Guidance Segmentation (Sub-Interval Guidance)
+Coaches often prescribe different guidance for portions of a single piece (e.g., "last 30 seconds open," "first 500m settle, then build"). In RWN, this is naturally expressed using `+` compound segments — each sub-segment carries its own guidance.
+
+**Pattern:** Split the piece into time/distance segments with individual guidance.
+
+**Examples:**
+- `10x(2:30@r24..26 + 0:30@open)/30sr` → 10×3min pieces: first 2:30 controlled at rate 24-26, last 30s open
+- `250m@r30 + 500m@r25 + 250m@r35` → 1000m with rate changes: settle, build, sprint
+- `3x(4:00@UT2 + 1:00@open)/2:00r` → 3×5min: 4min steady, 1min sprint
+
+> **PM5 Note:** The monitor beeps at each segment boundary, which serves as an audible signal for the athlete to change effort. This is a feature, not a limitation — coaches can use the boundary beep as a coaching tool.
+
+> **Whiteboard Convention:** Coaches write this as "last :30 open" or "first 250 settle." The RWN `+` operator captures this precisely while preserving PM5 programmability.
+
+### 5.4 Complex Repeats (Parenthesis Grouping)
 To repeat a compound segment, wrap it in parentheses.
 - `3 x (10:00@UT2 + 5:00@UT1) / 2:00r`
 - `2 x (2000m + 1000m) / 5:00r`
@@ -326,7 +352,22 @@ The common rowing notation `30r20` (30 minutes at rate 20) SHOULD be accepted:
 
 **Parsing Rule:** If `r` is immediately followed by a 2-digit number (typical rates: 16-36) without `@`, treat as rate shorthand.
 
-### 11.2 Other Tolerances
+### 11.2 Minute/Second Shorthand
+
+Coaches commonly use `'` (prime) for minutes and `"` (double-prime) for seconds on whiteboards. RWN parsers SHOULD accept this and normalize to canonical `MM:SS` form:
+
+| Shorthand Input | Canonical Form | Notes |
+|-----------------|----------------|-------|
+| `3'` | `3:00` | 3 minutes |
+| `30"` | `0:30` | 30 seconds |
+| `3'30"` | `3:30` | 3 minutes 30 seconds |
+| `1'5"` | `1:05` | Seconds zero-padded |
+| `10x3'/30"r` | `10x3:00/0:30r` | Works in interval context |
+| `2'30"@r24..26` | `2:30@r24..26` | Works with guidance |
+
+**Parsing Rule:** Normalize `'`/`"` shorthand to `MM:SS` before core parsing. Match combined form `N'N"` first, then standalone `N'` and `N"`.
+
+### 11.3 Other Tolerances
 
 | Input Variation | Canonical Form |
 |-----------------|----------------|
@@ -336,7 +377,7 @@ The common rowing notation `30r20` (30 minutes at rate 20) SHOULD be accepted:
 | `5k` | `5000m` |
 | `5km` | `5000m` |
 
-### 11.3 Duration Estimation
+### 11.4 Duration Estimation
 
 When calculating estimated duration from RWN:
 - **Total Duration** = Work Time + Rest Time
