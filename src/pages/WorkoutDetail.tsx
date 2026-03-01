@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Activity, Zap, Wind, Clock, Timer, SplitSquareHorizontal, ExternalLink, Pencil, X, Save, AlertCircle, BookmarkPlus, BookmarkCheck, Link as LinkIcon, Search, Lightbulb, Check, Loader2 } from 'lucide-react';
+import { Activity, Zap, Wind, Clock, Timer, SplitSquareHorizontal, ExternalLink, Pencil, X, Save, AlertCircle, BookmarkPlus, BookmarkCheck, Link as LinkIcon, Search, Lightbulb, Check, Loader2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, Label } from 'recharts';
 import { workoutService } from '../services/workoutService';
 import { PowerDistributionChart } from '../components/analytics/PowerDistributionChart';
@@ -8,6 +8,7 @@ import { TemplateEditor } from '../components/TemplateEditor';
 import { fetchTemplateById } from '../services/templateService';
 import { useAuth } from '../hooks/useAuth';
 import { calculateWatts } from '../utils/prCalculator';
+import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { detectIntervalsFromStrokes } from '../utils/workoutNaming';
 import { parseRWN } from '../utils/rwnParser';
 import { deriveCanonicalNameFromIntervals, deriveCanonicalNameFromRWN } from '../utils/workoutCanonical';
@@ -468,10 +469,10 @@ export const WorkoutDetail: React.FC = () => {
         <div className="min-h-screen bg-neutral-950 p-6 md:p-12 space-y-8 max-w-7xl mx-auto font-sans">
             {/* Header / Nav */}
             <div className="space-y-6">
-                <Link to="/" className="inline-flex items-center text-neutral-400 hover:text-white transition-colors group">
-                    <ArrowLeft size={18} className="mr-2 group-hover:-translate-x-1 transition-transform" />
-                    <span className="font-medium">Back to Dashboard</span>
-                </Link>
+                <Breadcrumb items={[
+                    { label: 'Dashboard', to: '/' },
+                    { label: canonicalName || 'Workout' },
+                ]} />
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 pb-6 border-b border-neutral-800">
                     <div>
                         <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight mb-2 bg-gradient-to-r from-white to-neutral-400 bg-clip-text text-transparent flex items-center gap-3">

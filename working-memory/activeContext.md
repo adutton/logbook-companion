@@ -161,7 +161,20 @@ Retired `coaching_athletes` → unified `athletes` + `team_athletes` model. All 
 **New files**: `src/utils/csvExport.ts` (reusable CSV download utility)
 **Migration pending**: `db/migrations/20260217_add_assignment_to_sessions.sql` (adds `group_assignment_id` to `coaching_sessions`)
 **CoachSessions finding**: Uses `erg_sessions`/`erg_session_participants` tables (11 raw supabase calls, user-level scoped). Would need new `ergSessionService.ts` + schema changes. Deferred to future sprint.
-**Self-service routes**: `/team` → MyTeamDashboard, `/team/scores` → MyScores. `/team/notes` and `/team/settings` pages not yet created (links exist in MyTeamDashboard but will 404).
+**Self-service routes**: `/team` → MyTeamDashboard, `/team/scores` → MyScores, `/team/notes` → MyTeamNotes ✅, `/team/settings` → MyTeamSettings ✅.
+
+### UX & Architecture Improvements ✅ COMPLETE
+1. **Shared UI Component Library** — `src/components/ui/` with Card, CardHeader, Button, Badge, Input, Select, Breadcrumb, EmptyState (all theme-token-aware)
+2. **Breadcrumb Navigation** — Added to WorkoutDetail, TemplateDetail, CoachingAthleteDetail, AssignmentResults
+3. **ErgLink Phase 2 Decomposition** — App.tsx from 454-line monolith → ~115-line router orchestrator with OnboardingScreen, DashboardScreen, ErrorBoundary, SessionSubscriber, extracted RaceOverlay + LiveDataGrid
+4. **Magic Layer DB Persistence** — Added `canonical_signature`, `match_confidence`, `match_reason` columns to `workout_logs` (live migration applied). Service wiring in `workoutService.ts` for signature + match metadata persistence.
+5. **Self-Service Pages** — Created MyTeamNotes + MyTeamSettings pages, wired routes `/team/notes` and `/team/settings`
+6. **Light Theme Token System** — CSS custom properties in `:root`/`html.light` for semantic colors (surface, text, border, accent). Tailwind extended with token-based utilities (`bg-surface-card`, `text-content-primary`, etc.). All shared UI components migrated to tokens. Legacy html.light overrides preserved for backward compat.
+
+### Shared Copilot Skills ✅ COMPLETE
+- Universal skills in `C:/Users/samgammon/apps/shared-skills/`: devops-commit-guard, iterative-dev-loop, structured-dev-workflow, ui-ux-consistency-guard
+- VS Code `chat.agentSkillsLocations` configured globally to scan `.github/skills` + shared-skills
+- Context7 MCP added to global VS Code settings
 
 ### Recent Changes
 - **Org-level configurable performance tier rubric (2026-02-26)**: Added organization-scoped rubric overrides so benchmark tier mapping (squad + best 2k) is configurable per org in `src/pages/coaching/CoachingSettings.tsx` under Organization settings. Added migration `db/migrations/20260226201930_add_org_performance_tier_rubric.sql` and applied live via Supabase MCP (`add_org_performance_tier_rubric`), introducing `public.organizations.performance_tier_rubric` (jsonb). Updated `src/utils/performanceTierRubric.ts` to support override configs and wired roster/dashboard tier derivation in `src/pages/coaching/CoachingRoster.tsx` and `src/pages/coaching/CoachDashboard.tsx` to use org rubric values when present. Validation pass: `npm run build`, `npm run test:run` (lint still has pre-existing repo-wide issues).

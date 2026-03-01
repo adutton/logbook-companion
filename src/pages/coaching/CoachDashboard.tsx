@@ -341,11 +341,12 @@ export const CoachDashboard: React.FC = () => {
     editingCell?.athleteId === athleteId && editingCell?.field === field
   ), [editingCell]);
 
-  const commitEditingCell = useCallback(async () => {
+  const commitEditingCell = useCallback(async (valueOverride?: string) => {
     if (!editingCell || savingCell) return;
     const athlete = orgRoster.find((a) => a.id === editingCell.athleteId);
     if (!athlete) return;
     const field = editingCell.field;
+    const resolvedValue = valueOverride ?? editValue;
     const resolvedTeamId = athlete.team_id ?? (athlete.team_name ? teamIdByName.get(athlete.team_name) : null);
     const nextOrgRoster = [...orgRoster];
     const idx = nextOrgRoster.findIndex((a) => a.id === athlete.id);
@@ -355,30 +356,30 @@ export const CoachDashboard: React.FC = () => {
       setSavingCell(true);
       if (field === 'squad') {
         if (!resolvedTeamId) throw new Error('Unable to resolve team for squad update.');
-        const squad = editValue.trim() || null;
+        const squad = resolvedValue.trim() || null;
         nextOrgRoster[idx] = { ...nextOrgRoster[idx], squad };
         setOrgRoster(nextOrgRoster);
         await updateAthleteSquad(resolvedTeamId, athlete.id, squad);
       } else if (field === 'performance_tier') {
         if (!resolvedTeamId) throw new Error('Unable to resolve team for tier update.');
-        const tier = (editValue.trim() || null) as CoachingAthlete['performance_tier'];
+        const tier = (resolvedValue.trim() || null) as CoachingAthlete['performance_tier'];
         nextOrgRoster[idx] = { ...nextOrgRoster[idx], performance_tier: tier };
         setOrgRoster(nextOrgRoster);
         await updateAthletePerformanceTier(resolvedTeamId, athlete.id, tier ?? null);
       } else if (field === 'height_cm') {
         const height_cm = isImperial
-          ? ((editValue || editValue2) ? ftInToCm(Number(editValue) || 0, Number(editValue2) || 0) : null)
-          : (editValue ? Number(editValue) : null);
+          ? ((resolvedValue || editValue2) ? ftInToCm(Number(resolvedValue) || 0, Number(editValue2) || 0) : null)
+          : (resolvedValue ? Number(resolvedValue) : null);
         nextOrgRoster[idx] = { ...nextOrgRoster[idx], height_cm };
         setOrgRoster(nextOrgRoster);
         await updateAthlete(athlete.id, { height_cm: height_cm ?? null });
       } else if (field === 'weight_kg') {
-        const weight_kg = editValue ? (isImperial ? lbsToKg(Number(editValue)) : Number(editValue)) : null;
+        const weight_kg = resolvedValue ? (isImperial ? lbsToKg(Number(resolvedValue)) : Number(resolvedValue)) : null;
         nextOrgRoster[idx] = { ...nextOrgRoster[idx], weight_kg };
         setOrgRoster(nextOrgRoster);
         await updateAthlete(athlete.id, { weight_kg: weight_kg ?? null });
       } else {
-        const value = editValue.trim();
+        const value = resolvedValue.trim();
         const normalized = value || (field === 'first_name' ? athlete.first_name : field === 'last_name' ? athlete.last_name : undefined);
         const updates = { [field]: normalized } as Partial<Pick<CoachingAthlete, 'first_name' | 'last_name' | 'grade' | 'side' | 'experience_level'>>;
         nextOrgRoster[idx] = {
@@ -714,7 +715,7 @@ export const CoachDashboard: React.FC = () => {
                                   autoFocus
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
+                                  onBlur={() => commitEditingCell()}
                                   onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
                                   className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                 />
@@ -726,7 +727,7 @@ export const CoachDashboard: React.FC = () => {
                                   autoFocus
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
+                                  onBlur={() => commitEditingCell()}
                                   onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
                                   className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                 />
@@ -738,7 +739,7 @@ export const CoachDashboard: React.FC = () => {
                                   autoFocus
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
+                                  onBlur={() => commitEditingCell()}
                                   onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
                                   className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                 />
@@ -752,7 +753,7 @@ export const CoachDashboard: React.FC = () => {
                                   autoFocus
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
+                                  onBlur={() => commitEditingCell()}
                                   onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
                                   className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                 />
@@ -763,8 +764,8 @@ export const CoachDashboard: React.FC = () => {
                                 <select
                                   autoFocus
                                   value={editValue}
-                                  onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
+                                  onChange={(e) => { setEditValue(e.target.value); commitEditingCell(e.target.value); }}
+                                  onBlur={() => commitEditingCell()}
                                   className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                 >
                                   <option value="">—</option>
@@ -780,8 +781,8 @@ export const CoachDashboard: React.FC = () => {
                                 <select
                                   autoFocus
                                   value={editValue}
-                                  onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
+                                  onChange={(e) => { setEditValue(e.target.value); commitEditingCell(e.target.value); }}
+                                  onBlur={() => commitEditingCell()}
                                   className="w-full px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                 >
                                   <option value="">—</option>
@@ -830,7 +831,7 @@ export const CoachDashboard: React.FC = () => {
                                       max={8}
                                       value={editValue}
                                       onChange={(e) => setEditValue(e.target.value)}
-                                      onBlur={commitEditingCell}
+                                      onBlur={() => commitEditingCell()}
                                       className="w-12 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                     />
                                     <span className="text-neutral-500">ft</span>
@@ -840,7 +841,7 @@ export const CoachDashboard: React.FC = () => {
                                       max={11}
                                       value={editValue2}
                                       onChange={(e) => setEditValue2(e.target.value)}
-                                      onBlur={commitEditingCell}
+                                      onBlur={() => commitEditingCell()}
                                       className="w-12 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                     />
                                     <span className="text-neutral-500">in</span>
@@ -852,7 +853,7 @@ export const CoachDashboard: React.FC = () => {
                                     min={0}
                                     value={editValue}
                                     onChange={(e) => setEditValue(e.target.value)}
-                                    onBlur={commitEditingCell}
+                                    onBlur={() => commitEditingCell()}
                                     onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
                                     className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                   />
@@ -869,7 +870,7 @@ export const CoachDashboard: React.FC = () => {
                                   min={0}
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={commitEditingCell}
+                                  onBlur={() => commitEditingCell()}
                                   onKeyDown={(e) => { if (e.key === 'Enter') void commitEditingCell(); if (e.key === 'Escape') setEditingCell(null); }}
                                   className="w-20 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm text-white"
                                 />

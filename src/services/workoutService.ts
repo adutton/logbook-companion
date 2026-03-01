@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import type { C2ResultDetail, C2Stroke } from '../api/concept2.types';
-import { deriveCanonicalNameFromIntervals, deriveCanonicalNameFromRWN } from '../utils/workoutCanonical';
+import { deriveCanonicalNameFromIntervals, deriveCanonicalNameFromRWN, normalizeCanonicalName } from '../utils/workoutCanonical';
 import { autoCompleteAssignmentFromErgLinkLog } from './coaching/coachingService';
 import type { ErgLinkUploadMeta } from '../types/ergSession.types';
 
@@ -61,7 +61,10 @@ export const workoutService = {
                 if (generated) {
                     canonicalName = generated;
                     // Fire & Forget update
-                    supabase.from('workout_logs').update({ canonical_name: canonicalName }).eq('id', log.id).then();
+                    supabase.from('workout_logs').update({
+                        canonical_name: canonicalName,
+                        canonical_signature: normalizeCanonicalName(canonicalName),
+                    }).eq('id', log.id).then();
                 }
             }
 
@@ -340,10 +343,14 @@ export const workoutService = {
     },
 
     // Link a workout to a template
-    linkWorkoutToTemplate: async (workoutId: string, templateId: string | null) => {
+    linkWorkoutToTemplate: async (workoutId: string, templateId: string | null, matchMeta?: { match_confidence?: number; match_reason?: string }) => {
+        const updates: Record<string, unknown> = { template_id: templateId };
+        if (matchMeta?.match_confidence !== undefined) updates.match_confidence = matchMeta.match_confidence;
+        if (matchMeta?.match_reason) updates.match_reason = matchMeta.match_reason;
+
         const { data, error } = await supabase
             .from('workout_logs')
-            .update({ template_id: templateId })
+            .update(updates)
             .eq('id', workoutId)
             .select();
 

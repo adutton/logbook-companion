@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Edit, Users, TrendingUp, Calendar, ChevronDown, ChevronUp, Clock, Target, Lightbulb, Compass, Trophy, ArrowRight } from 'lucide-react';
+import { Edit, Users, TrendingUp, Calendar, ChevronDown, ChevronUp, Clock, Target, Lightbulb, Compass, Trophy, ArrowRight } from 'lucide-react';
 import { fetchTemplateById, getTemplateHistory, getTemplatePersonalBest } from '../services/templateService';
 import type { PersonalBest, TemplateHistoryItem } from '../services/templateService';
 import { supabase } from '../services/supabase';
 import type { WorkoutTemplate } from '../types/workoutStructure.types';
+import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatDuration, estimateDuration } from '../utils/rwnParser';
 import { structureToRWN } from '../utils/structureToRWN';
@@ -145,13 +146,10 @@ export const TemplateDetail: React.FC = () => {
         <div className="p-6 max-w-5xl mx-auto">
             {/* Header */}
             <div className="mb-6">
-                <button
-                    onClick={() => navigate('/templates')}
-                    className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors mb-4"
-                >
-                    <ArrowLeft size={18} />
-                    Back to Templates
-                </button>
+                <Breadcrumb items={[
+                    { label: 'Template Library', to: '/templates' },
+                    { label: template.name },
+                ]} className="mb-4" />
 
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">

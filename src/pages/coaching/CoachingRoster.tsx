@@ -209,47 +209,48 @@ export function CoachingRoster() {
     setTimeout(() => editRef.current?.focus(), 0);
   }, [athletes, isImperial]);
 
-  const commitEdit = useCallback(async () => {
+  const commitEdit = useCallback(async (valueOverride?: string) => {
     if (!editingCell) return;
     const { athleteId, field } = editingCell;
     const a = athletes.find(x => x.id === athleteId);
     if (!a) { setEditingCell(null); return; }
+    const resolvedValue = valueOverride ?? editValue;
 
     setEditingCell(null);
 
     try {
       if (field === 'squad') {
-        const trimmed = editValue.trim() || null;
+        const trimmed = resolvedValue.trim() || null;
         if (trimmed !== (a.squad ?? null)) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, squad: trimmed } : x));
           await updateAthleteSquad(teamId, athleteId, trimmed);
         }
       } else if (field === 'performance_tier') {
-        const val: CoachingAthlete['performance_tier'] = (editValue.trim() || null) as CoachingAthlete['performance_tier'];
+        const val: CoachingAthlete['performance_tier'] = (resolvedValue.trim() || null) as CoachingAthlete['performance_tier'];
         if (val !== (a.performance_tier ?? null)) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, performance_tier: val } : x));
           await updateAthletePerformanceTier(teamId, athleteId, val ?? null);
         }
       } else if (field === 'height') {
         const cm = isImperial
-          ? ((editValue || editValue2)
-            ? ftInToCm(Number(editValue) || 0, Number(editValue2) || 0)
+          ? ((resolvedValue || editValue2)
+            ? ftInToCm(Number(resolvedValue) || 0, Number(editValue2) || 0)
             : null)
-          : (editValue ? Number(editValue) : null);
+          : (resolvedValue ? Number(resolvedValue) : null);
         if (cm !== a.height_cm) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, height_cm: cm } : x));
           await updateAthlete(athleteId, { height_cm: cm });
         }
       } else if (field === 'weight') {
-        const kg = editValue
-          ? (isImperial ? lbsToKg(Number(editValue)) : Number(editValue))
+        const kg = resolvedValue
+          ? (isImperial ? lbsToKg(Number(resolvedValue)) : Number(resolvedValue))
           : null;
         if (kg !== a.weight_kg) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, weight_kg: kg } : x));
           await updateAthlete(athleteId, { weight_kg: kg });
         }
       } else if (field === 'first_name' || field === 'last_name' || field === 'grade' || field === 'notes') {
-        const val = editValue.trim() || (field === 'first_name' || field === 'last_name' ? a[field] : undefined);
+        const val = resolvedValue.trim() || (field === 'first_name' || field === 'last_name' ? a[field] : undefined);
         if (val !== a[field]) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? {
             ...x,
@@ -261,13 +262,13 @@ export function CoachingRoster() {
           await updateAthlete(athleteId, { [field]: val } as Partial<CoachingAthlete>);
         }
       } else if (field === 'side') {
-        const val = editValue as CoachingAthlete['side'];
+        const val = resolvedValue as CoachingAthlete['side'];
         if (val !== a.side) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, side: val } : x));
           await updateAthlete(athleteId, { side: val });
         }
       } else if (field === 'experience_level') {
-        const val = editValue as CoachingAthlete['experience_level'];
+        const val = resolvedValue as CoachingAthlete['experience_level'];
         if (val !== a.experience_level) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, experience_level: val } : x));
           await updateAthlete(athleteId, { experience_level: val });
@@ -523,7 +524,7 @@ export function CoachingRoster() {
                     >
                       {isEditing(athlete.id, 'first_name') ? (
                         <input ref={r => { editRef.current = r; }} type="text" value={editValue} onChange={e => setEditValue(e.target.value)}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="First name" />
+                          onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="First name" />
                       ) : athlete.first_name}
                     </span>
                     <span
@@ -532,7 +533,7 @@ export function CoachingRoster() {
                     >
                       {isEditing(athlete.id, 'last_name') ? (
                         <input ref={r => { editRef.current = r; }} type="text" value={editValue} onChange={e => setEditValue(e.target.value)}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="Last name" />
+                          onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="Last name" />
                       ) : athlete.last_name}
                     </span>
                   </div>
@@ -541,7 +542,7 @@ export function CoachingRoster() {
                     {isEditing(athlete.id, 'squad') ? (
                       <>
                         <input ref={r => { editRef.current = r; }} type="text" list={`sq-m-${athlete.id}`} value={editValue}
-                          onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                          onChange={e => setEditValue(e.target.value)} onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown}
                           className={`${inputClass} w-28`} title="Squad" />
                         <datalist id={`sq-m-${athlete.id}`}>
                           {squads.map(s => <option key={s} value={s} />)}
@@ -619,7 +620,7 @@ export function CoachingRoster() {
                   <div>
                     {isEditing(athlete.id, 'grade') ? (
                       <input ref={r => { editRef.current = r; }} type="text" value={editValue} onChange={e => setEditValue(e.target.value)}
-                        onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${inputClass} w-full`} title="Grade" />
+                        onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${inputClass} w-full`} title="Grade" />
                     ) : (
                       <span className="text-neutral-300">{athlete.grade || <span className="text-neutral-600">—</span>}</span>
                     )}
@@ -631,8 +632,8 @@ export function CoachingRoster() {
                   <span className="text-neutral-500 text-xs">Side</span>
                   <div>
                     {isEditing(athlete.id, 'side') ? (
-                      <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
-                        onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-full`} title="Side">
+                      <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); commitEdit(e.target.value); }}
+                        onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${selectClass} w-full`} title="Side">
                         <option value="port">Port</option>
                         <option value="starboard">Starboard</option>
                         <option value="coxswain">Coxswain</option>
@@ -649,8 +650,8 @@ export function CoachingRoster() {
                   <span className="text-neutral-500 text-xs">Experience</span>
                   <div>
                     {isEditing(athlete.id, 'experience_level') ? (
-                      <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
-                        onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-full`} title="Experience level">
+                      <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); commitEdit(e.target.value); }}
+                        onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${selectClass} w-full`} title="Experience level">
                         <option value="beginner">Beginner</option>
                         <option value="intermediate">Intermediate</option>
                         <option value="experienced">Experienced</option>
@@ -723,7 +724,7 @@ export function CoachingRoster() {
                     ) : (
                       <div className="flex items-center gap-1">
                         <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
-                          onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                          onChange={e => setEditValue(e.target.value)} onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown}
                           className={`${inputClass} w-16`} placeholder="cm" title="Height in centimeters" />
                         <span className="text-neutral-500 text-xs">cm</span>
                       </div>
@@ -742,7 +743,7 @@ export function CoachingRoster() {
                     {isEditing(athlete.id, 'weight') ? (
                       <div className="flex items-center gap-1">
                         <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
-                          onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                          onChange={e => setEditValue(e.target.value)} onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown}
                           className={`${inputClass} w-16`} title={isImperial ? 'Weight in lbs' : 'Weight in kg'} />
                         <span className="text-neutral-500 text-xs">{isImperial ? 'lbs' : 'kg'}</span>
                       </div>
@@ -787,7 +788,7 @@ export function CoachingRoster() {
                     <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'first_name')}>
                       {isEditing(athlete.id, 'first_name') ? (
                         <input ref={r => { editRef.current = r; }} type="text" value={editValue} onChange={e => setEditValue(e.target.value)}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="First name" />
+                          onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="First name" />
                       ) : (
                         <span className="text-white font-medium">{athlete.first_name}</span>
                       )}
@@ -797,7 +798,7 @@ export function CoachingRoster() {
                     <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'last_name')}>
                       {isEditing(athlete.id, 'last_name') ? (
                         <input ref={r => { editRef.current = r; }} type="text" value={editValue} onChange={e => setEditValue(e.target.value)}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="Last name" />
+                          onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${inputClass} w-24`} title="Last name" />
                       ) : (
                         <span className="text-white font-medium">{athlete.last_name}</span>
                       )}
@@ -808,7 +809,7 @@ export function CoachingRoster() {
                       {isEditing(athlete.id, 'squad') ? (
                         <>
                           <input ref={r => { editRef.current = r; }} type="text" list={`sq-${athlete.id}`} value={editValue}
-                            onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                            onChange={e => setEditValue(e.target.value)} onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown}
                             className={`${inputClass} w-24`} title="Squad" />
                           <datalist id={`sq-${athlete.id}`}>
                             {squads.map(s => <option key={s} value={s} />)}
@@ -825,7 +826,7 @@ export function CoachingRoster() {
                     <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'grade')}>
                       {isEditing(athlete.id, 'grade') ? (
                         <input ref={r => { editRef.current = r; }} type="text" value={editValue} onChange={e => setEditValue(e.target.value)}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${inputClass} w-16`} title="Grade" />
+                          onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${inputClass} w-16`} title="Grade" />
                       ) : (
                         <span className="text-neutral-300">{athlete.grade || <span className="text-neutral-600">—</span>}</span>
                       )}
@@ -834,8 +835,8 @@ export function CoachingRoster() {
                     {/* Side */}
                     <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'side')}>
                       {isEditing(athlete.id, 'side') ? (
-                        <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-28`} title="Side">
+                        <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); commitEdit(e.target.value); }}
+                          onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${selectClass} w-28`} title="Side">
                           <option value="port">Port</option>
                           <option value="starboard">Starboard</option>
                           <option value="coxswain">Coxswain</option>
@@ -849,8 +850,8 @@ export function CoachingRoster() {
                     {/* Experience Level */}
                     <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'experience_level')}>
                       {isEditing(athlete.id, 'experience_level') ? (
-                        <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); }}
-                          onBlur={commitEdit} onKeyDown={handleCellKeyDown} className={`${selectClass} w-32`} title="Experience level">
+                        <select ref={r => { editRef.current = r; }} value={editValue} onChange={e => { setEditValue(e.target.value); commitEdit(e.target.value); }}
+                          onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown} className={`${selectClass} w-32`} title="Experience level">
                           <option value="beginner">Beginner</option>
                           <option value="intermediate">Intermediate</option>
                           <option value="experienced">Experienced</option>
@@ -918,7 +919,7 @@ export function CoachingRoster() {
                       ) : (
                         <div className="flex items-center gap-1">
                           <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
-                            onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                            onChange={e => setEditValue(e.target.value)} onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown}
                             className={`${inputClass} w-16`} placeholder="cm" title="Height in centimeters" />
                           <span className="text-neutral-500 text-xs">cm</span>
                         </div>
@@ -934,7 +935,7 @@ export function CoachingRoster() {
                       {isEditing(athlete.id, 'weight') ? (
                         <div className="flex items-center gap-1">
                           <input ref={r => { editRef.current = r; }} type="number" min={0} value={editValue}
-                            onChange={e => setEditValue(e.target.value)} onBlur={commitEdit} onKeyDown={handleCellKeyDown}
+                            onChange={e => setEditValue(e.target.value)} onBlur={() => commitEdit()} onKeyDown={handleCellKeyDown}
                             className={`${inputClass} w-16`} title={isImperial ? 'Weight in lbs' : 'Weight in kg'} />
                           <span className="text-neutral-500 text-xs">{isImperial ? 'lbs' : 'kg'}</span>
                         </div>

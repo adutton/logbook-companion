@@ -18,9 +18,8 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft,
   Loader2,
   ClipboardEdit,
   Users,
@@ -57,6 +56,7 @@ import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 
 import { CoachingNav } from '../../components/coaching/CoachingNav';
+import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import {
@@ -1614,13 +1614,11 @@ export function AssignmentResults() {
 
           {/* ── Header ── */}
           <div className="space-y-1">
-            <Link
-              to="/team-management/assignments"
-              className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-indigo-400 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Assignments
-            </Link>
+            <Breadcrumb items={[
+              { label: 'Team Management', to: '/team-management' },
+              { label: 'Assignments', to: '/team-management/assignments' },
+              { label: assignment.title || assignment.template_name || 'Results' },
+            ]} />
 
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="space-y-1">

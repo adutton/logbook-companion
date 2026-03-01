@@ -34,6 +34,8 @@ import { CoachingSettings } from './pages/coaching/CoachingSettings';
 import { JoinTeam } from './pages/JoinTeam';
 import { MyTeamDashboard } from './pages/team/MyTeamDashboard';
 import { MyScores } from './pages/team/MyScores';
+import { MyTeamNotes } from './pages/team/MyTeamNotes';
+import { MyTeamSettings } from './pages/team/MyTeamSettings';
 import { CoachingProvider } from './contexts/CoachingContext';
 import { NotFound } from './pages/NotFound';
 import { PublicAssignmentResultsShare } from './pages/PublicAssignmentResultsShare';
@@ -363,6 +365,26 @@ const AppContent: React.FC = () => {
               <ProtectedRoute>
                 <Layout>
                   <MyScores />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team/notes"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <MyTeamNotes />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team/settings"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <MyTeamSettings />
                 </Layout>
               </ProtectedRoute>
             }

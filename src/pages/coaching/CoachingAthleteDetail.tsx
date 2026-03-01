@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
+import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import {
   getAthletes,
   getErgScoresForAthlete,
@@ -19,7 +20,7 @@ import {
   type AthleteAssignment,
 } from '../../services/coaching/coachingService';
 import { format } from 'date-fns';
-import { ChevronLeft, Edit2, Trash2, Loader2, AlertTriangle, MessageSquare, ClipboardList, CheckCircle2, Circle, Timer } from 'lucide-react';
+import { Edit2, Trash2, Loader2, AlertTriangle, MessageSquare, ClipboardList, CheckCircle2, Circle, Timer } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatSplit, calculateWattsFromSplit } from '../../utils/paceCalculator';
 import { formatHeight, formatWeight } from '../../utils/unitConversion';
@@ -146,14 +147,11 @@ export function CoachingAthleteDetail() {
     <>
       <CoachingNav />
       <div className="px-4 sm:px-6 py-6 max-w-4xl mx-auto space-y-6">
-        {/* Back link */}
-        <button
-          onClick={() => navigate('/team-management/roster')}
-          className="flex items-center gap-2 text-sm text-neutral-400 hover:text-indigo-400 transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Back to Roster
-        </button>
+        <Breadcrumb items={[
+          { label: 'Team Management', to: '/team-management' },
+          { label: 'Roster', to: '/team-management/roster' },
+          { label: athlete ? `${athlete.first_name} ${athlete.last_name}` : 'Athlete' },
+        ]} />
 
         {/* Header */}
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
