@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, MessageSquare, Bug, Lightbulb, MessageCircle } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useNotifications } from '../hooks/useNotifications';
 
 interface FeedbackModalProps {
     isOpen: boolean;
@@ -10,8 +11,15 @@ interface FeedbackModalProps {
 
 type FeedbackType = 'bug' | 'feature' | 'other';
 
+const typeLabels: Record<FeedbackType, string> = {
+    bug: 'Bug Report',
+    feature: 'Feature Request',
+    other: 'Feedback',
+};
+
 export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
     const { user } = useAuth();
+    const { addNotification } = useNotifications();
     const [feedbackType, setFeedbackType] = useState<FeedbackType>('feature');
     const [message, setMessage] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,6 +42,22 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
                 });
 
             if (error) throw error;
+
+            // In-app notification
+            addNotification({
+                id: crypto.randomUUID(),
+                type: 'system',
+                title: `${typeLabels[feedbackType]} Submitted`,
+                body: 'Thanks for your feedback! We\'ll review it shortly.',
+                href: '/feedback',
+                read: false,
+                created_at: new Date().toISOString(),
+            });
+
+            // Email notification (fire-and-forget)
+            supabase.functions.invoke('notify-feedback', {
+                body: { feedbackType, message: message.trim() },
+            }).catch(() => {});
 
             setSubmitStatus('success');
             setMessage('');

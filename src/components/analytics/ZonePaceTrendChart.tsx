@@ -259,6 +259,7 @@ export const ZonePaceTrendChart: React.FC<Props> = ({ workouts, baselineWatts })
                         No workouts found in this period.
                     </div>
                 ) : (
+                    <div role="img" aria-label="Pace trend over time chart" className="h-full">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart
                             margin={{ top: 10, right: 30, left: 10, bottom: 20 }}
@@ -355,6 +356,7 @@ export const ZonePaceTrendChart: React.FC<Props> = ({ workouts, baselineWatts })
                             ) : null}
                         </LineChart>
                     </ResponsiveContainer>
+                    </div>
                 )}
             </div>
         </div >

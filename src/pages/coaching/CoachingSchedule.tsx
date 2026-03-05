@@ -35,6 +35,7 @@ import {
   isToday as isDateToday,
 } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, Edit2, Trash2, Loader2, ChevronDown, ChevronUp, MessageSquare, Calendar, CalendarDays, ClipboardList } from 'lucide-react';
+import { EmptyState } from '../../components/ui';
 import { WeeklyFocusBanner } from '../../components/coaching/WeeklyFocusBanner';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -219,7 +220,7 @@ export function CoachingSchedule() {
                 if (viewMode === 'week') setCurrentWeek(subWeeks(currentWeek, 1));
                 else setCurrentMonth(subMonths(currentMonth, 1));
               }}
-                className="p-2 hover:bg-neutral-800 rounded-lg transition-colors shrink-0" title={viewMode === 'week' ? 'Previous week' : 'Previous month'}>
+                className="p-2 hover:bg-neutral-800 rounded-lg transition-colors shrink-0" aria-label={viewMode === 'week' ? 'Previous week' : 'Previous month'} title={viewMode === 'week' ? 'Previous week' : 'Previous month'}>
                 <ChevronLeft className="w-5 h-5 text-neutral-400" />
               </button>
               <span className="text-sm sm:text-lg font-semibold text-center flex-1 sm:flex-initial sm:min-w-[200px] px-2 sm:px-4 py-2 bg-neutral-800 rounded-lg text-white truncate">
@@ -233,7 +234,7 @@ export function CoachingSchedule() {
                 if (viewMode === 'week') setCurrentWeek(addWeeks(currentWeek, 1));
                 else setCurrentMonth(addMonths(currentMonth, 1));
               }}
-                className="p-2 hover:bg-neutral-800 rounded-lg transition-colors shrink-0" title={viewMode === 'week' ? 'Next week' : 'Next month'}>
+                className="p-2 hover:bg-neutral-800 rounded-lg transition-colors shrink-0" aria-label={viewMode === 'week' ? 'Next week' : 'Next month'} title={viewMode === 'week' ? 'Next week' : 'Next month'}>
                 <ChevronRight className="w-5 h-5 text-neutral-400" />
               </button>
               <button type="button" onClick={() => {
@@ -318,6 +319,7 @@ export function CoachingSchedule() {
                     <button
                       onClick={(e) => { e.stopPropagation(); setSelectedDate(day); setIsAdding(true); }}
                       className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
+                      aria-label="Add session"
                       title="Add session"
                     >
                       <Plus className="w-4 h-4 text-neutral-500 hover:text-indigo-400" />
@@ -445,12 +447,11 @@ export function CoachingSchedule() {
           </div>
 
           {selectedDaySessions.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-neutral-800 flex items-center justify-center">
-                <Plus className="w-6 h-6 text-neutral-500" />
-              </div>
-              <p className="text-neutral-500">No sessions scheduled</p>
-            </div>
+            <EmptyState
+              icon={<CalendarDays className="w-8 h-8" />}
+              title="No sessions logged"
+              description="Start logging team sessions to track your season."
+            />
           ) : (
             <div className="space-y-3">
               {selectedDaySessions.map((session) => (
@@ -532,7 +533,7 @@ function SessionForm({
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-md">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">{title}</h2>
-          <button onClick={onCancel} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors" title="Close">
+          <button onClick={onCancel} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors" aria-label="Close" title="Close">
             <X className="w-5 h-5 text-neutral-400" />
           </button>
         </div>
@@ -692,15 +693,15 @@ function SessionCard({
             </span>
           )}
           <button onClick={onEdit}
-            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors" title="Edit session">
+            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors" aria-label="Edit session" title="Edit session">
             <Edit2 className="w-4 h-4 text-neutral-500 hover:text-indigo-400" />
           </button>
           <button onClick={onDelete}
-            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors" title="Delete session">
+            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors" aria-label="Delete session" title="Delete session">
             <Trash2 className="w-4 h-4 text-neutral-500 hover:text-red-400" />
           </button>
           <button onClick={onToggle}
-            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors" title="Toggle notes">
+            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors" aria-label="Toggle notes" title="Toggle notes">
             {isExpanded ? (
               <ChevronUp className="w-4 h-4 text-indigo-400" />
             ) : (
@@ -765,11 +766,11 @@ function SessionCard({
                     {editingNoteId !== note.id && (
                       <div className="flex items-start gap-1 shrink-0">
                         <button onClick={() => { setEditingNoteId(note.id); setEditingText(note.note); }}
-                          className="p-1 hover:bg-neutral-700 rounded-lg transition-colors" title="Edit note">
+                          className="p-1 hover:bg-neutral-700 rounded-lg transition-colors" aria-label="Edit note" title="Edit note">
                           <Edit2 className="w-3.5 h-3.5 text-neutral-500 hover:text-indigo-400" />
                         </button>
                         <button onClick={() => onDeleteNote(note.id)}
-                          className="p-1 hover:bg-neutral-700 rounded-lg transition-colors" title="Delete note">
+                          className="p-1 hover:bg-neutral-700 rounded-lg transition-colors" aria-label="Delete note" title="Delete note">
                           <Trash2 className="w-3.5 h-3.5 text-neutral-500 hover:text-red-400" />
                         </button>
                       </div>
@@ -826,7 +827,7 @@ function AddNoteForm({
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}
         </select>
-        <button onClick={onCancel} className="p-2 hover:bg-neutral-700 rounded-lg transition-colors" title="Cancel">
+        <button onClick={onCancel} className="p-2 hover:bg-neutral-700 rounded-lg transition-colors" aria-label="Cancel" title="Cancel">
           <X className="w-4 h-4 text-neutral-400" />
         </button>
       </div>

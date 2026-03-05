@@ -10,9 +10,11 @@ import {
   type CoachingAthlete,
 } from '../../services/coaching/coachingService';
 import { format } from 'date-fns';
-import { Plus, X, TrendingUp, TrendingDown, Minus, Loader2, Trash2, Download } from 'lucide-react';
+import { Plus, X, TrendingUp, TrendingDown, Minus, Loader2, Trash2, Download, Timer, FileSpreadsheet } from 'lucide-react';
+import { EmptyState } from '../../components/ui';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { downloadCsv } from '../../utils/csvExport';
+import { exportToExcel } from '../../utils/exportUtils';
 import { toast } from 'sonner';
 
 export function CoachingErgScores() {
@@ -179,6 +181,37 @@ export function CoachingErgScores() {
               <Download className="w-4 h-4" />
               CSV
             </button>
+            <button
+              onClick={() => {
+                const formatTime = (s: number) => {
+                  const mins = Math.floor(s / 60);
+                  const secs = s % 60;
+                  return `${mins}:${secs.toFixed(1).padStart(4, '0')}`;
+                };
+                const columns = ['Athlete', 'Date', 'Distance (m)', 'Time', 'Split /500m', 'Watts', 'Stroke Rate', 'Heart Rate', 'Notes'];
+                const rows = filteredScores.map((s) => [
+                  getAthleteName(s.athlete_id),
+                  s.date.slice(0, 10),
+                  s.distance,
+                  formatTime(s.time_seconds),
+                  s.split_500m ? formatTime(s.split_500m) : '',
+                  s.watts ?? '',
+                  s.stroke_rate ?? '',
+                  s.heart_rate ?? '',
+                  s.notes ?? '',
+                ] as (string | number | null)[]);
+                exportToExcel({
+                  filename: `erg-scores-${format(new Date(), 'yyyy-MM-dd')}`,
+                  sheets: [{ name: 'Erg Scores', columns, rows }],
+                });
+              }}
+              disabled={filteredScores.length === 0}
+              className="flex items-center gap-2 px-4 py-2 border border-neutral-700 text-neutral-300 rounded-lg hover:bg-neutral-800 transition-colors disabled:opacity-50"
+              title="Export scores to Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Excel
+            </button>
           </div>
         </div>
       </div>
@@ -196,24 +229,26 @@ export function CoachingErgScores() {
           <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
         </div>
       ) : athletes.length === 0 ? (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-xl text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-indigo-500/10 flex items-center justify-center">
-            <Plus className="w-8 h-8 text-indigo-400" />
-          </div>
-          <p className="text-neutral-400 mb-4">Add athletes first to record scores</p>
-          <a href="/team-management/roster" className="text-indigo-400 hover:underline font-medium">Go to Roster</a>
-        </div>
+        <EmptyState
+          icon={<Timer className="w-8 h-8" />}
+          title="No erg scores yet"
+          description="Record erg test results to track athlete progress."
+          action={
+            <a href="/team-management/roster" className="text-indigo-400 hover:underline font-medium">Go to Roster</a>
+          }
+        />
       ) : Object.keys(scoresByDate).length === 0 ? (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-xl text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-900/20 flex items-center justify-center">
-            <TrendingUp className="w-8 h-8 text-amber-500" />
-          </div>
-          <p className="text-neutral-400 mb-4">No erg scores recorded yet</p>
-          <button onClick={() => setIsAdding(true)}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
-            Record your first score
-          </button>
-        </div>
+        <EmptyState
+          icon={<Timer className="w-8 h-8" />}
+          title="No erg scores yet"
+          description="Record erg test results to track athlete progress."
+          action={
+            <button onClick={() => setIsAdding(true)}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
+              Record your first score
+            </button>
+          }
+        />
       ) : (
         <div className="space-y-6">
           {Object.entries(scoresByDate).map(([dateKey, dayScores]) => (
@@ -325,7 +360,7 @@ function AddScoreForm({
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">Record Erg Score</h2>
-          <button onClick={onCancel} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors" title="Close">
+          <button onClick={onCancel} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors" aria-label="Close" title="Close">
             <X className="w-5 h-5 text-neutral-400" />
           </button>
         </div>

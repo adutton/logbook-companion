@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Loader2, BarChart3 } from 'lucide-react';
+import { EmptyState } from '../../components/ui';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import {
   getAthletes,
@@ -196,11 +197,11 @@ export function TeamAnalytics() {
 
         {/* No data */}
         {!isLoading && !error && !hasAnyData && (
-          <div className="text-center py-16 text-neutral-500">
-            <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="text-lg font-medium">No analytics data yet</p>
-            <p className="text-sm mt-1">Erg scores and training zone data will appear here as athletes log workouts.</p>
-          </div>
+          <EmptyState
+            icon={<BarChart3 className="w-8 h-8" />}
+            title="Not enough data"
+            description="Analytics will appear once athletes have completed assignments."
+          />
         )}
 
         {/* Training Zone Distribution */}

@@ -89,6 +89,7 @@ export const RWNPlayground: React.FC = () => {
             <div className="bg-neutral-900/50 p-4 border-b border-neutral-800 flex items-center gap-2">
                 <Terminal className="text-emerald-500" size={18} />
                 <h3 className="font-semibold text-white">Interactive Validator</h3>
+                <span className="text-xs text-neutral-500">v0.1.0-draft · RFC</span>
             </div>
 
             <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">

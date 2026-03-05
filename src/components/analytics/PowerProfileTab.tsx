@@ -393,7 +393,7 @@ export const PowerProfileTab: React.FC<PowerProfileTabProps> = ({ baselineWatts 
                         <Zap className="w-4 h-4 text-emerald-400" />
                         Power Curve
                     </h3>
-                    <div className="h-72">
+                    <div className="h-72" role="img" aria-label="Power curve over distance chart">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
@@ -470,7 +470,7 @@ export const PowerProfileTab: React.FC<PowerProfileTabProps> = ({ baselineWatts 
                             <Target className="w-4 h-4 text-emerald-400" />
                             Strengths & Weaknesses
                         </h3>
-                        <div className="h-72">
+                        <div className="h-72" role="img" aria-label="Power profile radar chart">
                             <ResponsiveContainer width="100%" height="100%">
                                 <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
                                     <PolarGrid stroke="#262626" />
@@ -521,7 +521,7 @@ export const PowerProfileTab: React.FC<PowerProfileTabProps> = ({ baselineWatts 
                             <AlertTriangle className="w-4 h-4 text-amber-400" />
                             Deviation from Expected
                         </h3>
-                        <div className="h-72">
+                        <div className="h-72" role="img" aria-label="Strength and weakness deviation chart">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
                                     data={deviationData}

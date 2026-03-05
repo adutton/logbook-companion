@@ -186,7 +186,7 @@ export const WeekAtAGlanceWidget: React.FC<WeekAtAGlanceWidgetProps> = ({ workou
                         )}
                     </div>
 
-                    <div className="h-[160px] w-full">
+                    <div className="h-[160px] w-full" role="img" aria-label="Weekly training zone distribution chart">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie

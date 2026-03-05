@@ -31,6 +31,7 @@ import { AssignmentResults } from './pages/coaching/AssignmentResults';
 import { TeamSetup } from './pages/coaching/TeamSetup';
 import { TeamAnalytics } from './pages/coaching/TeamAnalytics';
 import { CoachingSettings } from './pages/coaching/CoachingSettings';
+import { RequestCoachingAccess } from './pages/coaching/RequestCoachingAccess';
 import { JoinTeam } from './pages/JoinTeam';
 import { MyTeamDashboard } from './pages/team/MyTeamDashboard';
 import { MyScores } from './pages/team/MyScores';
@@ -42,6 +43,7 @@ import { PublicAssignmentResultsShare } from './pages/PublicAssignmentResultsSha
 
 import { Layout } from './components/Layout';
 import { AutoSync } from './components/AutoSync';
+import { NotificationProvider } from './components/NotificationProvider';
 import { Toaster } from 'sonner';
 
 // ... (previous imports)
@@ -111,7 +113,7 @@ const CoachRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   if (!isCoach && !hasRendered.current) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/team-management/request-access" replace />;
   }
 
   hasRendered.current = true;
@@ -124,7 +126,7 @@ const AppContent: React.FC = () => {
     return (
         <>
             <AutoSync />
-            <Toaster position="top-right" richColors theme={resolvedTheme} />
+            <Toaster position="top-center" richColors theme={resolvedTheme} toastOptions={{ style: { marginTop: '0.5rem' } }} />
             <BrowserRouter>
               <CoachingProvider>
                 <Routes>
@@ -201,6 +203,15 @@ const AppContent: React.FC = () => {
           <Route
             path="/live"
             element={<Navigate to="/team-management/live" replace />}
+          />
+          {/* Coaching access request (no coach role required) */}
+          <Route
+            path="/team-management/request-access"
+            element={
+              <ProtectedRoute>
+                <RequestCoachingAccess />
+              </ProtectedRoute>
+            }
           />
           {/* Team Management Routes (coach role required) */}
           <Route
@@ -408,7 +419,9 @@ function App() {
     return (
         <AuthProvider>
             <ThemeProvider>
-                <AppContent />
+                <NotificationProvider>
+                    <AppContent />
+                </NotificationProvider>
             </ThemeProvider>
         </AuthProvider >
     );

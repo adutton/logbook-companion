@@ -126,6 +126,7 @@ export function WattsPerKgChart({ ergData, athletes }: Props) {
       {chartData.length === 0 ? (
         <p className="text-neutral-500 text-sm">No athletes with both weight and scores at this distance.</p>
       ) : (
+        <div role="img" aria-label="Watts per kilogram comparison chart">
         <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 36 + 40)}>
           <BarChart
             data={chartData}
@@ -181,6 +182,7 @@ export function WattsPerKgChart({ ergData, athletes }: Props) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        </div>
       )}
     </div>
   );

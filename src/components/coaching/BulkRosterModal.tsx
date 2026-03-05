@@ -246,7 +246,7 @@ export function BulkRosterModal({ teamId, userId, existingSquads = [], onClose, 
               Tab between cells · Enter moves down · rows with no first name are skipped
             </p>
           </div>
-          <button onClick={onClose} title="Close" className="p-1.5 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors">
+          <button onClick={onClose} title="Close" aria-label="Close" className="p-1.5 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>

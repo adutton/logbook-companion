@@ -299,7 +299,7 @@ export const DualWorkoutChart: React.FC<DualWorkoutChartProps> = ({
             </div>
 
             {/* 2. Main Line Chart */}
-            <div className="flex-1 min-h-0 relative">
+            <div className="flex-1 min-h-0 relative" role="img" aria-label="Dual workout comparison chart">
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart
                         data={combinedData}
@@ -349,7 +349,7 @@ export const DualWorkoutChart: React.FC<DualWorkoutChartProps> = ({
             </div>
 
             {/* 3. Delta Area Chart */}
-            <div className="h-[120px] min-h-[120px]">
+            <div className="h-[120px] min-h-[120px]" role="img" aria-label="Performance delta between workouts chart">
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
                         data={combinedData}

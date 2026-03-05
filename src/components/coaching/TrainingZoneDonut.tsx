@@ -58,7 +58,7 @@ export function TrainingZoneDonut({ zones }: Props) {
     <div className="space-y-2">
       <h3 className="text-sm font-medium text-neutral-400">Training Zone Distribution</h3>
       <div className="flex items-center gap-4">
-        <div className="w-[160px] h-[160px]">
+        <div className="w-[160px] h-[160px]" role="img" aria-label="Training zone distribution donut chart">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie

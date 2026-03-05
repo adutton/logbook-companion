@@ -15,12 +15,14 @@ import {
   type CoachingAthlete,
   type AssignmentCompletion,
 } from '../../services/coaching/coachingService';
-import { Plus, Trash2, Loader2, AlertTriangle, Filter, CheckCircle2, XCircle, Download, ExternalLink, ArrowUpDown, ChevronUp, ChevronDown, ArrowRightLeft } from 'lucide-react';
+import { Plus, Trash2, Loader2, AlertTriangle, Filter, CheckCircle2, XCircle, Download, ExternalLink, ArrowUpDown, ChevronUp, ChevronDown, ArrowRightLeft, Users, FileSpreadsheet, FileText } from 'lucide-react';
+import { EmptyState } from '../../components/ui';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { QuickScoreModal } from '../../components/coaching/QuickScoreModal';
 import { AthleteEditorModal } from '../../components/coaching/AthleteEditorModal';
 import { BulkRosterModal } from '../../components/coaching/BulkRosterModal';
 import { downloadCsv } from '../../utils/csvExport';
+import { exportToPdf, exportToExcel } from '../../utils/exportUtils';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
 import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
 import { format } from 'date-fns';
@@ -487,6 +489,60 @@ export function CoachingRoster() {
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">CSV</span>
             </button>
+            <button
+              onClick={() => {
+                const columns = ['Name', 'Squad', 'Grade', 'Side', 'Experience', 'Performance Tier', 'Height (cm)', 'Weight (kg)'];
+                const rows = filteredAthletes.map((a) => [
+                  a.name,
+                  a.squad ?? '',
+                  a.grade ?? '',
+                  a.side ?? '',
+                  a.experience_level ?? '',
+                  a.performance_tier ?? '',
+                  a.height_cm ?? '',
+                  a.weight_kg ?? '',
+                ]);
+                exportToPdf({
+                  filename: `roster-${format(new Date(), 'yyyy-MM-dd')}`,
+                  title: 'Team Roster',
+                  subtitle: `Exported ${format(new Date(), 'PPP')} · ${filteredAthletes.length} athletes`,
+                  columns,
+                  rows,
+                  orientation: 'landscape',
+                });
+              }}
+              disabled={filteredAthletes.length === 0}
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-2 border border-neutral-700 text-neutral-300 rounded-lg hover:bg-neutral-800 transition-colors disabled:opacity-50 text-sm"
+              title="Export roster to PDF"
+            >
+              <FileText className="w-4 h-4" />
+              <span className="hidden sm:inline">PDF</span>
+            </button>
+            <button
+              onClick={() => {
+                const columns = ['Name', 'Squad', 'Grade', 'Side', 'Experience', 'Performance Tier', 'Height (cm)', 'Weight (kg)'];
+                const rows = filteredAthletes.map((a) => [
+                  a.name,
+                  a.squad ?? '',
+                  a.grade ?? '',
+                  a.side ?? '',
+                  a.experience_level ?? '',
+                  a.performance_tier ?? '',
+                  a.height_cm as string | number | null,
+                  a.weight_kg as string | number | null,
+                ]);
+                exportToExcel({
+                  filename: `roster-${format(new Date(), 'yyyy-MM-dd')}`,
+                  sheets: [{ name: 'Roster', columns, rows }],
+                });
+              }}
+              disabled={filteredAthletes.length === 0}
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-2 border border-neutral-700 text-neutral-300 rounded-lg hover:bg-neutral-800 transition-colors disabled:opacity-50 text-sm"
+              title="Export roster to Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span className="hidden sm:inline">Excel</span>
+            </button>
           </div>
         </div>
       </div>
@@ -560,6 +616,7 @@ export function CoachingRoster() {
                   <button
                     onClick={() => navigate(`/team-management/roster/${athlete.id}`)}
                     className="p-2 hover:bg-neutral-700 rounded-lg transition-colors"
+                    aria-label="View detail"
                     title="View detail"
                   >
                     <ExternalLink className="w-4 h-4 text-neutral-400" />
@@ -567,6 +624,7 @@ export function CoachingRoster() {
                   <button
                     onClick={() => setQuickScoreAthlete(athlete)}
                     className="p-2 hover:bg-neutral-700 rounded-lg transition-colors"
+                    aria-label="Add score"
                     title="Add score"
                   >
                     <Plus className="w-4 h-4 text-neutral-400" />
@@ -575,6 +633,7 @@ export function CoachingRoster() {
                     <button
                       onClick={() => setTransferringAthlete(athlete)}
                       className="p-2 hover:bg-neutral-700 rounded-lg transition-colors"
+                      aria-label="Move to another team"
                       title="Move to another team"
                     >
                       <ArrowRightLeft className="w-4 h-4 text-neutral-400" />
@@ -583,6 +642,7 @@ export function CoachingRoster() {
                   <button
                     onClick={() => setDeletingAthlete(athlete)}
                     className="p-2 hover:bg-neutral-700 rounded-lg transition-colors"
+                    aria-label="Delete athlete"
                     title="Delete athlete"
                   >
                     <Trash2 className="w-4 h-4 text-neutral-500" />
@@ -974,6 +1034,7 @@ export function CoachingRoster() {
                         <button
                           onClick={() => navigate(`/team-management/roster/${athlete.id}`)}
                           className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
+                          aria-label="View detail"
                           title="View detail"
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-neutral-500 hover:text-indigo-400" />
@@ -981,6 +1042,7 @@ export function CoachingRoster() {
                         <button
                           onClick={() => setQuickScoreAthlete(athlete)}
                           className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
+                          aria-label="Add score"
                           title="Add score"
                         >
                           <Plus className="w-3.5 h-3.5 text-neutral-500 hover:text-indigo-400" />
@@ -989,6 +1051,7 @@ export function CoachingRoster() {
                           <button
                             onClick={() => setTransferringAthlete(athlete)}
                             className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
+                            aria-label="Move to another team"
                             title="Move to another team"
                           >
                             <ArrowRightLeft className="w-3.5 h-3.5 text-neutral-500 hover:text-amber-400" />
@@ -997,6 +1060,7 @@ export function CoachingRoster() {
                         <button
                           onClick={() => setDeletingAthlete(athlete)}
                           className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors"
+                          aria-label="Delete athlete"
                           title="Delete athlete"
                         >
                           <Trash2 className="w-3.5 h-3.5 text-neutral-500 hover:text-red-400" />
@@ -1014,15 +1078,16 @@ export function CoachingRoster() {
 
       {/* Empty State */}
       {!isLoading && !error && filteredAthletes.length === 0 && !isAdding && (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-xl text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-indigo-500/10 flex items-center justify-center">
-            <Plus className="w-8 h-8 text-indigo-400" />
-          </div>
-          <p className="text-neutral-400 mb-4">No athletes added yet</p>
-          <button onClick={() => setIsAdding(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
-            Add your first athlete
-          </button>
-        </div>
+        <EmptyState
+          icon={<Users className="w-8 h-8" />}
+          title="No athletes yet"
+          description="Add athletes to your roster to get started."
+          action={
+            <button onClick={() => setIsAdding(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
+              Add your first athlete
+            </button>
+          }
+        />
       )}
 
       {/* Add Modal (modal only used for adding new athletes) */}

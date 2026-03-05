@@ -34,6 +34,9 @@ import {
   ChevronDown,
   Search,
   Link2,
+  ClipboardList,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import {
   BarChart,
@@ -57,6 +60,7 @@ import { toast } from 'sonner';
 
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { Breadcrumb } from '../../components/ui/Breadcrumb';
+import { EmptyState } from '../../components/ui';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import {
@@ -72,6 +76,7 @@ import {
 } from '../../services/coaching/coachingService';
 import type { CoachingAthlete } from '../../services/coaching/types';
 import { splitToWatts, formatSplit } from '../../utils/zones';
+import { exportToPdf, exportToExcel } from '../../utils/exportUtils';
 import { parseWorkoutStructureForEntry } from '../../utils/workoutEntryClassifier';
 import { ResultsEntryModal } from './CoachingAssignments';
 import { supabase } from '../../services/supabase';
@@ -331,6 +336,7 @@ function SplitBarChart({ rows }: { rows: EnrichedRow[] }) {
         <TrendingUp className="w-4 h-4 text-indigo-400" />
         Split /500m (faster = smaller)
       </h3>
+      <div role="img" aria-label="Split per 500m distribution chart">
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -372,6 +378,7 @@ function SplitBarChart({ rows }: { rows: EnrichedRow[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -399,6 +406,7 @@ function WattsBarChart({ rows }: { rows: EnrichedRow[] }) {
         <BarChart3 className="w-4 h-4 text-amber-400" />
         Watts (higher = better)
       </h3>
+      <div role="img" aria-label="Watts output ranking chart">
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -434,6 +442,7 @@ function WattsBarChart({ rows }: { rows: EnrichedRow[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -469,6 +478,7 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
         )}
       </div>
       {withWeight.length > 0 ? (
+        <div role="img" aria-label="Power-to-weight ranking chart">
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 40 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -503,6 +513,7 @@ function WpkgBarChart({ rows }: { rows: EnrichedRow[] }) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        </div>
       ) : (
         <p className="text-sm text-neutral-500 text-center py-6">
           No athlete weights recorded — add them in the roster to enable this chart.
@@ -617,6 +628,7 @@ function PercentileDotPlot({ rows, isImperial }: { rows: EnrichedRow[]; isImperi
       {missingWeightCount > 0 && (
         <p className="text-[11px] text-neutral-500">{missingWeightCount} athlete{missingWeightCount > 1 ? 's' : ''} excluded (missing weight).</p>
       )}
+      <div role="img" aria-label="Power versus body weight scatter chart">
       <ResponsiveContainer width="100%" height={Math.max(240, data.length * 20)}>
         <ScatterChart margin={{ top: 10, right: 20, left: 20, bottom: 20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -684,6 +696,7 @@ function PercentileDotPlot({ rows, isImperial }: { rows: EnrichedRow[]; isImperi
           </Scatter>
         </ScatterChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -822,9 +835,11 @@ function RepProgressionChart({
         <p className="text-xs text-neutral-500">
           Higher on chart = slower. Look for athletes who drift up (fall off) or spike down (go out too hard).
         </p>
+        <div role="img" aria-label="Rep-by-rep split progression chart">
         <ResponsiveContainer width="100%" height={280}>
           {chartContent(280)}
         </ResponsiveContainer>
+        </div>
       </div>
 
       {/* Fullscreen modal */}
@@ -837,13 +852,14 @@ function RepProgressionChart({
             </h2>
             <button
               onClick={() => setFullscreen(false)}
+              aria-label="Close"
               title="Close"
               className="p-2 rounded-lg bg-neutral-800 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-700 transition-colors"
             >
               <XIcon className="w-5 h-5" />
             </button>
           </div>
-          <div className="flex-1 bg-neutral-900 rounded-xl p-4">
+          <div className="flex-1 bg-neutral-900 rounded-xl p-4" role="img" aria-label="Rep-by-rep split progression chart, fullscreen">
             <ResponsiveContainer width="100%" height="100%">
               {chartContent(600)}
             </ResponsiveContainer>
@@ -1656,6 +1672,73 @@ export function AssignmentResults() {
                   {isCreatingShare ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
                   Copy Share Link
                 </button>
+                <button
+                  onClick={() => {
+                    const title = assignment?.title || assignment?.template_name || 'Assignment Results';
+                    const subtitle = `${dateLabel} · ${finishedCount} of ${totalCount} finished`;
+                    const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg'];
+                    const intervalColumns = isInterval ? ['Best Rep', 'Worst Rep', 'Spread'] : [];
+                    const columns = [...baseColumns, ...intervalColumns];
+                    const pdfRows = rows.map((r) => {
+                      const base = [
+                        r.athlete_name,
+                        r.completed ? (r.dnf ? 'DNF' : 'Completed') : 'Pending',
+                        fmtSplit(r.avg_split_seconds),
+                        fmtWatts(r.watts),
+                        fmtWpkg(r.wpkg),
+                      ];
+                      if (isInterval) {
+                        base.push(
+                          fmtSplit(r.rep_best_split_seconds),
+                          fmtSplit(r.rep_worst_split_seconds),
+                          fmtSplit(r.rep_split_spread_seconds),
+                        );
+                      }
+                      return base;
+                    });
+                    exportToPdf({ filename: `results-${assignmentId}`, title, subtitle, columns, rows: pdfRows, orientation: 'landscape' });
+                  }}
+                  disabled={rows.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-700 text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 text-xs font-medium"
+                  title="Export results to PDF"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => {
+                    const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg'];
+                    const intervalColumns = isInterval ? ['Best Rep', 'Worst Rep', 'Spread'] : [];
+                    const columns = [...baseColumns, ...intervalColumns];
+                    const xlsRows = rows.map((r) => {
+                      const base: (string | number | null)[] = [
+                        r.athlete_name,
+                        r.completed ? (r.dnf ? 'DNF' : 'Completed') : 'Pending',
+                        fmtSplit(r.avg_split_seconds),
+                        r.watts ?? null,
+                        r.wpkg != null ? Number(r.wpkg.toFixed(2)) : null,
+                      ];
+                      if (isInterval) {
+                        base.push(
+                          fmtSplit(r.rep_best_split_seconds),
+                          fmtSplit(r.rep_worst_split_seconds),
+                          fmtSplit(r.rep_split_spread_seconds),
+                        );
+                      }
+                      return base;
+                    });
+                    exportToExcel({
+                      filename: `results-${assignmentId}`,
+                      sheets: [{ name: 'Results', columns, rows: xlsRows }],
+                    });
+                  }}
+                  disabled={rows.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-700 text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 text-xs font-medium"
+                  title="Export results to Excel"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  Excel
+                </button>
                 <div className="text-center">
                   <div className="text-3xl font-bold text-neutral-100">{finishedCount}</div>
                   <div className="text-xs text-neutral-500">of {squadFilter === 'all' ? totalCount : filteredTotal} finished</div>
@@ -1819,17 +1902,20 @@ export function AssignmentResults() {
           )}
 
           {completedCount === 0 && (
-            <div className="text-center py-16 space-y-3">
-              <BarChart3 className="w-12 h-12 mx-auto opacity-20" />
-              <p className="text-neutral-500">No results recorded yet.</p>
-              <button
-                onClick={() => setShowEntryModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 transition-colors text-sm font-medium"
-              >
-                <ClipboardEdit className="w-4 h-4" />
-                Enter Results
-              </button>
-            </div>
+            <EmptyState
+              icon={<ClipboardList className="w-8 h-8" />}
+              title="No results yet"
+              description="Results will appear as athletes complete this assignment."
+              action={
+                <button
+                  onClick={() => setShowEntryModal(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 transition-colors text-sm font-medium"
+                >
+                  <ClipboardEdit className="w-4 h-4" />
+                  Enter Results
+                </button>
+              }
+            />
           )}
         </div>
       </div>

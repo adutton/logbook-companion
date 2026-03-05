@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Check, X, Edit, Filter, Plus, Trash2, Play } from 'lucide-react';
+import { Search, Check, X, Edit, Filter, Plus, Trash2, Play, Library } from 'lucide-react';
+import { EmptyState } from '../components/ui';
 import { fetchTemplates, deleteTemplate } from '../services/templateService';
 import type { WorkoutTemplateListItem } from '../types/workoutStructure.types';
 import { TemplateEditor } from '../components/TemplateEditor';
@@ -240,7 +241,20 @@ export const TemplateLibrary: React.FC = () => {
                 {loading ? (
                     <div className="p-12 text-center text-neutral-500">Loading templates...</div>
                 ) : templates.length === 0 ? (
-                    <div className="p-12 text-center text-neutral-500">No templates found</div>
+                    <EmptyState
+                        icon={<Library className="w-8 h-8" />}
+                        title="No templates yet"
+                        description="Create your first workout template to get started."
+                        action={
+                            <button
+                                onClick={() => navigate('/templates/new')}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors text-sm"
+                            >
+                                <Plus className="w-4 h-4 inline mr-1" />
+                                Create Template
+                            </button>
+                        }
+                    />
                 ) : (
                     <table className="w-full">
                         <thead className="bg-neutral-800/50">

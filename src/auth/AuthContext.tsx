@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(data)
       }
 
-      // Check if user has coach or coxswain role in any team (drives isCoach for route gating)
+      // Check if user has coach or coxswain role in any team, OR has an approved coaching request
       const { data: coachRow } = await supabase
         .from('team_members')
         .select('id')
@@ -92,7 +92,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .in('role', ['coach', 'coxswain'])
         .limit(1)
         .maybeSingle()
-      setIsCoachRole(!!coachRow)
+
+      let isCoach = !!coachRow
+      if (!isCoach) {
+        const { data: approvedRequest } = await supabase
+          .from('coaching_access_requests')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('status', 'approved')
+          .limit(1)
+          .maybeSingle()
+        isCoach = !!approvedRequest
+      }
+      setIsCoachRole(isCoach)
     } catch (error) {
       console.error('Exception in fetchProfile:', error)
     } finally {

@@ -4,3 +4,8 @@ export { Badge } from './Badge';
 export { Input, Select } from './Input';
 export { Breadcrumb } from './Breadcrumb';
 export { EmptyState } from './EmptyState';
+export { SaveIndicator } from './SaveIndicator';
+export { Modal } from './Modal';
+export { ConfirmDialog } from './ConfirmDialog';
+export { DataTable } from './DataTable';
+export type { Column } from './DataTable';

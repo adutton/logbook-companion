@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { LogOut, Menu, X, Waves, Home, TrendingUp, Database, Link as LinkIcon, Settings, MessageSquare, BookOpen, Users, Library } from 'lucide-react';
+import { LogOut, Menu, X, Waves, Home, TrendingUp, Database, Link as LinkIcon, Settings, MessageSquare, BookOpen, Users, Library, Search } from 'lucide-react';
+import { NotificationBell } from './NotificationBell';
 import { FeedbackModal } from './FeedbackModal';
 import { ReconnectPrompt } from './ReconnectPrompt';
+import { CommandPalette } from './CommandPalette';
 import { supabase } from '../services/supabase';
 
 interface LayoutProps {
@@ -11,11 +13,25 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
-    const { logout, profile, user, isCoach, isAdmin } = useAuth();
+    const { logout, profile, user, isAdmin } = useAuth();
     const location = useLocation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [feedbackOpen, setFeedbackOpen] = useState(false);
+    const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [newFeedbackCount, setNewFeedbackCount] = useState(0);
+
+    // Cmd+K / Ctrl+K to toggle command palette
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            e.preventDefault();
+            setCommandPaletteOpen(prev => !prev);
+        }
+    }, []);
+
+    useEffect(() => {
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [handleKeyDown]);
 
     // Fetch new feedback count for admin
     useEffect(() => {
@@ -46,9 +62,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         { path: '/sync', label: 'Sync Data', icon: Database },
         { path: '/templates', label: 'Library', icon: Library },
         { path: '/preferences', label: 'Settings', icon: Settings },
-        ...(isCoach ? [
-            { path: '/team-management', label: 'Team Management', icon: Users },
-        ] : []),
+        { path: '/team-management', label: 'Team Management', icon: Users },
         { path: '/docs', label: 'Documentation', icon: BookOpen },
         ...(isAdmin ? [
             { path: '/feedback', label: 'Feedback', icon: MessageSquare }
@@ -64,6 +78,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
     return (
         <div className="min-h-screen bg-neutral-950 text-white font-sans flex flex-col md:flex-row">
+            <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-surface-card focus:text-content-primary focus:rounded-md focus:m-2">
+                Skip to content
+            </a>
             {/* Desktop Sidebar */}
             <aside className="hidden md:flex w-64 bg-neutral-900 border-r border-neutral-800 flex-col h-screen fixed left-0 top-0 z-50">
                 <div className="p-6 border-b border-neutral-800">
@@ -104,6 +121,15 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </div>
 
                 <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                    <button
+                        type="button"
+                        onClick={() => setCommandPaletteOpen(true)}
+                        className="flex items-center gap-3 px-4 py-2.5 w-full text-left text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 rounded-lg transition-all mb-1 border border-neutral-800 border-dashed"
+                    >
+                        <Search size={16} />
+                        <span className="flex-1 text-sm">Search…</span>
+                        <kbd className="hidden lg:inline text-[10px] font-mono bg-neutral-800 text-neutral-500 px-1.5 py-0.5 rounded">⌘K</kbd>
+                    </button>
                     {links.map(link => {
                         const Icon = link.icon;
                         const isActive = isLinkActive(link.path);
@@ -129,6 +155,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </nav>
 
                 <div className="p-4 border-t border-neutral-800 space-y-2">
+                    {user && <NotificationBell />}
                     {user && !localStorage.getItem('concept2_token') && (
                         <button
                             type="button"
@@ -182,6 +209,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                         {profile?.display_name || 'Logbook Companion'}
                     </span>
                 </div>
+                {user && (
+                    <div className="shrink-0 mr-1">
+                        <NotificationBell />
+                    </div>
+                )}
                 <button
                     type="button"
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -229,7 +261,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
 
             {/* Main Content Area */}
-            <main className="flex-1 md:ml-64 min-h-screen">
+            <main id="main-content" className="flex-1 md:ml-64 min-h-screen">
                 {children}
             </main>
 
@@ -238,6 +270,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 type="button"
                 onClick={() => setFeedbackOpen(true)}
                 className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-40 bg-emerald-600 hover:bg-emerald-500 text-white p-3 md:p-4 rounded-full shadow-2xl transition-all hover:scale-110 flex items-center gap-2 group"
+                aria-label="Send Feedback"
                 title="Send Feedback"
             >
                 <MessageSquare size={20} className="md:w-6 md:h-6" />
@@ -251,6 +284,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
             {/* Concept2 Reconnection Prompt */}
             <ReconnectPrompt />
+
+            {/* Command Palette */}
+            <CommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
         </div>
     );
 };

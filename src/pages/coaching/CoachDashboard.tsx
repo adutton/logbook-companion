@@ -4,6 +4,7 @@ import { Users, Calendar, Loader2, Activity, ClipboardList, BarChart3, CheckCirc
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { RowingShellIcon } from '../../components/icons/RowingIcons';
 import { WeeklyFocusCard } from '../../components/coaching/WeeklyFocusCard';
+import { PendingCoachingRequests } from '../../components/coaching/PendingCoachingRequests';
 import {
   getAssignmentsForDate,
   getAssignmentCompletions,
@@ -1150,6 +1151,11 @@ export const CoachDashboard: React.FC = () => {
           )}
         </>
       )}
+
+      {/* ── Coaching Access Requests (admin) ──── */}
+      <div className="mt-8">
+        <PendingCoachingRequests />
+      </div>
     </div>
   );
 };

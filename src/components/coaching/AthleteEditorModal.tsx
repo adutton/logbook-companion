@@ -79,7 +79,7 @@ export function AthleteEditorModal({ athlete, squads, units, onSave, onCancel }:
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">{isEditing ? 'Edit' : 'Add'} Athlete</h2>
-          <button onClick={onCancel} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors" title="Close">
+          <button onClick={onCancel} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors" aria-label="Close" title="Close">
             <X className="w-5 h-5 text-neutral-400" />
           </button>
         </div>

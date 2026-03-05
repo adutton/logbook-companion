@@ -34,7 +34,7 @@ export const PowerDistributionChart: React.FC<PowerDistributionChartProps> = ({
     return (
         <div className={`w-full h-full flex flex-col ${className || ''}`}>
             {/* Donut Chart */}
-            <div className="flex-1 relative min-h-0">
+            <div className="flex-1 relative min-h-0" role="img" aria-label="Training zone distribution chart">
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie

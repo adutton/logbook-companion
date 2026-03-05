@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Save, Loader2, Eye, HelpCircle, CheckCircle, AlertCircle } from 'lucide-react';
 import { fetchTemplateById, updateTemplate, createTemplate, findDuplicateTemplate } from '../services/templateService';
+import { useDebouncedSave } from '../hooks/useDebouncedSave';
+import { SaveIndicator } from './ui/SaveIndicator';
 import type { WorkoutTemplate, WorkoutStructure, IntervalStep, WorkoutStep, RestStep } from '../types/workoutStructure.types';
 import { mainBlockToIntervals } from '../utils/structureAdapter';
 import { calculateCanonicalName } from '../utils/workoutNaming';
@@ -390,6 +392,55 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ templateId, onCl
         }
     };
 
+    // Auto-save: build a data snapshot from current form state
+    const autoSaveData = useMemo(() => ({
+        name: template.name,
+        description: template.description,
+        workout_type: template.workout_type,
+        training_zone: template.training_zone,
+        is_test: template.is_test,
+        pacing_guidance: template.pacing_guidance,
+        coaching_points: template.coaching_points,
+        technique_focus: template.technique_focus,
+        rwnInput,
+        structureType,
+        steadyValue, steadyUnit, steadyTargetRate, steadyTargetRateMax, steadyTargetPace, steadyTargetPaceMax,
+        intervalRepeats, workType, workValue, workTargetRate, workTargetRateMax, workTargetPace, workTargetPaceMax, restValue,
+        variableSteps,
+    }), [
+        template.name, template.description, template.workout_type, template.training_zone,
+        template.is_test, template.pacing_guidance, template.coaching_points, template.technique_focus,
+        rwnInput, structureType,
+        steadyValue, steadyUnit, steadyTargetRate, steadyTargetRateMax, steadyTargetPace, steadyTargetPaceMax,
+        intervalRepeats, workType, workValue, workTargetRate, workTargetRateMax, workTargetPace, workTargetPaceMax, restValue,
+        variableSteps,
+    ]);
+
+    const autoSaveHandler = async () => {
+        if (!template.name?.trim() || !templateId) return;
+        const structure = buildStructure();
+        const updates = {
+            name: template.name,
+            description: template.description || '',
+            workout_type: template.workout_type || 'erg',
+            training_zone: template.training_zone,
+            workout_structure: structure,
+            rwn: rwnInput.trim() || null,
+            is_test: template.is_test || false,
+            pacing_guidance: template.pacing_guidance || null,
+            coaching_points: template.coaching_points || null,
+            technique_focus: template.technique_focus || null,
+        };
+        await updateTemplate(templateId, updates);
+    };
+
+    const { status: saveStatus, saveNow } = useDebouncedSave({
+        data: autoSaveData,
+        onSave: autoSaveHandler,
+        delay: 3000,
+        enabled: !!templateId && !loading,
+    });
+
     const addVariableStep = (type: 'work' | 'rest') => {
         setVariableSteps([...variableSteps, {
             type,
@@ -413,9 +464,12 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ templateId, onCl
             <div className="bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-neutral-800">
-                    <h2 className="text-lg font-semibold text-white">
-                        {templateId ? 'Edit Template' : 'New Template'}
-                    </h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-lg font-semibold text-white">
+                            {templateId ? 'Edit Template' : 'New Template'}
+                        </h2>
+                        {templateId && <SaveIndicator status={saveStatus} />}
+                    </div>
                     <button
                         type="button"
                         onClick={() => onClose(false)}
@@ -892,7 +946,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ templateId, onCl
                         Cancel
                     </button>
                     <button
-                        onClick={handleSave}
+                        onClick={templateId ? () => { saveNow(); } : handleSave}
                         disabled={saving || loading}
                         className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors"
                     >

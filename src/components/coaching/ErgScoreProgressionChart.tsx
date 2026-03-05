@@ -139,6 +139,7 @@ export function ErgScoreProgressionChart({ scores }: Props) {
       </div>
 
       {/* Chart */}
+      <div role="img" aria-label="Erg score progression over time chart">
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#333" />
@@ -209,6 +210,7 @@ export function ErgScoreProgressionChart({ scores }: Props) {
           ))}
         </LineChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }

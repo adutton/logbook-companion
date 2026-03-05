@@ -13,7 +13,8 @@ import {
   type BoatPosition,
 } from '../../services/coaching/coachingService';
 import { format } from 'date-fns';
-import { Plus, X, Copy, ChevronDown, ChevronUp, Edit2, Trash2, Loader2, Filter, CopyPlus, ArrowRightLeft } from 'lucide-react';
+import { Plus, X, Copy, ChevronDown, ChevronUp, Edit2, Trash2, Loader2, Filter, CopyPlus, ArrowRightLeft, Ship } from 'lucide-react';
+import { EmptyState } from '../../components/ui';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { toast } from 'sonner';
 
@@ -209,24 +210,26 @@ export function CoachingBoatings() {
           <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
         </div>
       ) : athletes.length === 0 ? (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-xl text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-indigo-500/10 flex items-center justify-center">
-            <Plus className="w-8 h-8 text-indigo-400" />
-          </div>
-          <p className="text-neutral-400 mb-4">Add athletes first to create lineups</p>
-          <a href="/team-management/roster" className="text-indigo-400 hover:underline font-medium">Go to Roster</a>
-        </div>
+        <EmptyState
+          icon={<Ship className="w-8 h-8" />}
+          title="No lineups yet"
+          description="Create your first boat lineup."
+          action={
+            <a href="/team-management/roster" className="text-indigo-400 hover:underline font-medium">Go to Roster</a>
+          }
+        />
       ) : Object.keys(boatingsByDate).length === 0 ? (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-xl text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-teal-900/20 flex items-center justify-center">
-            <Plus className="w-8 h-8 text-teal-500" />
-          </div>
-          <p className="text-neutral-400 mb-4">No lineups recorded yet</p>
-          <button onClick={() => setIsAdding(true)}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
-            Create your first lineup
-          </button>
-        </div>
+        <EmptyState
+          icon={<Ship className="w-8 h-8" />}
+          title="No lineups yet"
+          description="Create your first boat lineup."
+          action={
+            <button onClick={() => setIsAdding(true)}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
+              Create your first lineup
+            </button>
+          }
+        />
       ) : (
         <div className="space-y-6">
           {Object.entries(boatingsByDate).map(([dateKey, dayBoatings]) => (

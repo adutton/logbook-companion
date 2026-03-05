@@ -22,11 +22,14 @@ import { DEMO_WORKOUTS, GUEST_USER_GOALS } from '../data/demoData';
 import { getLinearRegressionStats } from '../utils/math';
 
 import { GoalProgressWidget } from '../components/analytics/GoalProgressWidget';
+import { SplitVarianceChart } from '../components/analytics/SplitVarianceChart';
+import { WkgProgressChart } from '../components/analytics/WkgProgressChart';
 
 type TimeRangePreset = 'thisMonth' | 'lastMonth' | 'ytd' | '3m' | '6m' | '1y' | 'all' | 'custom';
 
 const AnalyticsSkeleton: React.FC = () => (
-    <div className="min-h-screen bg-neutral-950 text-white p-6 md:p-12 font-sans pb-24">
+    <div className="min-h-screen bg-neutral-950 text-white p-6 md:p-12 font-sans pb-24" aria-busy="true" role="status">
+        <span className="sr-only">Loading analytics…</span>
         <div className="max-w-6xl mx-auto space-y-8 animate-pulse">
             <div className="flex space-x-6 border-b border-neutral-800">
                 <div className="h-6 w-24 bg-neutral-800 rounded"></div>
@@ -96,10 +99,24 @@ export const Analytics: React.FC = () => {
         // 2. Get Workouts (ALL TIME)
         const { data: logs } = await supabase
             .from('workout_logs')
-            .select('id, completed_at, training_zone, distance_meters, rest_distance_meters, duration_minutes, duration_seconds, watts, workout_type, zone_distribution, workout_name, avg_split_500m')
+            .select('id, completed_at, training_zone, distance_meters, rest_distance_meters, duration_minutes, duration_seconds, watts, workout_type, zone_distribution, workout_name, avg_split_500m, raw_data')
             .order('completed_at', { ascending: true }); // Oldest first for charts
 
-        setWorkouts(logs || []);
+        // Extract intervals from raw_data for SplitVarianceChart
+        const logsWithIntervals = (logs || []).map((log: any) => {
+            const rawIntervals = log.raw_data?.workout?.intervals;
+            if (Array.isArray(rawIntervals)) {
+                log.intervals = rawIntervals
+                    .filter((i: any) => i.time > 0 && i.distance > 0)
+                    .map((i: any) => ({
+                        split_seconds: 500 * (i.time / 10) / i.distance,
+                        distance_meters: i.distance,
+                    }));
+            }
+            return log;
+        });
+
+        setWorkouts(logsWithIntervals);
         setLoading(false);
     };
 
@@ -571,7 +588,7 @@ export const Analytics: React.FC = () => {
                                     <Activity size={18} className="text-emerald-400" />
                                     Time in Zone
                                 </h3>
-                                <div className="h-[250px] w-full relative">
+                                <div className="h-[250px] w-full relative" role="img" aria-label="Time in zone distribution chart">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
                                             <Pie
@@ -615,7 +632,7 @@ export const Analytics: React.FC = () => {
 
                         {/* Right Column: Volume Trends */}
                         <div className="lg:col-span-2 space-y-8">
-                            <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6 h-[500px]">
+                            <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6 h-[500px] flex flex-col">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                                     <div>
                                         <h3 className="text-xl font-semibold flex items-center gap-2">
@@ -663,6 +680,7 @@ export const Analytics: React.FC = () => {
                                     )}
                                 </div>
 
+                                <div role="img" aria-label="Weekly training volume chart" className="flex-1 min-h-0">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={weeklyVolume} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                                         <XAxis
@@ -766,6 +784,7 @@ export const Analytics: React.FC = () => {
                                         />
                                     </BarChart>
                                 </ResponsiveContainer>
+                                </div>
                             </div>
                         </div>
 
@@ -774,6 +793,21 @@ export const Analytics: React.FC = () => {
                     {/* Trends Section */}
                     <div className="grid grid-cols-1 gap-8 mt-8">
                         <ZonePaceTrendChart workouts={filteredWorkouts} baselineWatts={baselineWatts} />
+                    </div>
+
+                    {/* Performance Trends */}
+                    <div className="mt-8">
+                        <h3 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
+                            <TrendingUp size={20} className="text-emerald-400" />
+                            Performance Trends
+                        </h3>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <SplitVarianceChart workouts={filteredWorkouts} />
+                            <WkgProgressChart
+                                workouts={filteredWorkouts}
+                                weightKg={profile?.weight_lbs ? profile.weight_lbs / 2.20462 : undefined}
+                            />
+                        </div>
                     </div>
                 </>
             )}

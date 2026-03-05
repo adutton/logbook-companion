@@ -107,6 +107,7 @@ export function SquadPowerComparisonChart({ data }: Props) {
       {chartData.length === 0 ? (
         <p className="text-neutral-500 text-sm">No scores at this distance.</p>
       ) : (
+        <div role="img" aria-label="Squad power comparison chart">
         <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 36 + 40)}>
           <BarChart
             data={chartData}
@@ -164,6 +165,7 @@ export function SquadPowerComparisonChart({ data }: Props) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        </div>
       )}
     </div>
   );

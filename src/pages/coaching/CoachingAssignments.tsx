@@ -32,7 +32,9 @@ import {
   Plus, Trash2, Loader2, ChevronLeft, ChevronRight,
   Calendar, Search, CheckSquare, X, Edit2, Repeat,
   BarChart3, CheckCircle2, Circle, Timer, UserPlus,
+  ClipboardList,
 } from 'lucide-react';
+import { EmptyState } from '../../components/ui';
 import { calculateWattsFromSplit } from '../../utils/paceCalculator';
 import { toast } from 'sonner';
 import {
@@ -355,16 +357,19 @@ export function CoachingAssignments() {
               </div>
 
               {dayAssignments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-neutral-500 border border-dashed border-neutral-800 rounded-xl">
-                  <Calendar className="w-8 h-8 mb-2 text-neutral-600" />
-                  <p className="text-sm">No workouts scheduled</p>
-                  <button
-                    onClick={() => setShowCreateForm(true)}
-                    className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-                  >
-                    + Assign a workout
-                  </button>
-                </div>
+                <EmptyState
+                  icon={<ClipboardList className="w-8 h-8" />}
+                  title="No assignments"
+                  description="No workouts assigned for this date."
+                  action={
+                    <button
+                      onClick={() => setShowCreateForm(true)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                    >
+                      + Assign a workout
+                    </button>
+                  }
+                />
               ) : (
                 <div className="grid gap-3 lg:grid-cols-2">
                   {dayAssignments.map((a) => (

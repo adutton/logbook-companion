@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, SplitSquareHorizontal, Calendar, Zap, Gauge, Trophy, Search, Heart, Activity } from 'lucide-react';
+import { ArrowLeft, SplitSquareHorizontal, Calendar, Zap, Gauge, Trophy, Search, Heart, Activity, GitCompare } from 'lucide-react';
+import { EmptyState } from '../components/ui';
 import { workoutService } from '../services/workoutService';
 import { formatPace } from '../utils/prDetection';
 import { DualWorkoutChart } from '../components/analytics/DualWorkoutChart';
@@ -241,7 +242,11 @@ export const WorkoutComparison: React.FC = () => {
                         </>
                     ) : (
                         <div className="bg-neutral-900/30 border border-neutral-800 border-dashed rounded-2xl p-8 h-full flex flex-col items-center justify-start gap-6">
-                            <h3 className="text-lg font-medium text-neutral-400">Select comparison workout</h3>
+                            <EmptyState
+                                icon={<GitCompare className="w-8 h-8" />}
+                                title="Select workouts to compare"
+                                description="Choose two workouts to see a side-by-side comparison."
+                            />
 
                             {/* Search Bar */}
                             <div className="w-full relative">

@@ -1,6 +1,53 @@
 # Active Context
 
-> Last updated: February 26, 2026
+> Last updated: March 5, 2026
+
+## Current Focus: Bug Fixes + Coaching Access Request Flow
+
+### Analytics Chart Fixes (2026-03-05) ✅ COMPLETE
+- [x] Fixed ZonePaceTrendChart: `<div role="img">` wrapper missing `h-full` → ResponsiveContainer rendered at 0px height
+- [x] Fixed Weekly Volume chart in Analytics.tsx: same role="img" height issue + parent needed `flex flex-col`
+- [x] Fixed SplitVarianceChart: Analytics query missing `raw_data` field → intervals never extracted. Added raw_data to select + interval extraction with split_seconds calculation from C2 decisecond format
+
+### Coaching Access Request Flow (2026-03-05) ✅ COMPLETE
+Built request/approval pipeline so users can request coaching access without self-selecting:
+- [x] Migration: `coaching_access_requests` table with RLS + `approve_coaching_request` RPC (SECURITY DEFINER, coach-only)
+- [x] Edge function: `request-coaching-access` — validates auth, inserts/updates request, emails admin via Resend
+- [x] AuthContext: coach check now also looks for approved requests in `coaching_access_requests`
+- [x] UI: `RequestCoachingAccess.tsx` page (form with name + message, handles pending/approved/rejected states)
+- [x] UI: `PendingCoachingRequests.tsx` widget on CoachDashboard (approve/reject buttons, show all toggle)
+- [x] Routing: `/team-management/request-access` route (ProtectedRoute, not CoachRoute); CoachRoute redirects non-coaches there instead of `/`
+
+## Current Focus: UI/UX Audit Improvements + RWN Cross-Repo Sync
+
+### UI/UX Audit Sprint (2026-03-05) ✅ PHASE 1 COMPLETE
+Full-app audit produced 20 prioritized recommendations across 6 areas (design system, UX polish, features, analytics, coaching, accessibility). Phase 1 quick wins + next-sprint items completed:
+
+**Done:**
+- [x] Fixed 17+ hardcoded color violations across 8 files (bg-white/text-black/gray-*/slate-* → design tokens)
+- [x] Added EmptyState to 10 pages (TemplateLibrary, WorkoutHistory, CoachingRoster, CoachingAssignments, CoachingSchedule, CoachingErgScores, CoachingBoatings, TeamAnalytics, AssignmentResults, WorkoutComparison)
+- [x] Built `useDebouncedSave` hook + `SaveIndicator` component; wired auto-save to TemplateEditor
+- [x] Built shared `Modal` + `ConfirmDialog` components in `src/components/ui/`
+- [x] Built shared `StatCard` component; migrated Dashboard lifetime meters card
+- [x] Fixed accessibility: aria-busy on skeletons, aria-labels on 20+ chart containers, skip-to-content link, aria-labels on ~25 icon-only buttons
+- [x] Added `TrainingStreakWidget` + `WeeklyVolumeSparkline` to Dashboard
+- [x] Cleaned up inline styles → Tailwind (WeeklyReport, ZonePaceTrendChart)
+- [x] Imported ui-design-reviewer + ux-flow-reviewer skills to `.github/skills/`
+
+**Remaining (pending):**
+- [ ] Build shared `DataTable` component
+- [ ] Implement onboarding wizard
+- [x] Add global search / Cmd+K command palette
+- [ ] Build in-app notification system
+- [ ] Add split variance + W/kg progress analytics charts
+- [x] Add PDF + Excel export for coaching reports
+- [ ] Add PWA manifest + service worker
+
+### RWN Cross-Repo Sync (2026-03-05) ✅ COMPLETE
+Synced ReadyAll (`readyall/`) RWN reference with LC canonical spec:
+- [x] Added 11 missing examples to ReadyAll playground (27 total, 5 categories including Orchestration)
+- [x] Added 3 new spec sections to ReadyAll: Advanced Guidance (@open, chained, sub-interval +, input tolerance), Undefined Rest, Session Orchestration (Draft)
+- [ ] Version labeling alignment (ReadyAll says v0.1.0-draft; LC spec has no version — minor)
 
 ## Current Focus: ErgLink → C2 Publishing Pipeline (blocked on C2 approval)
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Activity, Link as LinkIcon, X, Search } from 'lucide-react';
+import { EmptyState } from '../components/ui';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Label, Legend } from 'recharts';
 import { workoutService } from '../services/workoutService';
 import { supabase } from '../services/supabase';
@@ -37,7 +38,8 @@ export const WorkoutHistory: React.FC = () => {
     const workoutName = decodeURIComponent(name || '');
 
     const LoadingSkeleton = () => (
-        <div className="min-h-screen bg-neutral-950 p-6 md:p-12 font-sans text-white pb-24">
+        <div className="min-h-screen bg-neutral-950 p-6 md:p-12 font-sans text-white pb-24" aria-busy="true" role="status">
+            <span className="sr-only">Loading workout history…</span>
             <div className="max-w-5xl mx-auto space-y-8 animate-pulse">
                 <div className="space-y-4">
                     <div className="h-4 w-32 bg-neutral-800 rounded"></div>
@@ -102,8 +104,12 @@ export const WorkoutHistory: React.FC = () => {
     if (loading) return <LoadingSkeleton />;
 
     if (history.length === 0) return (
-        <div className="min-h-screen bg-neutral-950 p-12 text-center text-neutral-400">
-            No history found for "{workoutName}"
+        <div className="min-h-screen bg-neutral-950 p-12">
+            <EmptyState
+                icon={<Activity className="w-8 h-8" />}
+                title="No workouts found"
+                description="No workouts match your current filters."
+            />
         </div>
     );
 

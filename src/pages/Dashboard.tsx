@@ -5,12 +5,16 @@ import { GoalProgressWidget } from '../components/analytics/GoalProgressWidget';
 import { TrainingSuggestionsWidget } from '../components/analytics/TrainingSuggestionsWidget';
 import { Waves, Link as LinkIcon, AlertCircle, RefreshCw } from 'lucide-react';
 import { WeekAtAGlanceWidget } from '../components/analytics/WeekAtAGlanceWidget';
+import { TrainingStreakWidget } from '../components/analytics/TrainingStreakWidget';
+import { WeeklyVolumeSparkline } from '../components/analytics/WeeklyVolumeSparkline';
 import { splitToWatts } from '../utils/zones';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { SectionError } from '../components/SectionError';
+import { OnboardingWizard } from '../components/OnboardingWizard';
 
 const DashboardSkeleton: React.FC = () => (
-    <div className="min-h-screen bg-neutral-900 text-white p-8">
+    <div className="min-h-screen bg-neutral-900 text-white p-8" aria-busy="true" role="status">
+        <span className="sr-only">Loading dashboard…</span>
         <div className="max-w-6xl mx-auto space-y-8 mt-6 animate-pulse">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-neutral-800/50 p-6 rounded-2xl border border-neutral-700/50 space-y-3">
@@ -48,10 +52,15 @@ export const Dashboard: React.FC = () => {
         fetchRecentWorkouts
     } = useDashboardData();
 
+    // Onboarding wizard state
+    const needsOnboarding = !isGuest && userProfile?.preferences?.onboarding_complete !== true;
+    const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+    const showOnboarding = needsOnboarding && !onboardingDismissed && !loading;
+
     // Derived state for C2 connection splash
     // Only show if NOT connected AND NO local data (meters = 0) AND not loading AND NOT Guest
     const c2Connected = !!localStorage.getItem('concept2_token');
-    const showConnectSplash = !loading && !c2Connected && totalMeters === 0 && recentWorkouts.length === 0 && !isGuest;
+    const showConnectSplash = !loading && !c2Connected && totalMeters === 0 && recentWorkouts.length === 0 && !isGuest && !showOnboarding;
 
     // Pagination Wrapper
     const [page, setPage] = useState(0);
@@ -183,6 +192,12 @@ export const Dashboard: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Streak & Volume Row */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <TrainingStreakWidget workouts={statsHistory} />
+                        <WeeklyVolumeSparkline workouts={statsHistory} />
+                    </div>
+
                     {/* Week at a Glance */}
                     <div className="mb-8">
                         {errors.history ? (
@@ -242,6 +257,13 @@ export const Dashboard: React.FC = () => {
                     )}
                 </main>
             </div>
+
+            {showOnboarding && (
+                <OnboardingWizard
+                    open={true}
+                    onComplete={() => setOnboardingDismissed(true)}
+                />
+            )}
         </div>
     );
 };

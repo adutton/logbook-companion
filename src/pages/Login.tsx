@@ -24,7 +24,6 @@ export const Login: React.FC = () => {
 
     const getHubOrigins = () => {
         const origins = new Set<string>([
-            'https://train-better.app',
             'https://readyall.org',
             'https://www.readyall.org',
         ]);
@@ -140,10 +139,9 @@ export const Login: React.FC = () => {
             const target = new URL(raw);
             const allowedOrigins = new Set<string>([
                 window.location.origin,
-                'https://train-better.app',
                 'https://readyall.org',
                 'https://www.readyall.org',
-                'https://logbook.train-better.app',
+                'https://log.readyall.org',
                 'https://logbook-companion.vercel.app',
             ]);
 

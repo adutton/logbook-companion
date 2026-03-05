@@ -1,6 +1,6 @@
 # Rowers Workout Notation (RWN) Specification
-**Version:** 0.1.0-draft
-**Status:** Request for Comment (RFC)
+
+> **Version 0.1.0-draft** · Request for Comment (RFC)
 
 ## 1. Introduction
 
