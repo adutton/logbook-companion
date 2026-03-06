@@ -776,7 +776,7 @@ function PublicSummaryTable({ rows, isInterval, shapeType }: { rows: EnrichedRow
   const [teamFilter, setTeamFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'finishers' | 'partial' | 'dnf' | 'no-data' | 'not-completed'>('all');
   const [showNotCompleted, setShowNotCompleted] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const teamOptions = useMemo(() => {
     const options = rows
@@ -1276,12 +1276,13 @@ export function PublicAssignmentResultsShare() {
           {assignment.instructions && <p className="text-sm text-neutral-200 pt-1">{assignment.instructions}</p>}
           <div className="text-xs text-neutral-400 pt-1">{completed} of {scopedRows.length} completed • {finished} finished • {dnf} DNF • Link expires {expiresLabel}</div>
           {teamOptions.length > 1 && (
-            <div className="pt-2">
+            <div className="pt-3">
+              <label className="block text-xs font-medium text-neutral-400 uppercase tracking-wider mb-1">Team</label>
               <select
                 aria-label="Filter whole page by team"
                 value={teamFilter}
                 onChange={(e) => setTeamFilter(e.target.value)}
-                className="h-8 rounded-md bg-neutral-900 border border-neutral-700 px-2 text-xs text-neutral-100"
+                className="h-9 w-full max-w-xs rounded-lg bg-neutral-900 border-2 border-indigo-500/40 px-3 text-sm font-medium text-neutral-100 focus:border-indigo-400 focus:outline-none"
               >
                 <option value="all">All teams</option>
                 {teamOptions.map((team) => (
