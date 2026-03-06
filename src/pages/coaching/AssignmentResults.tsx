@@ -1199,12 +1199,16 @@ function SortTh({
 function SummaryTable({
   rows,
   isInterval,
+  bestRepLabel,
+  fmtBestRep,
   onEdit,
 }: {
   rows: EnrichedRow[];
   isInterval: boolean;
+  bestRepLabel: string;
+  fmtBestRep: (r: EnrichedRow) => string;
   onEdit: () => void;
-}) {
+}){
   const [sortField, setSortField] = useState<SortField>('split');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [searchTerm, setSearchTerm] = useState('');
@@ -2136,6 +2140,8 @@ export function AssignmentResults() {
           <SummaryTable
             rows={rows}
             isInterval={isInterval}
+            bestRepLabel={bestRepLabel}
+            fmtBestRep={fmtBestRep}
             onEdit={() => setShowEntryModal(true)}
           />
 
