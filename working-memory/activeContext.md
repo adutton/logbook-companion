@@ -5,29 +5,28 @@
 ## Session Summary (2026-03-06)
 
 ### Completed This Session
-- [x] CSV Score Import feature for coaching assignments
-- [x] CSV Export feature with per-rep intervals, W/kg, W/lb
+- [x] CSV Score Import/Export for coaching assignments (full pipeline)
 - [x] Import bug fixes: split_seconds, missing rows, weight auto-population
 - [x] Best/Worst split into two separate sortable columns
-- [x] UX Quick Wins (Proposal C): C1-C6 all shipped
-- [x] **UX Proposal A: Org-First Navigation Redesign**
-  - Added `filterTeamId` / `setFilterTeamId` to CoachingContext (null = "All Teams")
-  - Persisted to localStorage (`lc_filter_team_{userId}`)
-  - CoachingNav: segmented team filter pills `[All] [Team1] [Team2 ...]`
-  - CoachingNav: multi-org dropdown preserved for coaches in multiple orgs
-  - CoachingRoster: org-wide fetch via `getOrgAthletesWithTeam(orgId)` when All Teams selected
-  - CoachingRoster: "Team" column shown in org-wide mode, sortable
-  - CoachingAssignments: filters displayed assignments by `filterTeamId` (org-wide shows all)
-  - CoachingAssignments: scope label updates to reflect filter
-  - CoachDashboard: collapsible org overview section
+- [x] **UX Quick Wins (Proposal C)**: C1-C6 all shipped
+- [x] **UX Proposal A: Org-First Navigation — COMPLETE**
+  - `filterTeamId` / `setFilterTeamId` in CoachingContext (null = "All Teams")
+  - CoachingNav: segmented team filter pills `[All | Team1 | Team2 ...]`
+  - CoachingRoster: org-wide fetch + "Team" column in org-wide mode
+  - CoachingAssignments: filters by `filterTeamId`, scope label updates
+  - CoachingSchedule: wired to `filterTeamId` for session/assignment queries
+  - CoachingErgScores: org-wide fetch across all teams + team name in cards
+  - TeamAnalytics: synced to nav filter pills (removed duplicate team dropdown)
+  - Assignment creation: defaults to org-level when coach is in an org
+  - Dashboard: replaced verbose org sections with compact summary cards (3-col grid)
 
 ### Next Session Priorities
-- [ ] Wire remaining pages to `filterTeamId` (Schedule, Erg Scores, Analytics)
-- [ ] Dashboard simplification: replace inline org sections with focused summary cards
-- [ ] Assignment creation: default to org-level, use athlete picker instead of org/team toggle
 - [ ] C2 write permissions — register via C2 dev logbook for `results:write` scope
 - [ ] In-app notification system (real-time via Supabase)
 - [ ] DataTable shared component
+- [ ] Onboarding wizard
+- [ ] PWA manifest + service worker
+- [ ] Erg Link progress (live erg workouts, local + remote)
 
 ### Known Issues
 - working-memory docs and .github/copilot-instructions.md still reference train-better.app (planning docs only, not runtime)
