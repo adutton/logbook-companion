@@ -35,6 +35,8 @@ interface EnrichedRow extends AssignmentResultRow {
   effective_weight_kg: number | null;
   rep_splits: (number | null)[];
   rep_best_split_seconds: number | null;
+  rep_best_time_seconds: number | null;
+  rep_best_distance_meters: number | null;
   rep_worst_split_seconds: number | null;
   rep_split_spread_seconds: number | null;
   best_interval_watts: number | null;
@@ -193,6 +195,15 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
     const best_interval_wplb = best_interval_watts != null && weightLbs != null && weightLbs > 0
       ? best_interval_watts / weightLbs
       : null;
+    const completedIntervals = intervals.filter((iv) => !iv.dnf);
+    const validRepTimes = completedIntervals
+      .map((iv) => iv.time_seconds)
+      .filter((v): v is number => v != null && v > 0);
+    const rep_best_time_seconds = validRepTimes.length > 0 ? Math.min(...validRepTimes) : null;
+    const validRepDistances = completedIntervals
+      .map((iv) => iv.distance_meters)
+      .filter((v): v is number => v != null && v > 0);
+    const rep_best_distance_meters = validRepDistances.length > 0 ? Math.max(...validRepDistances) : null;
 
     return {
       ...row,
@@ -203,6 +214,8 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
       effective_weight_kg: effectiveWeightKg,
       rep_splits,
       rep_best_split_seconds,
+      rep_best_time_seconds,
+      rep_best_distance_meters,
       rep_worst_split_seconds,
       rep_split_spread_seconds,
       best_interval_watts,
@@ -746,7 +759,17 @@ function SortTh({
   );
 }
 
-function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInterval: boolean }) {
+function PublicSummaryTable({ rows, isInterval, shapeType }: { rows: EnrichedRow[]; isInterval: boolean; shapeType?: string }) {
+  const bestRepLabel = shapeType === 'distance_interval' ? 'Best Time'
+    : shapeType === 'time_interval' ? 'Best Dist'
+    : 'Best Rep';
+  const fmtBestRep = (r: EnrichedRow): string =>
+    shapeType === 'distance_interval'
+      ? fmtTime(r.rep_best_time_seconds)
+      : shapeType === 'time_interval'
+        ? fmtDist(r.rep_best_distance_meters)
+        : fmtSplit(r.rep_best_split_seconds);
+
   const [sortField, setSortField] = useState<SortField>('split');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [searchTerm, setSearchTerm] = useState('');
@@ -918,7 +941,8 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
-              {isInterval && <SortTh label="Best" field="best" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <SortTh label={bestRepLabel} field="best" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <SortTh label="Best Split" field="best" sortField={sortField} onSort={toggleSort} />}
               {isInterval && hasWpkg && <SortTh label="Eff (W/lb)" field="best_eff" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Worst</th>}
               {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Spread</th>}
@@ -1004,6 +1028,11 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
                     <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtDist(row.result_distance_meters)}</td>
                     <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds)}</td>
                     <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
+                    {isInterval && (
+                      <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                        {fmtBestRep(row)}
+                      </td>
+                    )}
                     {isInterval && (
                       <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
                         {row.rep_best_split_seconds != null ? fmtSplit(row.rep_best_split_seconds) : '—'}
@@ -1284,7 +1313,7 @@ export function PublicAssignmentResultsShare() {
           </div>
         </div>
 
-        <PublicSummaryTable rows={scopedRows} isInterval={isInterval} />
+        <PublicSummaryTable rows={scopedRows} isInterval={isInterval} shapeType={shape?.type} />
 
         <div className="space-y-5">
           <h2 className="text-base font-semibold text-neutral-200 flex items-center gap-2">
