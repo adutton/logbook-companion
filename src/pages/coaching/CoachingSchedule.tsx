@@ -43,8 +43,9 @@ import { toast } from 'sonner';
 type ViewMode = 'week' | 'month';
 
 export function CoachingSchedule() {
-  const { userId, teamId, orgId, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, orgId, isLoadingTeam, filterTeamId } = useCoachingContext();
   const navigate = useNavigate();
+  const effectiveTeamId = filterTeamId ?? teamId;
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -77,14 +78,14 @@ export function CoachingSchedule() {
       end = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
     }
     Promise.all([
-      getSessionsByDateRange(teamId, start, end),
-      getAthletes(teamId),
-      getGroupAssignments(teamId, { from: start, to: end, orgId: orgId ?? undefined }),
+      getSessionsByDateRange(effectiveTeamId, start, end),
+      getAthletes(effectiveTeamId),
+      getGroupAssignments(effectiveTeamId, { from: start, to: end, orgId: orgId ?? undefined }),
     ])
       .then(([s, a, ga]) => { setSessions(s); setAthletes(a); setAssignments(ga); })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load sessions'))
       .finally(() => setIsLoading(false));
-  }, [teamId, isLoadingTeam, viewMode, currentWeek, currentMonth]);
+  }, [teamId, effectiveTeamId, isLoadingTeam, viewMode, currentWeek, currentMonth]);
 
   const refreshSessions = async () => {
     if (!teamId) return;
@@ -99,7 +100,7 @@ export function CoachingSchedule() {
         start = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
         end = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
       }
-      setSessions(await getSessionsByDateRange(teamId, start, end));
+      setSessions(await getSessionsByDateRange(effectiveTeamId, start, end));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh');
     }

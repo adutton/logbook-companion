@@ -928,94 +928,54 @@ export const CoachDashboard: React.FC = () => {
                 <div className="h-px flex-1 bg-neutral-800" />
               </button>
               {orgSectionsOpen && (
-              <div className="space-y-4">
-              <section id="org-schedule" className="scroll-mt-24 bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">{currentOrgName} Schedule &amp; Log</h3>
-                {orgDataLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-neutral-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-                ) : groupedOrgSessions.size === 0 ? (
-                  <p className="text-sm text-neutral-500">No sessions found.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {[...groupedOrgSessions.entries()].map(([groupTeamName, rows]) => (
-                      <div key={groupTeamName} className="border border-neutral-800 rounded-lg overflow-hidden">
-                        <div className="px-3 py-2 bg-neutral-800/40 text-xs font-semibold uppercase tracking-wider text-neutral-400">{groupTeamName}</div>
-                        <ul className="divide-y divide-neutral-800">
-                          {rows.slice(0, 5).map((row) => (
-                            <li key={row.id} className="px-3 py-2 text-sm text-neutral-300 flex items-center justify-between gap-2">
-                              <span className="truncate">{row.type} {row.focus ? `· ${row.focus}` : ''}</span>
-                              <span className="text-xs text-neutral-500 shrink-0">{row.date}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Schedule summary card */}
+                <Link to="/team-management/schedule" className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 hover:border-neutral-700 transition-colors group">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Schedule</h3>
+                    <Calendar className="w-4 h-4 text-neutral-600 group-hover:text-indigo-400 transition-colors" />
                   </div>
-                )}
-              </section>
+                  {orgDataLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-neutral-500" />
+                  ) : (
+                    <>
+                      <div className="text-2xl font-bold text-white">{[...groupedOrgSessions.values()].reduce((n, r) => n + r.length, 0)}</div>
+                      <p className="text-xs text-neutral-500 mt-1">sessions this week · {groupedOrgSessions.size} team{groupedOrgSessions.size !== 1 ? 's' : ''}</p>
+                    </>
+                  )}
+                </Link>
 
-              <section id="org-assignments" className="scroll-mt-24 bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">{currentOrgName} Assignments</h3>
-                {orgDataLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-neutral-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-                ) : groupedOrgAssignments.size === 0 ? (
-                  <p className="text-sm text-neutral-500">No assignments found.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {[...groupedOrgAssignments.entries()].map(([groupTeamName, rows]) => (
-                      <div key={groupTeamName} className="border border-neutral-800 rounded-lg overflow-hidden">
-                        <div className="px-3 py-2 bg-neutral-800/40 text-xs font-semibold uppercase tracking-wider text-neutral-400">{groupTeamName}</div>
-                        <ul className="divide-y divide-neutral-800">
-                          {rows.slice(0, 6).map((row) => (
-                            <li key={row.id} className="px-3 py-2 text-sm text-neutral-300 flex items-center justify-between gap-2">
-                              <Link
-                                to={`/team-management/assignments/${row.id}/results`}
-                                className="truncate text-neutral-200 hover:text-indigo-300 transition-colors"
-                              >
-                                {row.title || row.template_name || 'Workout assignment'}
-                              </Link>
-                              <div className="shrink-0 flex items-center gap-3">
-                                <span className="text-xs text-neutral-500">{row.scheduled_date}</span>
-                                <Link
-                                  to={`/team-management/assignments/${row.id}/results`}
-                                  className="text-xs text-indigo-400 hover:text-indigo-300"
-                                >
-                                  Results →
-                                </Link>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                {/* Assignments summary card */}
+                <Link to="/team-management/assignments" className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 hover:border-neutral-700 transition-colors group">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Assignments</h3>
+                    <ClipboardList className="w-4 h-4 text-neutral-600 group-hover:text-indigo-400 transition-colors" />
                   </div>
-                )}
-              </section>
+                  {orgDataLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-neutral-500" />
+                  ) : (
+                    <>
+                      <div className="text-2xl font-bold text-white">{[...groupedOrgAssignments.values()].reduce((n, r) => n + r.length, 0)}</div>
+                      <p className="text-xs text-neutral-500 mt-1">assignments · {groupedOrgAssignments.size} team{groupedOrgAssignments.size !== 1 ? 's' : ''}</p>
+                    </>
+                  )}
+                </Link>
 
-              <section id="org-boatings" className="scroll-mt-24 bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">{currentOrgName} Boatings</h3>
-                {orgDataLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-neutral-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-                ) : groupedOrgBoatings.size === 0 ? (
-                  <p className="text-sm text-neutral-500">No boatings found.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {[...groupedOrgBoatings.entries()].map(([groupTeamName, rows]) => (
-                      <div key={groupTeamName} className="border border-neutral-800 rounded-lg overflow-hidden">
-                        <div className="px-3 py-2 bg-neutral-800/40 text-xs font-semibold uppercase tracking-wider text-neutral-400">{groupTeamName}</div>
-                        <ul className="divide-y divide-neutral-800">
-                          {rows.slice(0, 6).map((row) => (
-                            <li key={row.id} className="px-3 py-2 text-sm text-neutral-300 flex items-center justify-between gap-2">
-                              <span className="truncate">{row.boat_name} · {row.boat_type}</span>
-                              <span className="text-xs text-neutral-500 shrink-0">{row.date}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                {/* Boatings summary card */}
+                <Link to="/team-management/boatings" className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 hover:border-neutral-700 transition-colors group">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Boatings</h3>
+                    <RowingShellIcon className="w-4 h-4 text-neutral-600 group-hover:text-indigo-400 transition-colors" />
                   </div>
-                )}
-              </section>
+                  {orgDataLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-neutral-500" />
+                  ) : (
+                    <>
+                      <div className="text-2xl font-bold text-white">{[...groupedOrgBoatings.values()].reduce((n, r) => n + r.length, 0)}</div>
+                      <p className="text-xs text-neutral-500 mt-1">boatings · {groupedOrgBoatings.size} team{groupedOrgBoatings.size !== 1 ? 's' : ''}</p>
+                    </>
+                  )}
+                </Link>
               </div>
               )}
             </div>

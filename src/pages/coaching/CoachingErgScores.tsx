@@ -4,6 +4,8 @@ import { parseLocalDate } from '../../utils/dateUtils';
 import {
   getErgScores,
   getAthletes,
+  getOrgAthletesWithTeam,
+  getTeamsForOrg,
   createErgScore,
   deleteErgScore,
   type CoachingErgScore,
@@ -18,7 +20,9 @@ import { exportToExcel } from '../../utils/exportUtils';
 import { toast } from 'sonner';
 
 export function CoachingErgScores() {
-  const { userId, teamId, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, orgId, isLoadingTeam, filterTeamId } = useCoachingContext();
+  const isOrgWide = filterTeamId === null && !!orgId;
+  const effectiveTeamId = filterTeamId ?? teamId;
   const [athletes, setAthletes] = useState<CoachingAthlete[]>([]);
   const [scores, setScores] = useState<CoachingErgScore[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -32,21 +36,45 @@ export function CoachingErgScores() {
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
-    Promise.all([getAthletes(teamId), getErgScores(teamId)])
-      .then(([a, s]) => {
+
+    const fetchData = async () => {
+      if (isOrgWide && orgId) {
+        const [orgAthletes, orgTeams] = await Promise.all([
+          getOrgAthletesWithTeam(orgId),
+          getTeamsForOrg(orgId),
+        ]);
+        const allScores = (await Promise.all(orgTeams.map((t) => getErgScores(t.id)))).flat();
+        return { athletes: orgAthletes, scores: allScores };
+      }
+      const [a, s] = await Promise.all([getAthletes(effectiveTeamId), getErgScores(effectiveTeamId)]);
+      return { athletes: a, scores: s };
+    };
+
+    fetchData()
+      .then(({ athletes: a, scores: s }) => {
         setAthletes(a);
         setScores(s);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setIsLoading(false));
-  }, [teamId, isLoadingTeam]);
+  }, [teamId, effectiveTeamId, isLoadingTeam, isOrgWide, orgId]);
 
   const refreshData = async () => {
     if (!teamId) return;
     try {
-      const [a, s] = await Promise.all([getAthletes(teamId), getErgScores(teamId)]);
-      setAthletes(a);
-      setScores(s);
+      if (isOrgWide && orgId) {
+        const [orgAthletes, orgTeams] = await Promise.all([
+          getOrgAthletesWithTeam(orgId),
+          getTeamsForOrg(orgId),
+        ]);
+        const allScores = (await Promise.all(orgTeams.map((t) => getErgScores(t.id)))).flat();
+        setAthletes(orgAthletes);
+        setScores(allScores);
+      } else {
+        const [a, s] = await Promise.all([getAthletes(effectiveTeamId), getErgScores(effectiveTeamId)]);
+        setAthletes(a);
+        setScores(s);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh');
     }
@@ -269,6 +297,9 @@ export function CoachingErgScores() {
                         </div>
                         <div>
                           <p className="font-semibold text-white">{getAthleteName(score.athlete_id)}</p>
+                          {isOrgWide && (
+                            <p className="text-xs text-neutral-500">{ergAthletes.find((a) => a.id === score.athlete_id)?.team_name ?? ''}</p>
+                          )}
                           <p className="text-sm text-neutral-500">{score.distance}m</p>
                         </div>
                       </div>

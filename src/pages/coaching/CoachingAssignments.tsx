@@ -593,7 +593,7 @@ function CreateAssignmentForm({
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [assignTo, setAssignTo] = useState<'all' | 'squad' | 'org'>('all');
+  const [assignTo, setAssignTo] = useState<'all' | 'squad' | 'org'>(orgId ? 'org' : 'all');
   const [selectedSquad, setSelectedSquad] = useState('');
   const [templateSearch, setTemplateSearch] = useState('');
   const [isSaving, setIsSaving] = useState(false);

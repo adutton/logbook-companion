@@ -23,19 +23,19 @@ import { WattsPerKgChart } from '../../components/coaching/WattsPerKgChart';
 import { TrainingZoneDonut } from '../../components/coaching/TrainingZoneDonut';
 
 export function TeamAnalytics() {
-  const { teamId, orgId, isLoadingTeam, teamError } = useCoachingContext();
+  const { teamId, orgId, isLoadingTeam, teamError, filterTeamId } = useCoachingContext();
 
   const [athletes, setAthletes] = useState<CoachingAthlete[]>([]);
   const [ergComparison, setErgComparison] = useState<TeamErgComparison[]>([]);
   const [zoneDistribution, setZoneDistribution] = useState<{ zones: ZoneDistribution[]; total: number } | null>(null);
-  const [orgTeams, setOrgTeams] = useState<Team[]>([]);
   const [seasonLeaderboard, setSeasonLeaderboard] = useState<SeasonLeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [teamFilter, setTeamFilter] = useState<string>('all');
   const [squadFilter, setSquadFilter] = useState<string | 'all'>('all');
 
   const isOrg = !!orgId;
+  // Sync team filter with nav pills — null means "all"
+  const teamFilter = filterTeamId ?? 'all';
 
   const loadData = useCallback(async () => {
     if (!teamId) return;
@@ -43,13 +43,12 @@ export function TeamAnalytics() {
     try {
       if (isOrg && orgId) {
         // Org-level: load data across all teams
-        const [loadedTeams, loadedAthletes, ergData, zoneDist] = await Promise.all([
+        const [, loadedAthletes, ergData, zoneDist] = await Promise.all([
           getTeamsForOrg(orgId),
           getOrgAthletesWithTeam(orgId),
           getOrgErgComparison(orgId).catch(() => [] as TeamErgComparison[]),
           getOrgTrainingZoneDistribution(orgId).catch(() => null),
         ]);
-        setOrgTeams(loadedTeams);
         // Exclude coxswain-sided athletes — they don't erg
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
@@ -63,7 +62,6 @@ export function TeamAnalytics() {
           getTeamTrainingZoneDistribution(teamId).catch(() => null),
           getSeasonMeasuredLeaderboard(teamId, { limit: 10 }).catch(() => [] as SeasonLeaderboardEntry[]),
         ]);
-        setOrgTeams([]);
         // Exclude coxswain-sided athletes — they don't erg
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
@@ -81,8 +79,8 @@ export function TeamAnalytics() {
     if (!isLoadingTeam) loadData();
   }, [isLoadingTeam, loadData]);
 
-  // Reset team filter when org changes
-  useEffect(() => { setTeamFilter('all'); setSquadFilter('all'); }, [orgId]);
+  // Reset squad filter when org changes
+  useEffect(() => { setSquadFilter('all'); }, [orgId, filterTeamId]);
 
   // Filter by team first, then by squad
   const teamFilteredErgData = useMemo(
@@ -138,24 +136,6 @@ export function TeamAnalytics() {
 
           {/* Filters */}
           <div className="flex items-center gap-4 flex-wrap">
-            {/* Team filter — only shown for org coaches with multiple teams */}
-            {isOrg && orgTeams.length > 1 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Team</span>
-                <select
-                  value={teamFilter}
-                  onChange={(e) => setTeamFilter(e.target.value)}
-                  className="px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                  aria-label="Filter by team"
-                >
-                  <option value="all">All Teams</option>
-                  {orgTeams.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
             {/* Squad filter */}
             {squads.length > 0 && (
               <div className="flex items-center gap-2">
