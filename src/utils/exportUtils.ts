@@ -72,3 +72,31 @@ export function exportToExcel(options: {
 
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }
+
+/**
+ * Generate and download a CSV file from column headers + row data.
+ */
+export function exportToCsv(options: {
+  filename: string;
+  columns: string[];
+  rows: (string | number | null)[][];
+}): void {
+  const { filename, columns, rows } = options;
+  const escape = (v: string | number | null): string => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  };
+  const lines = [
+    columns.map(escape).join(','),
+    ...rows.map((row) => row.map(escape).join(',')),
+  ];
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filename}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

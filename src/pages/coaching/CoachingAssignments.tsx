@@ -50,7 +50,7 @@ import { kgToLbs, lbsToKg } from '../../utils/unitConversion';
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export function CoachingAssignments() {
-  const { userId, teamId, orgId, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, teamName, orgId, activeTeam, isLoadingTeam } = useCoachingContext();
 
   // Data
   const [assignments, setAssignments] = useState<GroupAssignment[]>([]);
@@ -205,10 +205,17 @@ export function CoachingAssignments() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4">
         {/* ── Header Row: Title + Week Nav + View Toggle + Action ── */}
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          {/* Left: Title */}
-          <h1 className="text-xl sm:text-2xl font-bold text-neutral-100 shrink-0">
-            Assignments
-          </h1>
+          {/* Left: Title + scope indicator */}
+          <div className="shrink-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-neutral-100">
+              Assignments
+            </h1>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              {orgId && activeTeam?.org_name
+                ? `${activeTeam.org_name} · ${teamName}`
+                : teamName}
+            </p>
+          </div>
 
           {/* Center: Week Navigator */}
           <div className="flex items-center gap-2 sm:gap-3 justify-center order-3 lg:order-none">

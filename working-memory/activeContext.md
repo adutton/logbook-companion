@@ -1,25 +1,33 @@
 # Active Context
 
-> Last updated: March 5, 2026
+> Last updated: March 7, 2026
 
-## Session Summary (2026-03-05 evening)
-
-All work committed to `main` (commit f161097). Community post drafted and published to C2 forums announcing readyall.org domain move and new features.
+## Session Summary (2026-03-07)
 
 ### Completed This Session
-- [x] Analytics chart rendering fixes (ZonePaceTrendChart, WeeklyVolume, SplitVarianceChart)
-- [x] Coaching access request/approval flow (DB + edge function + UI + routing + role granting)
-- [x] Feedback email notifications (edge function + in-app)
-- [x] NotificationBell dropdown repositioned (opens right of sidebar, not off-screen)
-- [x] Domain cleanup: all runtime URLs → log.readyall.org (removed train-better.app)
-- [x] Email template text fix (ReadyAll → Logbook Companion)
-- [x] Coach role grant fix (roles array + coach_level constraint)
-- [x] Team Management nav always visible (non-coaches → request form)
+- [x] CSV Score Import feature for coaching assignments
+  - `src/utils/csvTimeParser.ts` — robust time parser (handles `03:46.8`, `3.52.4`, `DNF`, leading spaces, etc.)
+  - `src/utils/csvScoreParser.ts` — CSV → structured `CsvScoreRow[]` with `IntervalResult[]`
+  - `src/utils/athleteNameMatcher.ts` — fuzzy name matching (Levenshtein + token overlap + substring)
+  - `src/components/coaching/ImportCsvModal.tsx` — multi-step modal (upload → review/match → save)
+  - Integrated "Import CSV" button in AssignmentResults.tsx toolbar
+- [x] CSV Export feature for assignment results
+  - Added `exportToCsv()` to `src/utils/exportUtils.ts`
+  - CSV export with per-rep intervals, team, squad, W/kg, W/lb
+- [x] Import bug fixes: split_seconds computed, missing rows auto-created, weight auto-populated
+- [x] Best/Worst split into two separate sortable columns in AssignmentResults
+- [x] UX Quick Wins for Coaching Navigation (Proposal C)
+  - C1: Team dropdown grouped by org via `<optgroup>`
+  - C2: Org name label with Building2 icon in CoachingNav
+  - C3: Loading spinner during team switch
+  - C4: Scope label in CoachingAssignments calendar header (org · team)
+  - C5: Collapsible org sections in CoachDashboard
+  - C6: teamsByOrg grouping foundation in dropdown
 
 ### Next Session Priorities
-- [ ] C2 write permissions — need to register via C2 dev logbook to get `results:write` scope approved
-- [ ] Monitor C2 forum thread for community feedback and respond
-- [ ] In-app notification system (beyond NotificationBell — real-time via Supabase)
+- [ ] UX Proposal A: Org-first navigation redesign (larger effort, planned as next sprint)
+- [ ] C2 write permissions — register via C2 dev logbook for `results:write` scope
+- [ ] In-app notification system (real-time via Supabase)
 - [ ] DataTable shared component
 - [ ] Onboarding wizard
 - [ ] PWA manifest + service worker

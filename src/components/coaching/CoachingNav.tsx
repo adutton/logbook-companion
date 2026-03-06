@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Users, Calendar, Settings, ChevronRight, Activity, ClipboardList, BarChart3, ChevronDown, ChevronsRight } from 'lucide-react';
+import { Users, Calendar, Settings, ChevronRight, Activity, ClipboardList, BarChart3, ChevronDown, ChevronsRight, Building2 } from 'lucide-react';
 import { RowingShellIcon } from '../icons/RowingIcons';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { getTeamStats } from '../../services/coaching/coachingService';
@@ -17,12 +17,13 @@ const tabs = [
 
 export function CoachingNav() {
   const { pathname } = useLocation();
-  const { teamName, teams, teamId, switchTeam } = useCoachingContext();
+  const { teamName, teams, teamId, teamsByOrg, activeTeam, switchTeam, isLoadingTeam } = useCoachingContext();
   const [rosterCount, setRosterCount] = useState<number | null>(null);
   const [showScrollHint, setShowScrollHint] = useState(false);
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const currentTab = tabs.find((t) => pathname.startsWith(t.path));
   const hasMultipleTeams = teams.length > 1;
+  const orgName = activeTeam?.org_name ?? null;
 
   useEffect(() => {
     if (!teamId) {
@@ -76,30 +77,46 @@ export function CoachingNav() {
           )}
         </div>
 
-        {/* Team name / switcher */}
-        {teamName && (
-          hasMultipleTeams ? (
-            <div className="relative">
-              <select
-                value={teamId}
-                onChange={(e) => switchTeam(e.target.value)}
-                className="appearance-none bg-neutral-800 border border-neutral-700 rounded-lg pl-3 pr-8 py-1.5 text-sm font-medium text-white cursor-pointer hover:border-neutral-600 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                aria-label="Switch team"
-              >
-                {teams.map((t) => (
-                  <option key={t.team_id} value={t.team_id}>
-                    {t.team_name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" />
-            </div>
-          ) : (
-            <span className="text-sm font-medium text-neutral-300 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5">
-              {teamName}
+        {/* Org label + Team switcher */}
+        <div className="flex items-center gap-2">
+          {orgName && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-neutral-400">
+              <Building2 className="w-3.5 h-3.5" />
+              {orgName}
+              <ChevronRight className="w-3 h-3 text-neutral-600" />
             </span>
-          )
-        )}
+          )}
+          {teamName && (
+            hasMultipleTeams ? (
+              <div className="relative">
+                <select
+                  value={teamId}
+                  onChange={(e) => switchTeam(e.target.value)}
+                  className="appearance-none bg-neutral-800 border border-neutral-700 rounded-lg pl-3 pr-8 py-1.5 text-sm font-medium text-white cursor-pointer hover:border-neutral-600 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  aria-label="Switch team"
+                >
+                  {teamsByOrg.map((group) => (
+                    <optgroup key={group.org_id ?? '_standalone'} label={group.org_name}>
+                      {group.teams.map((t) => (
+                        <option key={t.team_id} value={t.team_id}>
+                          {t.team_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" />
+              </div>
+            ) : (
+              <span className="text-sm font-medium text-neutral-300 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5">
+                {teamName}
+              </span>
+            )
+          )}
+          {isLoadingTeam && (
+            <span className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          )}
+        </div>
       </div>
 
       {/* Tab bar */}

@@ -190,6 +190,7 @@ export const CoachDashboard: React.FC = () => {
   const [orgRoster, setOrgRoster] = useState<CoachingAthlete[]>([]);
   const [orgRosterLoading, setOrgRosterLoading] = useState(false);
   const [showOrgRoster, setShowOrgRoster] = useState(false);
+  const [orgSectionsOpen, setOrgSectionsOpen] = useState(true);
   const [orgRosterSearch, setOrgRosterSearch] = useState('');
   const [orgDataLoading, setOrgDataLoading] = useState(false);
   const [orgSessions, setOrgSessions] = useState<OrgSessionRow[]>([]);
@@ -913,7 +914,21 @@ export const CoachDashboard: React.FC = () => {
       {teamId && (
         <>
           {orgId && (
-            <div className="mb-8 space-y-4">
+            <div className="mb-8">
+              <button
+                onClick={() => setOrgSectionsOpen((v) => !v)}
+                className="w-full flex items-center gap-2 mb-4 text-left group"
+              >
+                {orgSectionsOpen
+                  ? <ChevronDown className="w-4 h-4 text-neutral-500" />
+                  : <ChevronRight className="w-4 h-4 text-neutral-500" />}
+                <span className="text-sm font-semibold uppercase tracking-wider text-neutral-500 group-hover:text-neutral-300 transition-colors">
+                  {currentOrgName} Overview
+                </span>
+                <div className="h-px flex-1 bg-neutral-800" />
+              </button>
+              {orgSectionsOpen && (
+              <div className="space-y-4">
               <section id="org-schedule" className="scroll-mt-24 bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5">
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">{currentOrgName} Schedule &amp; Log</h3>
                 {orgDataLoading ? (
@@ -1001,6 +1016,8 @@ export const CoachDashboard: React.FC = () => {
                   </div>
                 )}
               </section>
+              </div>
+              )}
             </div>
           )}
 

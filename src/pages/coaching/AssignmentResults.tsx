@@ -37,6 +37,8 @@ import {
   ClipboardList,
   FileSpreadsheet,
   FileText,
+  FileDown,
+  Upload,
 } from 'lucide-react';
 import {
   BarChart,
@@ -61,6 +63,7 @@ import { toast } from 'sonner';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { EmptyState } from '../../components/ui';
+import { ImportCsvModal } from '../../components/coaching/ImportCsvModal';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import {
@@ -76,14 +79,14 @@ import {
 } from '../../services/coaching/coachingService';
 import type { CoachingAthlete } from '../../services/coaching/types';
 import { splitToWatts, formatSplit } from '../../utils/zones';
-import { exportToPdf, exportToExcel } from '../../utils/exportUtils';
+import { exportToPdf, exportToExcel, exportToCsv } from '../../utils/exportUtils';
 import { parseWorkoutStructureForEntry } from '../../utils/workoutEntryClassifier';
 import { ResultsEntryModal } from './CoachingAssignments';
 import { supabase } from '../../services/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate';
+type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate' | 'best' | 'worst';
 type SortDir = 'asc' | 'desc';
 
 interface EnrichedRow extends AssignmentResultRow {
@@ -1239,6 +1242,8 @@ function SummaryTable({
         case 'distance': av = a.result_distance_meters ?? a.total_interval_distance_meters ?? null; bv = b.result_distance_meters ?? b.total_interval_distance_meters ?? null; break;
         case 'time': av = a.result_time_seconds ?? a.total_interval_time_seconds ?? null; bv = b.result_time_seconds ?? b.total_interval_time_seconds ?? null; break;
         case 'stroke_rate': av = a.result_stroke_rate ?? null; bv = b.result_stroke_rate ?? null; break;
+        case 'best': av = a.rep_best_split_seconds; bv = b.rep_best_split_seconds; break;
+        case 'worst': av = a.rep_worst_split_seconds; bv = b.rep_worst_split_seconds; break;
       }
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
@@ -1333,7 +1338,8 @@ function SummaryTable({
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
-              {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Best · Worst</th>}
+              {isInterval && <SortTh label="Best" field="best" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <SortTh label="Worst" field="worst" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Spread</th>}
             </tr>
           </thead>
@@ -1419,9 +1425,12 @@ function SummaryTable({
                   <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
                   {isInterval && (
                     <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
-                      {row.rep_best_split_seconds != null && row.rep_worst_split_seconds != null
-                        ? `${fmtSplit(row.rep_best_split_seconds)} · ${fmtSplit(row.rep_worst_split_seconds)}`
-                        : '—'}
+                      {row.rep_best_split_seconds != null ? fmtSplit(row.rep_best_split_seconds) : '—'}
+                    </td>
+                  )}
+                  {isInterval && (
+                    <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                      {row.rep_worst_split_seconds != null ? fmtSplit(row.rep_worst_split_seconds) : '—'}
                     </td>
                   )}
                   {isInterval && (
@@ -1475,6 +1484,8 @@ export function AssignmentResults() {
   const [latestWeightMap, setLatestWeightMap] = useState<Map<string, number>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [showEntryModal, setShowEntryModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importAthletes, setImportAthletes] = useState<CoachingAthlete[]>([]);
   const [isCreatingShare, setIsCreatingShare] = useState(false);
   const [teamFilter, setTeamFilter] = useState<string>('all');
   const [squadFilter, setSquadFilter] = useState<string>('all');
@@ -1797,6 +1808,76 @@ export function AssignmentResults() {
                   <FileSpreadsheet className="w-3.5 h-3.5" />
                   Excel
                 </button>
+                <button
+                  onClick={() => {
+                    const fmtRepTime = (s: number | null | undefined): string => {
+                      if (s == null) return '';
+                      const mins = Math.floor(s / 60);
+                      const secs = s % 60;
+                      return `${mins}:${secs.toFixed(1).padStart(4, '0')}`;
+                    };
+                    const repCols = isInterval
+                      ? Array.from({ length: repLabels.length }, (_, i) => `Rep ${i + 1}`)
+                      : [];
+                    const columns = [
+                      'Athlete', 'Team', 'Squad',
+                      ...repCols,
+                      'Total Time', 'Avg Split /500m',
+                      'Watts', 'W/kg', 'W/lb',
+                      ...(isInterval ? ['Best Split', 'Worst Split', 'Spread'] : []),
+                    ];
+                    const csvRows = rows.map((r) => {
+                      const base: (string | number | null)[] = [
+                        r.athlete_name,
+                        r.team_name ?? '',
+                        r.squad ?? '',
+                      ];
+                      if (isInterval) {
+                        for (let i = 0; i < repLabels.length; i++) {
+                          const iv = r.result_intervals?.[i];
+                          base.push(iv?.dnf ? 'DNF' : fmtRepTime(iv?.time_seconds));
+                        }
+                      }
+                      base.push(
+                        fmtRepTime(r.result_time_seconds ?? r.total_interval_time_seconds),
+                        fmtSplit(r.avg_split_seconds),
+                        r.watts ?? null,
+                        r.wpkg != null ? Number(r.wpkg.toFixed(2)) : null,
+                        r.wplb != null ? Number(r.wplb.toFixed(2)) : null,
+                      );
+                      if (isInterval) {
+                        base.push(
+                          fmtSplit(r.rep_best_split_seconds),
+                          fmtSplit(r.rep_worst_split_seconds),
+                          fmtSplit(r.rep_split_spread_seconds),
+                        );
+                      }
+                      return base;
+                    });
+                    exportToCsv({ filename: `results-${assignmentId}`, columns, rows: csvRows });
+                  }}
+                  disabled={rows.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-700 text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 text-xs font-medium"
+                  title="Export results to CSV"
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  CSV
+                </button>
+                <button
+                  onClick={async () => {
+                    // Fetch athletes for the import modal
+                    const aths = assignment.org_id && orgId
+                      ? await getOrgAthletes(orgId)
+                      : await getAthletes(teamId!);
+                    setImportAthletes(aths.filter((a) => a.side !== 'coxswain'));
+                    setShowImportModal(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 text-xs font-medium transition-colors"
+                  title="Import results from CSV file"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Import CSV
+                </button>
                 <div className="text-center">
                   <div className="text-3xl font-bold text-neutral-100">{finishedCount}</div>
                   <div className="text-xs text-neutral-500">of {squadFilter === 'all' ? totalCount : filteredTotal} finished</div>
@@ -2021,6 +2102,21 @@ export function AssignmentResults() {
           }}
         />
       )}
+
+      {/* CSV Import Modal */}
+      <ImportCsvModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onComplete={() => {
+          setShowImportModal(false);
+          load();
+        }}
+        groupAssignmentId={assignmentId!}
+        assignment={assignment}
+        athletes={importAthletes}
+        teamId={teamId!}
+        orgId={orgId}
+      />
     </>
   );
 }
