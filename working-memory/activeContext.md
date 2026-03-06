@@ -2,6 +2,33 @@
 
 > Last updated: March 5, 2026
 
+## Session Summary (2026-03-05 evening)
+
+All work committed to `main` (commit f161097). Community post drafted and published to C2 forums announcing readyall.org domain move and new features.
+
+### Completed This Session
+- [x] Analytics chart rendering fixes (ZonePaceTrendChart, WeeklyVolume, SplitVarianceChart)
+- [x] Coaching access request/approval flow (DB + edge function + UI + routing + role granting)
+- [x] Feedback email notifications (edge function + in-app)
+- [x] NotificationBell dropdown repositioned (opens right of sidebar, not off-screen)
+- [x] Domain cleanup: all runtime URLs → log.readyall.org (removed train-better.app)
+- [x] Email template text fix (ReadyAll → Logbook Companion)
+- [x] Coach role grant fix (roles array + coach_level constraint)
+- [x] Team Management nav always visible (non-coaches → request form)
+
+### Next Session Priorities
+- [ ] C2 write permissions — need to register via C2 dev logbook to get `results:write` scope approved
+- [ ] Monitor C2 forum thread for community feedback and respond
+- [ ] In-app notification system (beyond NotificationBell — real-time via Supabase)
+- [ ] DataTable shared component
+- [ ] Onboarding wizard
+- [ ] PWA manifest + service worker
+- [ ] Erg Link progress (live erg workouts, local + remote)
+
+### Known Issues
+- working-memory docs and .github/copilot-instructions.md still reference train-better.app (planning docs only, not runtime)
+- Version labeling alignment between LC and ReadyAll RWN specs
+
 ## Current Focus: Bug Fixes + Coaching Access Request Flow
 
 ### Analytics Chart Fixes (2026-03-05) ✅ COMPLETE

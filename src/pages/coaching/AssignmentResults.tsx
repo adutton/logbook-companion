@@ -107,6 +107,10 @@ interface EnrichedRow extends AssignmentResultRow {
   rep_worst_split_seconds: number | null;
   /** Spread between worst and best rep split */
   rep_split_spread_seconds: number | null;
+  /** Total time across all completed intervals */
+  total_interval_time_seconds: number | null;
+  /** Total distance across all completed intervals */
+  total_interval_distance_meters: number | null;
   /** True when athlete did not finish — sorts to the very bottom */
   dnf: boolean;
   /** True when athlete completed some reps but DNF'd others — sorts below finishers, above full DNF */
@@ -193,7 +197,7 @@ function calcSigma(values: (number | null)[]): number | null {
   return Math.sqrt(variance);
 }
 
-function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
+function enrichRows(rows: AssignmentResultRow[], latestWeightMap?: Map<string, number>): EnrichedRow[] {
   return rows.map((row) => {
     const avg_split_seconds = calcAvgSplit(row);
 
@@ -222,10 +226,11 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
       avg_split_seconds === null;
 
     const watts = avg_split_seconds ? Math.round(splitToWatts(avg_split_seconds)) : null;
-    const effectiveWeightKg = row.result_weight_kg && row.result_weight_kg > 0
-      ? row.result_weight_kg
-      : row.weight_kg && row.weight_kg > 0
-      ? row.weight_kg
+    const latestWeight = latestWeightMap?.get(row.athlete_id);
+    const effectiveWeightKg =
+      (row.result_weight_kg && row.result_weight_kg > 0) ? row.result_weight_kg
+      : (latestWeight && latestWeight > 0) ? latestWeight
+      : (row.weight_kg && row.weight_kg > 0) ? row.weight_kg
       : null;
     const wpkg =
       watts !== null && effectiveWeightKg != null
@@ -241,6 +246,13 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
       rep_best_split_seconds != null && rep_worst_split_seconds != null
         ? rep_worst_split_seconds - rep_best_split_seconds
         : null;
+    const completedIntervals = intervals.filter((iv) => !iv.dnf);
+    const total_interval_time_seconds = completedIntervals.length > 0
+      ? completedIntervals.reduce((sum, iv) => sum + (iv.time_seconds ?? 0), 0) || null
+      : null;
+    const total_interval_distance_meters = completedIntervals.length > 0
+      ? completedIntervals.reduce((sum, iv) => sum + (iv.distance_meters ?? 0), 0) || null
+      : null;
     return {
       ...row,
       avg_split_seconds,
@@ -253,6 +265,8 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
       rep_best_split_seconds,
       rep_worst_split_seconds,
       rep_split_spread_seconds,
+      total_interval_time_seconds,
+      total_interval_distance_meters,
       dnf,
       partialDnf,
       completeNoData,
@@ -1222,8 +1236,8 @@ function SummaryTable({
         case 'split': av = a.avg_split_seconds; bv = b.avg_split_seconds; break;
         case 'watts': av = a.watts; bv = b.watts; break;
         case 'wpkg': av = a.wpkg; bv = b.wpkg; break;
-        case 'distance': av = a.result_distance_meters ?? null; bv = b.result_distance_meters ?? null; break;
-        case 'time': av = a.result_time_seconds ?? null; bv = b.result_time_seconds ?? null; break;
+        case 'distance': av = a.result_distance_meters ?? a.total_interval_distance_meters ?? null; bv = b.result_distance_meters ?? b.total_interval_distance_meters ?? null; break;
+        case 'time': av = a.result_time_seconds ?? a.total_interval_time_seconds ?? null; bv = b.result_time_seconds ?? b.total_interval_time_seconds ?? null; break;
         case 'stroke_rate': av = a.result_stroke_rate ?? null; bv = b.result_stroke_rate ?? null; break;
       }
       if (av == null && bv == null) return 0;
@@ -1400,8 +1414,8 @@ function SummaryTable({
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtSplit(row.avg_split_seconds)}</td>
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtWatts(row.watts)}</td>
                   {hasWpkg && <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtPowerToWeight(row.wpkg, row.wplb)}</td>}
-                  <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtDist(row.result_distance_meters)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtDist(row.result_distance_meters ?? row.total_interval_distance_meters)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds ?? row.total_interval_time_seconds)}</td>
                   <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
                   {isInterval && (
                     <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
@@ -1458,6 +1472,7 @@ export function AssignmentResults() {
 
   const [assignment, setAssignment] = useState<GroupAssignment | null>(null);
   const [rawRows, setRawRows] = useState<AssignmentResultRow[]>([]);
+  const [latestWeightMap, setLatestWeightMap] = useState<Map<string, number>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [isCreatingShare, setIsCreatingShare] = useState(false);
@@ -1502,6 +1517,27 @@ export function AssignmentResults() {
       }
       setAssignment(found);
       setRawRows(rows);
+
+      // Fetch most recent weight recorded for each athlete across all assignments
+      const athleteIds = [...new Set(rows.map((r) => r.athlete_id))];
+      if (athleteIds.length > 0) {
+        const { data: weightData } = await supabase
+          .from('daily_workout_assignments')
+          .select('athlete_id, result_weight_kg, completed_at')
+          .in('athlete_id', athleteIds)
+          .not('result_weight_kg', 'is', null)
+          .gt('result_weight_kg', 0)
+          .order('completed_at', { ascending: false, nullsFirst: false });
+        const wMap = new Map<string, number>();
+        if (weightData) {
+          for (const w of weightData) {
+            if (!wMap.has(w.athlete_id)) {
+              wMap.set(w.athlete_id, Number(w.result_weight_kg));
+            }
+          }
+        }
+        setLatestWeightMap(wMap);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load results');
     } finally {
@@ -1514,7 +1550,7 @@ export function AssignmentResults() {
   }, [isLoadingTeam, load]);
 
   // Enrich rows with derived metrics
-  const allRows = useMemo(() => enrichRows(rawRows), [rawRows]);
+  const allRows = useMemo(() => enrichRows(rawRows, latestWeightMap), [rawRows, latestWeightMap]);
 
   // Is this an org-level assignment?
   const isOrgAssignment = !!assignment?.org_id;
@@ -1601,6 +1637,22 @@ export function AssignmentResults() {
   const worstRepSplit = intervalRepSplits.length > 0 ? Math.max(...intervalRepSplits) : null;
   const overallRepSpread = bestRepSplit != null && worstRepSplit != null ? worstRepSplit - bestRepSplit : null;
 
+  // Interval-specific aggregate stats
+  const avgFinisherTotalDist = isInterval && finisherRows.length > 0
+    ? (() => {
+        const withDist = finisherRows.filter((r) => (r.result_distance_meters ?? r.total_interval_distance_meters) != null);
+        if (withDist.length === 0) return null;
+        return withDist.reduce((s, r) => s + (r.result_distance_meters ?? r.total_interval_distance_meters ?? 0), 0) / withDist.length;
+      })()
+    : null;
+  const avgFinisherTotalTime = isInterval && finisherRows.length > 0
+    ? (() => {
+        const withTime = finisherRows.filter((r) => (r.result_time_seconds ?? r.total_interval_time_seconds) != null);
+        if (withTime.length === 0) return null;
+        return withTime.reduce((s, r) => s + (r.result_time_seconds ?? r.total_interval_time_seconds ?? 0), 0) / withTime.length;
+      })()
+    : null;
+
   if (isLoading || isLoadingTeam) {
     return (
       <>
@@ -1676,8 +1728,8 @@ export function AssignmentResults() {
                   onClick={() => {
                     const title = assignment?.title || assignment?.template_name || 'Assignment Results';
                     const subtitle = `${dateLabel} · ${finishedCount} of ${totalCount} finished`;
-                    const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg'];
-                    const intervalColumns = isInterval ? ['Best Rep', 'Worst Rep', 'Spread'] : [];
+                    const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg', 'Distance', 'Time'];
+                    const intervalColumns = isInterval ? ['Fastest Rep', 'Best Rep', 'Worst Rep', 'Spread'] : [];
                     const columns = [...baseColumns, ...intervalColumns];
                     const pdfRows = rows.map((r) => {
                       const base = [
@@ -1686,9 +1738,12 @@ export function AssignmentResults() {
                         fmtSplit(r.avg_split_seconds),
                         fmtWatts(r.watts),
                         fmtWpkg(r.wpkg),
+                        fmtDist(r.result_distance_meters ?? r.total_interval_distance_meters),
+                        fmtTime(r.result_time_seconds ?? r.total_interval_time_seconds),
                       ];
                       if (isInterval) {
                         base.push(
+                          fmtSplit(r.rep_best_split_seconds),
                           fmtSplit(r.rep_best_split_seconds),
                           fmtSplit(r.rep_worst_split_seconds),
                           fmtSplit(r.rep_split_spread_seconds),
@@ -1707,8 +1762,8 @@ export function AssignmentResults() {
                 </button>
                 <button
                   onClick={() => {
-                    const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg'];
-                    const intervalColumns = isInterval ? ['Best Rep', 'Worst Rep', 'Spread'] : [];
+                    const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg', 'Distance', 'Time'];
+                    const intervalColumns = isInterval ? ['Fastest Rep', 'Best Rep', 'Worst Rep', 'Spread'] : [];
                     const columns = [...baseColumns, ...intervalColumns];
                     const xlsRows = rows.map((r) => {
                       const base: (string | number | null)[] = [
@@ -1717,9 +1772,12 @@ export function AssignmentResults() {
                         fmtSplit(r.avg_split_seconds),
                         r.watts ?? null,
                         r.wpkg != null ? Number(r.wpkg.toFixed(2)) : null,
+                        r.result_distance_meters ?? r.total_interval_distance_meters ?? null,
+                        r.result_time_seconds ?? r.total_interval_time_seconds ?? null,
                       ];
                       if (isInterval) {
                         base.push(
+                          fmtSplit(r.rep_best_split_seconds),
                           fmtSplit(r.rep_best_split_seconds),
                           fmtSplit(r.rep_worst_split_seconds),
                           fmtSplit(r.rep_split_spread_seconds),
@@ -1843,16 +1901,45 @@ export function AssignmentResults() {
               <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Avg Finisher Watts</div>
               <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtWatts(avgFinisherWatts)}</div>
             </div>
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-              <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Best · Worst Rep</div>
-              <div className="text-sm font-semibold text-neutral-100 font-mono">
-                {bestRepSplit != null && worstRepSplit != null ? `${fmtSplit(bestRepSplit)} · ${fmtSplit(worstRepSplit)}` : '—'}
-              </div>
-            </div>
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-              <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Rep Spread</div>
-              <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtSplit(overallRepSpread)}</div>
-            </div>
+            {isInterval ? (
+              <>
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                  <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Fastest Interval</div>
+                  <div className="text-lg font-semibold text-emerald-400 font-mono">{fmtSplit(bestRepSplit)}</div>
+                </div>
+                {avgFinisherTotalDist != null && (
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                    <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Avg Total Distance</div>
+                    <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtDist(avgFinisherTotalDist)}</div>
+                  </div>
+                )}
+                {avgFinisherTotalTime != null && (
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                    <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Avg Total Time</div>
+                    <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtTime(avgFinisherTotalTime)}</div>
+                  </div>
+                )}
+                {avgFinisherTotalDist == null && avgFinisherTotalTime == null && (
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                    <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Rep Spread</div>
+                    <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtSplit(overallRepSpread)}</div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                  <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Best · Worst Rep</div>
+                  <div className="text-sm font-semibold text-neutral-100 font-mono">
+                    {bestRepSplit != null && worstRepSplit != null ? `${fmtSplit(bestRepSplit)} · ${fmtSplit(worstRepSplit)}` : '—'}
+                  </div>
+                </div>
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                  <div className="text-[11px] text-neutral-500 uppercase tracking-wider">Rep Spread</div>
+                  <div className="text-lg font-semibold text-neutral-100 font-mono">{fmtSplit(overallRepSpread)}</div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* ── Missing athletes notice ── */}
