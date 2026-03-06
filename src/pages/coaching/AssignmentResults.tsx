@@ -110,6 +110,10 @@ interface EnrichedRow extends AssignmentResultRow {
   rep_worst_split_seconds: number | null;
   /** Spread between worst and best rep split */
   rep_split_spread_seconds: number | null;
+  /** Best (fastest) rep time across completed reps — meaningful for distance intervals */
+  rep_best_time_seconds: number | null;
+  /** Best (longest) rep distance across completed reps — meaningful for time intervals */
+  rep_best_distance_meters: number | null;
   /** Watts derived from best (fastest) rep split */
   best_interval_watts: number | null;
   /** W/lb efficiency for best rep — null when weight is missing */
@@ -259,6 +263,14 @@ function enrichRows(rows: AssignmentResultRow[], latestWeightMap?: Map<string, n
       ? best_interval_watts / weightLbs
       : null;
     const completedIntervals = intervals.filter((iv) => !iv.dnf);
+    const validRepTimes = completedIntervals
+      .map((iv) => iv.time_seconds)
+      .filter((v): v is number => v != null && v > 0);
+    const rep_best_time_seconds = validRepTimes.length > 0 ? Math.min(...validRepTimes) : null;
+    const validRepDistances = completedIntervals
+      .map((iv) => iv.distance_meters)
+      .filter((v): v is number => v != null && v > 0);
+    const rep_best_distance_meters = validRepDistances.length > 0 ? Math.max(...validRepDistances) : null;
     const total_interval_time_seconds = completedIntervals.length > 0
       ? completedIntervals.reduce((sum, iv) => sum + (iv.time_seconds ?? 0), 0) || null
       : null;
@@ -275,6 +287,8 @@ function enrichRows(rows: AssignmentResultRow[], latestWeightMap?: Map<string, n
       consistency_sigma,
       rep_splits,
       rep_best_split_seconds,
+      rep_best_time_seconds,
+      rep_best_distance_meters,
       rep_worst_split_seconds,
       rep_split_spread_seconds,
       best_interval_watts,
@@ -1350,7 +1364,8 @@ function SummaryTable({
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
-              {isInterval && <SortTh label="Best" field="best" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <SortTh label={bestRepLabel} field="best" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <SortTh label="Best Split" field="best" sortField={sortField} onSort={toggleSort} />}
               {isInterval && hasWpkg && <SortTh label="Eff (W/lb)" field="best_eff" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <SortTh label="Worst" field="worst" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Spread</th>}
@@ -1436,6 +1451,11 @@ function SummaryTable({
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtDist(row.result_distance_meters ?? row.total_interval_distance_meters)}</td>
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds ?? row.total_interval_time_seconds)}</td>
                   <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
+                  {isInterval && (
+                    <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                      {fmtBestRep(row)}
+                    </td>
+                  )}
                   {isInterval && (
                     <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
                       {row.rep_best_split_seconds != null ? fmtSplit(row.rep_best_split_seconds) : '—'}
@@ -1635,6 +1655,25 @@ export function AssignmentResults() {
 
   const isInterval = shape?.type === 'time_interval' || shape?.type === 'distance_interval' || shape?.type === 'variable_interval';
 
+  // Best-rep column label/value depend on the interval type:
+  // distance_interval → athletes row for time, so best rep = fastest time
+  // time_interval → athletes row for distance, so best rep = longest distance
+  const bestRepLabel = shape?.type === 'distance_interval' ? 'Best Time'
+    : shape?.type === 'time_interval' ? 'Best Dist'
+    : 'Best Rep';
+  const fmtBestRep = (r: EnrichedRow): string =>
+    shape?.type === 'distance_interval'
+      ? fmtTime(r.rep_best_time_seconds)
+      : shape?.type === 'time_interval'
+        ? fmtDist(r.rep_best_distance_meters)
+        : fmtSplit(r.rep_best_split_seconds);
+  const fmtBestRepExcel = (r: EnrichedRow, fmtExcelTime: (s: number | null | undefined) => string): string | number | null =>
+    shape?.type === 'distance_interval'
+      ? fmtExcelTime(r.rep_best_time_seconds)
+      : shape?.type === 'time_interval'
+        ? (r.rep_best_distance_meters != null ? r.rep_best_distance_meters : null)
+        : fmtSplit(r.rep_best_split_seconds);
+
   // Build rep labels for interval charts
   const repLabels = useMemo<string[]>(() => {
     if (!shape || !isInterval) return [];
@@ -1761,7 +1800,7 @@ export function AssignmentResults() {
                     const repCols = isInterval
                       ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
                       : [];
-                    const summaryColumns = isInterval ? ['Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
+                    const summaryColumns = isInterval ? [bestRepLabel, 'Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
                     const columns = [...baseColumns, ...repCols, ...summaryColumns];
                     const pdfRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Math.round(r.effective_weight_kg * 2.20462) : null;
@@ -1784,6 +1823,7 @@ export function AssignmentResults() {
                           );
                         }
                         base.push(
+                          fmtBestRep(r),
                           fmtSplit(r.rep_best_split_seconds),
                           r.best_interval_wplb != null ? r.best_interval_wplb.toFixed(2) : '—',
                           fmtSplit(r.rep_worst_split_seconds),
@@ -1813,7 +1853,7 @@ export function AssignmentResults() {
                     const repCols = isInterval
                       ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
                       : [];
-                    const summaryColumns = isInterval ? ['Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
+                    const summaryColumns = isInterval ? [bestRepLabel, 'Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
                     const columns = [...baseColumns, ...repCols, ...summaryColumns];
                     const xlsRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Number((r.effective_weight_kg * 2.20462).toFixed(1)) : null;
@@ -1837,6 +1877,7 @@ export function AssignmentResults() {
                           );
                         }
                         base.push(
+                          fmtBestRepExcel(r, fmtExcelTime),
                           fmtSplit(r.rep_best_split_seconds),
                           r.best_interval_wplb != null ? Number(r.best_interval_wplb.toFixed(2)) : null,
                           fmtSplit(r.rep_worst_split_seconds),
@@ -1873,7 +1914,7 @@ export function AssignmentResults() {
                       ...repCols,
                       'Total Time', 'Avg Split /500m',
                       'Watts', 'W/kg', 'W/lb', 'Weight (lb)',
-                      ...(isInterval ? ['Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : []),
+                      ...(isInterval ? [bestRepLabel, 'Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : []),
                     ];
                     const csvRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Number((r.effective_weight_kg * 2.20462).toFixed(1)) : null;
@@ -1901,6 +1942,7 @@ export function AssignmentResults() {
                       );
                       if (isInterval) {
                         base.push(
+                          fmtBestRep(r),
                           fmtSplit(r.rep_best_split_seconds),
                           r.best_interval_wplb != null ? Number(r.best_interval_wplb.toFixed(2)) : null,
                           fmtSplit(r.rep_worst_split_seconds),
