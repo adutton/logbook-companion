@@ -8,6 +8,7 @@
 - [x] CSV Score Import/Export for coaching assignments (full pipeline)
 - [x] Import bug fixes: split_seconds, missing rows, weight auto-population
 - [x] Best/Worst split into two separate sortable columns
+- [x] Best Interval Efficiency (W/lb) column added to AssignmentResults + PublicAssignmentResultsShare tables
 - [x] **UX Quick Wins (Proposal C)**: C1-C6 all shipped
 - [x] **UX Proposal A: Org-First Navigation — COMPLETE**
   - `filterTeamId` / `setFilterTeamId` in CoachingContext (null = "All Teams")

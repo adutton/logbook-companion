@@ -37,13 +37,15 @@ interface EnrichedRow extends AssignmentResultRow {
   rep_best_split_seconds: number | null;
   rep_worst_split_seconds: number | null;
   rep_split_spread_seconds: number | null;
+  best_interval_watts: number | null;
+  best_interval_wplb: number | null;
   consistency_sigma: number | null;
   dnf: boolean;
   partialDnf: boolean;
   completeNoData: boolean;
 }
 
-type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate';
+type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate' | 'best' | 'best_eff';
 type SortDir = 'asc' | 'desc';
 type HeatmapSortCol = 'name' | 'avg' | 'spread' | number;
 type RatioZone = { lower: number; upper: number; fill: string };
@@ -186,6 +188,11 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
       rep_best_split_seconds != null && rep_worst_split_seconds != null
         ? rep_worst_split_seconds - rep_best_split_seconds
         : null;
+    const best_interval_watts = rep_best_split_seconds != null ? Math.round(splitToWatts(rep_best_split_seconds)) : null;
+    const weightLbs = effectiveWeightKg != null ? effectiveWeightKg * 2.20462 : null;
+    const best_interval_wplb = best_interval_watts != null && weightLbs != null && weightLbs > 0
+      ? best_interval_watts / weightLbs
+      : null;
 
     return {
       ...row,
@@ -198,6 +205,8 @@ function enrichRows(rows: AssignmentResultRow[]): EnrichedRow[] {
       rep_best_split_seconds,
       rep_worst_split_seconds,
       rep_split_spread_seconds,
+      best_interval_watts,
+      best_interval_wplb,
       consistency_sigma,
       dnf,
       partialDnf,
@@ -807,6 +816,8 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
         case 'distance': av = a.result_distance_meters ?? null; bv = b.result_distance_meters ?? null; break;
         case 'time': av = a.result_time_seconds ?? null; bv = b.result_time_seconds ?? null; break;
         case 'stroke_rate': av = a.result_stroke_rate ?? null; bv = b.result_stroke_rate ?? null; break;
+        case 'best': av = a.rep_best_split_seconds; bv = b.rep_best_split_seconds; break;
+        case 'best_eff': av = a.best_interval_wplb; bv = b.best_interval_wplb; break;
       }
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
@@ -907,7 +918,9 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
-              {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Best · Worst</th>}
+              {isInterval && <SortTh label="Best" field="best" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && hasWpkg && <SortTh label="Eff (W/lb)" field="best_eff" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Worst</th>}
               {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Spread</th>}
             </tr>
           </thead>
@@ -993,9 +1006,17 @@ function PublicSummaryTable({ rows, isInterval }: { rows: EnrichedRow[]; isInter
                     <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
                     {isInterval && (
                       <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
-                        {row.rep_best_split_seconds != null && row.rep_worst_split_seconds != null
-                          ? `${fmtSplit(row.rep_best_split_seconds)} · ${fmtSplit(row.rep_worst_split_seconds)}`
-                          : '—'}
+                        {row.rep_best_split_seconds != null ? fmtSplit(row.rep_best_split_seconds) : '—'}
+                      </td>
+                    )}
+                    {isInterval && hasWpkg && (
+                      <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                        {row.best_interval_wplb != null ? `${row.best_interval_wplb.toFixed(2)}` : '—'}
+                      </td>
+                    )}
+                    {isInterval && (
+                      <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
+                        {row.rep_worst_split_seconds != null ? fmtSplit(row.rep_worst_split_seconds) : '—'}
                       </td>
                     )}
                     {isInterval && (
