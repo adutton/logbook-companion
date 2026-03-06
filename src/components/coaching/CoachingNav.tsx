@@ -17,13 +17,26 @@ const tabs = [
 
 export function CoachingNav() {
   const { pathname } = useLocation();
-  const { teamName, teams, teamId, teamsByOrg, activeTeam, switchTeam, isLoadingTeam } = useCoachingContext();
+  const {
+    teamName, teamId, teamsByOrg, activeTeam,
+    switchTeam, isLoadingTeam,
+    orgId, filterTeamId, setFilterTeamId,
+  } = useCoachingContext();
   const [rosterCount, setRosterCount] = useState<number | null>(null);
   const [showScrollHint, setShowScrollHint] = useState(false);
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const currentTab = tabs.find((t) => pathname.startsWith(t.path));
-  const hasMultipleTeams = teams.length > 1;
   const orgName = activeTeam?.org_name ?? null;
+
+  // Teams in the current org (for the filter pills)
+  const orgTeams = orgId
+    ? teamsByOrg.find((g) => g.org_id === orgId)?.teams ?? []
+    : [];
+  const showFilterPills = orgTeams.length > 1;
+
+  // Does this coach belong to multiple orgs? If so, show the org switcher dropdown
+  const multipleOrgs = teamsByOrg.filter((g) => g.org_id !== null).length > 1
+    || (teamsByOrg.some((g) => g.org_id !== null) && teamsByOrg.some((g) => g.org_id === null));
 
   useEffect(() => {
     if (!teamId) {
@@ -63,7 +76,7 @@ export function CoachingNav() {
 
   return (
     <div className="px-4 sm:px-6 pt-4 max-w-6xl mx-auto">
-      {/* Breadcrumb + Team Name */}
+      {/* Breadcrumb + Org/Team context */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1 text-sm text-neutral-500">
           <Link to="/team-management" className="hover:text-indigo-400 transition-colors">
@@ -77,47 +90,79 @@ export function CoachingNav() {
           )}
         </div>
 
-        {/* Org label + Team switcher */}
+        {/* Org label + org-switcher (only when coach spans multiple orgs) */}
         <div className="flex items-center gap-2">
-          {orgName && (
+          {orgName && !multipleOrgs && (
             <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-neutral-400">
               <Building2 className="w-3.5 h-3.5" />
               {orgName}
-              <ChevronRight className="w-3 h-3 text-neutral-600" />
             </span>
           )}
-          {teamName && (
-            hasMultipleTeams ? (
-              <div className="relative">
-                <select
-                  value={teamId}
-                  onChange={(e) => switchTeam(e.target.value)}
-                  className="appearance-none bg-neutral-800 border border-neutral-700 rounded-lg pl-3 pr-8 py-1.5 text-sm font-medium text-white cursor-pointer hover:border-neutral-600 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                  aria-label="Switch team"
-                >
-                  {teamsByOrg.map((group) => (
-                    <optgroup key={group.org_id ?? '_standalone'} label={group.org_name}>
-                      {group.teams.map((t) => (
-                        <option key={t.team_id} value={t.team_id}>
-                          {t.team_name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" />
-              </div>
-            ) : (
-              <span className="text-sm font-medium text-neutral-300 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5">
-                {teamName}
-              </span>
-            )
+
+          {/* Multi-org coach: dropdown to pick org/team (rare, but supported) */}
+          {multipleOrgs && (
+            <div className="relative">
+              <select
+                value={teamId}
+                onChange={(e) => switchTeam(e.target.value)}
+                className="appearance-none bg-neutral-800 border border-neutral-700 rounded-lg pl-3 pr-8 py-1.5 text-sm font-medium text-white cursor-pointer hover:border-neutral-600 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                aria-label="Switch organization"
+              >
+                {teamsByOrg.map((group) => (
+                  <optgroup key={group.org_id ?? '_standalone'} label={group.org_name}>
+                    {group.teams.map((t) => (
+                      <option key={t.team_id} value={t.team_id}>
+                        {t.team_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" />
+            </div>
           )}
+
+          {/* Single-team, no org: static label */}
+          {!multipleOrgs && !showFilterPills && teamName && (
+            <span className="text-sm font-medium text-neutral-300 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5">
+              {teamName}
+            </span>
+          )}
+
           {isLoadingTeam && (
             <span className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
           )}
         </div>
       </div>
+
+      {/* Team filter pills (org coaches with multiple teams) */}
+      {showFilterPills && (
+        <div className="flex items-center gap-1.5 mb-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <button
+            onClick={() => setFilterTeamId(null)}
+            className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+              filterTeamId === null
+                ? 'bg-indigo-600 text-white'
+                : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700'
+            }`}
+          >
+            All Teams
+          </button>
+          {orgTeams.map((t) => (
+            <button
+              key={t.team_id}
+              onClick={() => setFilterTeamId(t.team_id)}
+              className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                filterTeamId === t.team_id
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700'
+              }`}
+            >
+              {t.team_name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="relative">

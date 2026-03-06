@@ -12,6 +12,7 @@ import {
   getAssignmentCompletions,
   getErgScores,
   getOrganizationsForUser,
+  getOrgAthletesWithTeam,
   type CoachingAthlete,
   type AssignmentCompletion,
 } from '../../services/coaching/coachingService';
@@ -43,7 +44,7 @@ function gradeRank(grade: string | undefined | null): number {
 }
 
 export function CoachingRoster() {
-  const { userId, teamId, orgId, teams, isLoadingTeam, teamError } = useCoachingContext();
+  const { userId, teamId, orgId, teams, isLoadingTeam, teamError, filterTeamId, filterTeamName } = useCoachingContext();
   const units = useMeasurementUnits();
   const isImperial = units === 'imperial';
   const navigate = useNavigate();
@@ -82,27 +83,32 @@ export function CoachingRoster() {
     : [];
   const canTransfer = siblingTeams.length > 0;
 
+  // Org-wide mode: filterTeamId is null and coach is in an org
+  const isOrgWide = filterTeamId === null && !!orgId;
+  // The team ID to use for single-team queries (filter or home team)
+  const effectiveTeamId = filterTeamId ?? teamId;
+
   const refresh2kBenchmarks = useCallback(async () => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
-      const scores = await getErgScores(teamId);
+      const scores = await getErgScores(effectiveTeamId);
       setBest2kByAthlete(buildBest2kByAthlete(scores));
     } catch {
       // non-critical
     }
-  }, [teamId]);
+  }, [effectiveTeamId]);
 
   const refreshCompletions = useCallback(async (loadedAthletes: CoachingAthlete[]) => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
       const todayStr = format(new Date(), 'yyyy-MM-dd');
-      const comps = await getAssignmentCompletions(teamId, todayStr, loadedAthletes, orgId ?? undefined);
+      const comps = await getAssignmentCompletions(effectiveTeamId, todayStr, loadedAthletes, orgId ?? undefined);
       setCompletions(comps);
       setHasAssignmentsToday(comps.length > 0);
     } catch {
       // non-critical
     }
-  }, [teamId, orgId]);
+  }, [effectiveTeamId, orgId]);
 
   useEffect(() => {
     if (!userId || !orgId) {
@@ -119,7 +125,12 @@ export function CoachingRoster() {
 
   useEffect(() => {
     if (!teamId || isLoadingTeam) return;
-    getAthletes(teamId)
+
+    const fetchAthletes = isOrgWide && orgId
+      ? () => getOrgAthletesWithTeam(orgId)
+      : () => getAthletes(effectiveTeamId);
+
+    fetchAthletes()
       .then(async (loadedAthletes) => {
         setAthletes(loadedAthletes);
         await Promise.all([
@@ -129,12 +140,14 @@ export function CoachingRoster() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load athletes'))
       .finally(() => setIsLoading(false));
-  }, [teamId, isLoadingTeam, refreshCompletions, refresh2kBenchmarks]);
+  }, [teamId, effectiveTeamId, isLoadingTeam, isOrgWide, orgId, refreshCompletions, refresh2kBenchmarks]);
 
   const refreshAthletes = useCallback(async () => {
     if (teamId) {
       try {
-        const loadedAthletes = await getAthletes(teamId);
+        const loadedAthletes = isOrgWide && orgId
+          ? await getOrgAthletesWithTeam(orgId)
+          : await getAthletes(effectiveTeamId);
         setAthletes(loadedAthletes);
         await Promise.all([
           refreshCompletions(loadedAthletes),
@@ -336,6 +349,7 @@ export function CoachingRoster() {
       switch (sortColumn) {
         case 'first_name': cmp = a.first_name.localeCompare(b.first_name); break;
         case 'last_name': cmp = a.last_name.localeCompare(b.last_name); break;
+        case 'team_name': cmp = (a.team_name ?? '').localeCompare(b.team_name ?? ''); break;
         case 'squad': cmp = (a.squad ?? '').localeCompare(b.squad ?? ''); break;
         case 'grade': cmp = gradeRank(a.grade) - gradeRank(b.grade); break;
         case 'side': cmp = (a.side ?? '').localeCompare(b.side ?? ''); break;
@@ -398,9 +412,13 @@ export function CoachingRoster() {
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-white">Team Roster</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">
+              {isOrgWide ? 'Program Roster' : 'Team Roster'}
+            </h1>
             <p className="text-neutral-400 mt-1 text-sm">
               {filteredAthletes.length}{selectedSquad !== 'all' ? ` in ${selectedSquad}` : ''} athlete{filteredAthletes.length !== 1 ? 's' : ''}{selectedSquad !== 'all' ? ` (${athletes.length} total)` : ''}
+              {isOrgWide && <span className="text-neutral-600"> · All Teams</span>}
+              {!isOrgWide && filterTeamName && <span className="text-neutral-600"> · {filterTeamName}</span>}
               <span className="text-neutral-600 ml-2 hidden sm:inline">· Click any cell to edit</span>
               <span className="text-neutral-600 ml-2 sm:hidden">· Tap to edit</span>
             </p>
@@ -828,6 +846,9 @@ export function CoachingRoster() {
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider w-10">#</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('first_name')}>First {renderSortIcon('first_name')}</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('last_name')}>Last {renderSortIcon('last_name')}</th>
+                  {isOrgWide && (
+                    <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('team_name')}>Team {renderSortIcon('team_name')}</th>
+                  )}
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('squad')}>Squad {renderSortIcon('squad')}</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('grade')}>Grade {renderSortIcon('grade')}</th>
                   <th className="px-3 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:text-neutral-300 select-none" onClick={() => toggleSort('side')}>Side {renderSortIcon('side')}</th>
@@ -863,6 +884,13 @@ export function CoachingRoster() {
                         <span className="text-white font-medium">{athlete.last_name}</span>
                       )}
                     </td>
+
+                    {/* Team (org-wide mode only) */}
+                    {isOrgWide && (
+                      <td className={`${cellBase} text-neutral-400 text-xs`}>
+                        {athlete.team_name ?? '—'}
+                      </td>
+                    )}
 
                     {/* Squad */}
                     <td className={editableCellClass} onClick={() => startEditing(athlete.id, 'squad')}>

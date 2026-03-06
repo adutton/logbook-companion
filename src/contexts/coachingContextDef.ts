@@ -17,6 +17,12 @@ export interface CoachingContextType {
   activeTeam: UserTeamInfo | null;
   teams: UserTeamInfo[];
   teamsByOrg: OrgTeamGroup[];
+  /** Currently active team filter. null = "All Teams" (org-wide view). */
+  filterTeamId: string | null;
+  /** Name of the filtered team, or "All Teams" when filterTeamId is null. */
+  filterTeamName: string;
+  /** Update the team filter. Pass null for org-wide, or a team_id. */
+  setFilterTeamId: (id: string | null) => void;
   isLoadingTeam: boolean;
   teamError: string | null;
   hasTeam: boolean | null;

@@ -1,37 +1,33 @@
 # Active Context
 
-> Last updated: March 7, 2026
+> Last updated: March 6, 2026
 
-## Session Summary (2026-03-07)
+## Session Summary (2026-03-06)
 
 ### Completed This Session
 - [x] CSV Score Import feature for coaching assignments
-  - `src/utils/csvTimeParser.ts` — robust time parser (handles `03:46.8`, `3.52.4`, `DNF`, leading spaces, etc.)
-  - `src/utils/csvScoreParser.ts` — CSV → structured `CsvScoreRow[]` with `IntervalResult[]`
-  - `src/utils/athleteNameMatcher.ts` — fuzzy name matching (Levenshtein + token overlap + substring)
-  - `src/components/coaching/ImportCsvModal.tsx` — multi-step modal (upload → review/match → save)
-  - Integrated "Import CSV" button in AssignmentResults.tsx toolbar
-- [x] CSV Export feature for assignment results
-  - Added `exportToCsv()` to `src/utils/exportUtils.ts`
-  - CSV export with per-rep intervals, team, squad, W/kg, W/lb
-- [x] Import bug fixes: split_seconds computed, missing rows auto-created, weight auto-populated
-- [x] Best/Worst split into two separate sortable columns in AssignmentResults
-- [x] UX Quick Wins for Coaching Navigation (Proposal C)
-  - C1: Team dropdown grouped by org via `<optgroup>`
-  - C2: Org name label with Building2 icon in CoachingNav
-  - C3: Loading spinner during team switch
-  - C4: Scope label in CoachingAssignments calendar header (org · team)
-  - C5: Collapsible org sections in CoachDashboard
-  - C6: teamsByOrg grouping foundation in dropdown
+- [x] CSV Export feature with per-rep intervals, W/kg, W/lb
+- [x] Import bug fixes: split_seconds, missing rows, weight auto-population
+- [x] Best/Worst split into two separate sortable columns
+- [x] UX Quick Wins (Proposal C): C1-C6 all shipped
+- [x] **UX Proposal A: Org-First Navigation Redesign**
+  - Added `filterTeamId` / `setFilterTeamId` to CoachingContext (null = "All Teams")
+  - Persisted to localStorage (`lc_filter_team_{userId}`)
+  - CoachingNav: segmented team filter pills `[All] [Team1] [Team2 ...]`
+  - CoachingNav: multi-org dropdown preserved for coaches in multiple orgs
+  - CoachingRoster: org-wide fetch via `getOrgAthletesWithTeam(orgId)` when All Teams selected
+  - CoachingRoster: "Team" column shown in org-wide mode, sortable
+  - CoachingAssignments: filters displayed assignments by `filterTeamId` (org-wide shows all)
+  - CoachingAssignments: scope label updates to reflect filter
+  - CoachDashboard: collapsible org overview section
 
 ### Next Session Priorities
-- [ ] UX Proposal A: Org-first navigation redesign (larger effort, planned as next sprint)
+- [ ] Wire remaining pages to `filterTeamId` (Schedule, Erg Scores, Analytics)
+- [ ] Dashboard simplification: replace inline org sections with focused summary cards
+- [ ] Assignment creation: default to org-level, use athlete picker instead of org/team toggle
 - [ ] C2 write permissions — register via C2 dev logbook for `results:write` scope
 - [ ] In-app notification system (real-time via Supabase)
 - [ ] DataTable shared component
-- [ ] Onboarding wizard
-- [ ] PWA manifest + service worker
-- [ ] Erg Link progress (live erg workouts, local + remote)
 
 ### Known Issues
 - working-memory docs and .github/copilot-instructions.md still reference train-better.app (planning docs only, not runtime)

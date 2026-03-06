@@ -50,7 +50,7 @@ import { kgToLbs, lbsToKg } from '../../utils/unitConversion';
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export function CoachingAssignments() {
-  const { userId, teamId, teamName, orgId, activeTeam, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, teamName, orgId, activeTeam, isLoadingTeam, filterTeamId, filterTeamName } = useCoachingContext();
 
   // Data
   const [assignments, setAssignments] = useState<GroupAssignment[]>([]);
@@ -164,9 +164,14 @@ export function CoachingAssignments() {
   const ergAthletes = useMemo(() => athletes.filter((a) => a.side !== 'coxswain'), [athletes]);
   const ergOrgAthletes = useMemo(() => orgAthletes.filter((a) => a.side !== 'coxswain'), [orgAthletes]);
 
+  // Filter assignments by team filter
+  const visibleAssignments = filterTeamId
+    ? assignments.filter((a) => a.team_id === filterTeamId || a.org_id)
+    : assignments;
+
   // Group assignments by date
   const assignmentsByDate = new Map<string, GroupAssignment[]>();
-  for (const a of assignments) {
+  for (const a of visibleAssignments) {
     const key = a.scheduled_date;
     if (!assignmentsByDate.has(key)) assignmentsByDate.set(key, []);
     assignmentsByDate.get(key)!.push(a);
@@ -212,7 +217,7 @@ export function CoachingAssignments() {
             </h1>
             <p className="text-xs text-neutral-500 mt-0.5">
               {orgId && activeTeam?.org_name
-                ? `${activeTeam.org_name} · ${teamName}`
+                ? `${activeTeam.org_name} · ${filterTeamName}`
                 : teamName}
             </p>
           </div>

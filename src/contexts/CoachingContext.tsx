@@ -7,6 +7,7 @@ import type { OrgTeamGroup, CoachingContextType } from './coachingContextDef';
 
 /** User-scoped localStorage key so different coach accounts don't collide */
 const selectedTeamKey = (uid: string) => `lc_selected_team_${uid}`;
+const filterTeamKey = (uid: string) => `lc_filter_team_${uid}`;
 
 
 
@@ -20,6 +21,7 @@ export function CoachingProvider({ children }: { children: ReactNode }) {
 
   const [teams, setTeams] = useState<UserTeamInfo[]>([]);
   const [teamId, setTeamId] = useState<string>('');
+  const [filterTeamId, setFilterTeamIdRaw] = useState<string | null>(null);
   const [isLoadingTeam, setIsLoadingTeam] = useState(true);
   const [teamError, setTeamError] = useState<string | null>(null);
   const [hasTeam, setHasTeam] = useState<boolean | null>(null);
@@ -38,6 +40,15 @@ export function CoachingProvider({ children }: { children: ReactNode }) {
     setTeamId(active.team_id);
     setHasTeam(true);
     if (key) localStorage.setItem(key, active.team_id);
+
+    // Restore filter preference (null = all teams)
+    const fKey = userId ? filterTeamKey(userId) : '';
+    const savedFilter = fKey ? localStorage.getItem(fKey) : null;
+    if (savedFilter && allTeams.some((t) => t.team_id === savedFilter)) {
+      setFilterTeamIdRaw(savedFilter);
+    } else {
+      setFilterTeamIdRaw(null);
+    }
   }, [userId]);
 
   useEffect(() => {
@@ -65,8 +76,23 @@ export function CoachingProvider({ children }: { children: ReactNode }) {
     if (match) {
       setTeamId(newTeamId);
       if (userId) localStorage.setItem(selectedTeamKey(userId), newTeamId);
+      // Reset filter to "All" when switching teams (org may change)
+      setFilterTeamIdRaw(null);
+      if (userId) localStorage.removeItem(filterTeamKey(userId));
     }
   }, [teams, userId]);
+
+  /** Update the team filter. null = org-wide ("All Teams"). */
+  const setFilterTeamId = useCallback((id: string | null) => {
+    setFilterTeamIdRaw(id);
+    if (userId) {
+      if (id === null) {
+        localStorage.removeItem(filterTeamKey(userId));
+      } else {
+        localStorage.setItem(filterTeamKey(userId), id);
+      }
+    }
+  }, [userId]);
 
   /** Call after creating a team to refresh context */
   const refreshTeam = useCallback(async () => {
@@ -89,6 +115,11 @@ export function CoachingProvider({ children }: { children: ReactNode }) {
   const teamName = activeTeam?.team_name ?? '';
   const teamRole = (activeTeam?.role ?? null) as import('../services/coaching/types').TeamRole | null;
   const orgId = activeTeam?.org_id ?? null;
+
+  // Derived: filter team name
+  const filterTeamName = filterTeamId
+    ? (teams.find((t) => t.team_id === filterTeamId)?.team_name ?? teamName)
+    : 'All Teams';
 
   // Derived: teams grouped by organization for the switcher
   const teamsByOrg = useMemo((): OrgTeamGroup[] => {
@@ -126,12 +157,15 @@ export function CoachingProvider({ children }: { children: ReactNode }) {
     activeTeam,
     teams,
     teamsByOrg,
+    filterTeamId,
+    filterTeamName,
+    setFilterTeamId,
     isLoadingTeam,
     teamError,
     hasTeam,
     switchTeam,
     refreshTeam,
-  }), [userId, teamId, teamName, teamRole, orgId, activeTeam, teams, teamsByOrg, isLoadingTeam, teamError, hasTeam, switchTeam, refreshTeam]);
+  }), [userId, teamId, teamName, teamRole, orgId, activeTeam, teams, teamsByOrg, filterTeamId, filterTeamName, setFilterTeamId, isLoadingTeam, teamError, hasTeam, switchTeam, refreshTeam]);
 
   return (
     <CoachingContext.Provider value={value}>
