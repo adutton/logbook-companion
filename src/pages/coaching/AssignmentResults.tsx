@@ -1803,6 +1803,12 @@ export function AssignmentResults() {
                 </button>
                 <button
                   onClick={() => {
+                    const fmtExcelTime = (s: number | null | undefined): string => {
+                      if (s == null) return '';
+                      const mins = Math.floor(s / 60);
+                      const secs = s % 60;
+                      return `${mins}:${secs.toFixed(1).padStart(4, '0')}`;
+                    };
                     const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg', 'Weight (lb)', 'Distance', 'Time'];
                     const repCols = isInterval
                       ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
@@ -1811,6 +1817,7 @@ export function AssignmentResults() {
                     const columns = [...baseColumns, ...repCols, ...summaryColumns];
                     const xlsRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Number((r.effective_weight_kg * 2.20462).toFixed(1)) : null;
+                      const totalTime = r.result_time_seconds ?? r.total_interval_time_seconds ?? null;
                       const base: (string | number | null)[] = [
                         r.athlete_name,
                         r.completed ? (r.dnf ? 'DNF' : 'Completed') : 'Pending',
@@ -1819,14 +1826,14 @@ export function AssignmentResults() {
                         r.wpkg != null ? Number(r.wpkg.toFixed(2)) : null,
                         weightLb,
                         r.result_distance_meters ?? r.total_interval_distance_meters ?? null,
-                        r.result_time_seconds ?? r.total_interval_time_seconds ?? null,
+                        fmtExcelTime(totalTime),
                       ];
                       if (isInterval) {
                         for (let i = 0; i < repLabels.length; i++) {
                           const iv = r.result_intervals?.[i];
                           base.push(
                             iv?.dnf ? 'DNF' : fmtSplit(iv?.split_seconds),
-                            iv?.dnf ? 'DNF' : iv?.time_seconds ?? null,
+                            iv?.dnf ? 'DNF' : fmtExcelTime(iv?.time_seconds),
                           );
                         }
                         base.push(
