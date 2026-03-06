@@ -1758,11 +1758,14 @@ export function AssignmentResults() {
                     const title = assignment?.title || assignment?.template_name || 'Assignment Results';
                     const subtitle = `${dateLabel} · ${finishedCount} of ${totalCount} finished`;
                     const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg', 'Weight (lb)', 'Distance', 'Time'];
-                    const intervalColumns = isInterval ? ['Fastest Rep', 'Best Rep', 'Eff (W/lb)', 'Worst Rep', 'Spread'] : [];
-                    const columns = [...baseColumns, ...intervalColumns];
+                    const repCols = isInterval
+                      ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
+                      : [];
+                    const summaryColumns = isInterval ? ['Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
+                    const columns = [...baseColumns, ...repCols, ...summaryColumns];
                     const pdfRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Math.round(r.effective_weight_kg * 2.20462) : null;
-                      const base = [
+                      const base: string[] = [
                         r.athlete_name,
                         r.completed ? (r.dnf ? 'DNF' : 'Completed') : 'Pending',
                         fmtSplit(r.avg_split_seconds),
@@ -1773,8 +1776,14 @@ export function AssignmentResults() {
                         fmtTime(r.result_time_seconds ?? r.total_interval_time_seconds),
                       ];
                       if (isInterval) {
+                        for (let i = 0; i < repLabels.length; i++) {
+                          const iv = r.result_intervals?.[i];
+                          base.push(
+                            iv?.dnf ? 'DNF' : fmtSplit(iv?.split_seconds),
+                            iv?.dnf ? 'DNF' : fmtTime(iv?.time_seconds),
+                          );
+                        }
                         base.push(
-                          fmtSplit(r.rep_best_split_seconds),
                           fmtSplit(r.rep_best_split_seconds),
                           r.best_interval_wplb != null ? r.best_interval_wplb.toFixed(2) : '—',
                           fmtSplit(r.rep_worst_split_seconds),
@@ -1795,8 +1804,11 @@ export function AssignmentResults() {
                 <button
                   onClick={() => {
                     const baseColumns = ['Athlete', 'Status', 'Split /500m', 'Watts', 'W/kg', 'Weight (lb)', 'Distance', 'Time'];
-                    const intervalColumns = isInterval ? ['Fastest Rep', 'Best Rep', 'Eff (W/lb)', 'Worst Rep', 'Spread'] : [];
-                    const columns = [...baseColumns, ...intervalColumns];
+                    const repCols = isInterval
+                      ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
+                      : [];
+                    const summaryColumns = isInterval ? ['Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
+                    const columns = [...baseColumns, ...repCols, ...summaryColumns];
                     const xlsRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Number((r.effective_weight_kg * 2.20462).toFixed(1)) : null;
                       const base: (string | number | null)[] = [
@@ -1810,8 +1822,14 @@ export function AssignmentResults() {
                         r.result_time_seconds ?? r.total_interval_time_seconds ?? null,
                       ];
                       if (isInterval) {
+                        for (let i = 0; i < repLabels.length; i++) {
+                          const iv = r.result_intervals?.[i];
+                          base.push(
+                            iv?.dnf ? 'DNF' : fmtSplit(iv?.split_seconds),
+                            iv?.dnf ? 'DNF' : iv?.time_seconds ?? null,
+                          );
+                        }
                         base.push(
-                          fmtSplit(r.rep_best_split_seconds),
                           fmtSplit(r.rep_best_split_seconds),
                           r.best_interval_wplb != null ? Number(r.best_interval_wplb.toFixed(2)) : null,
                           fmtSplit(r.rep_worst_split_seconds),
@@ -1841,7 +1859,7 @@ export function AssignmentResults() {
                       return `${mins}:${secs.toFixed(1).padStart(4, '0')}`;
                     };
                     const repCols = isInterval
-                      ? Array.from({ length: repLabels.length }, (_, i) => `Rep ${i + 1}`)
+                      ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
                       : [];
                     const columns = [
                       'Athlete', 'Team', 'Squad',
@@ -1860,7 +1878,10 @@ export function AssignmentResults() {
                       if (isInterval) {
                         for (let i = 0; i < repLabels.length; i++) {
                           const iv = r.result_intervals?.[i];
-                          base.push(iv?.dnf ? 'DNF' : fmtRepTime(iv?.time_seconds));
+                          base.push(
+                            iv?.dnf ? 'DNF' : fmtSplit(iv?.split_seconds),
+                            iv?.dnf ? 'DNF' : fmtRepTime(iv?.time_seconds),
+                          );
                         }
                       }
                       base.push(
