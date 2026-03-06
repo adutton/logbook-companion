@@ -16,7 +16,6 @@ import {
   type ZoneDistribution,
   type SeasonLeaderboardEntry,
 } from '../../services/coaching/coachingService';
-import type { Team } from '../../services/coaching/types';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { SquadPowerComparisonChart } from '../../components/coaching/SquadPowerComparisonChart';
 import { WattsPerKgChart } from '../../components/coaching/WattsPerKgChart';
