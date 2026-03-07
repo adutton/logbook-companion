@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Users, Calendar, Settings, ChevronRight, Activity, ClipboardList, BarChart3, ChevronDown, ChevronsRight, Building2 } from 'lucide-react';
+import { Users, Calendar, Settings, ChevronRight, Activity, ClipboardList, BarChart3, ChevronDown, ChevronsRight, Building2, LayoutDashboard } from 'lucide-react';
 import { RowingShellIcon } from '../icons/RowingIcons';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { getTeamStats } from '../../services/coaching/coachingService';
 
 const tabs = [
-  { path: '/team-management/roster', label: 'Roster', icon: Users },
-  { path: '/team-management/schedule', label: 'Schedule', icon: Calendar },
-  { path: '/team-management/assignments', label: 'Assignments', icon: ClipboardList },
-  { path: '/team-management/boatings', label: 'Boatings', icon: RowingShellIcon },
-  { path: '/team-management/analytics', label: 'Analytics', icon: BarChart3 },
-  { path: '/team-management/live', label: 'Live', icon: Activity },
-  { path: '/team-management/settings', label: 'Settings', icon: Settings },
+  { path: '/team-management' as const, label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { path: '/team-management/roster' as const, label: 'Roster', icon: Users, exact: false },
+  { path: '/team-management/schedule' as const, label: 'Schedule', icon: Calendar, exact: false },
+  { path: '/team-management/assignments' as const, label: 'Assignments', icon: ClipboardList, exact: false },
+  { path: '/team-management/boatings' as const, label: 'Boatings', icon: RowingShellIcon, exact: false },
+  { path: '/team-management/analytics' as const, label: 'Analytics', icon: BarChart3, exact: false },
+  { path: '/team-management/live' as const, label: 'Live', icon: Activity, exact: false },
+  { path: '/team-management/settings' as const, label: 'Settings', icon: Settings, exact: false },
 ];
 
 export function CoachingNav() {
@@ -25,7 +26,7 @@ export function CoachingNav() {
   const [rosterCount, setRosterCount] = useState<number | null>(null);
   const [showScrollHint, setShowScrollHint] = useState(false);
   const tabsRef = useRef<HTMLDivElement | null>(null);
-  const currentTab = tabs.find((t) => pathname.startsWith(t.path));
+  const currentTab = tabs.find((t) => !t.exact && pathname.startsWith(t.path));
   const orgName = activeTeam?.org_name ?? null;
 
   // Teams in the current org (for the filter pills)
@@ -166,16 +167,19 @@ export function CoachingNav() {
 
       {/* Tab bar */}
       <div className="relative">
-        <div ref={tabsRef} className="flex gap-1 border-b border-neutral-800 -mb-px overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {tabs.map(({ path, label, icon: Icon }) => {
-            const isActive = pathname.startsWith(path);
+        <div ref={tabsRef} role="tablist" aria-label="Team management sections" className="flex gap-1 border-b border-neutral-800 -mb-px overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {tabs.map(({ path, label, icon: Icon, exact }) => {
+            const isActive = exact ? pathname === path : pathname.startsWith(path);
             const isRoster = path === '/team-management/roster';
             return (
               <Link
                 key={path}
                 to={path}
-                title={label}
-                className={`shrink-0 flex items-center gap-1.5 px-2.5 sm:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                role="tab"
+                aria-selected={isActive}
+                aria-current={isActive ? 'page' : undefined}
+                aria-label={label}
+                className={`shrink-0 flex items-center gap-1.5 px-2.5 sm:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 ${
                   isActive
                     ? 'border-indigo-500 text-indigo-400'
                     : 'border-transparent text-neutral-500 hover:text-neutral-300 hover:border-neutral-700'
