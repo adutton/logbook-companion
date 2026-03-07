@@ -1,8 +1,27 @@
 # Active Context
 
-> Last updated: March 6, 2026
+> Last updated: March 7, 2026
 
-## Session Summary (2026-03-06)
+## Session Summary (2026-03-07)
+
+### Completed This Session
+- [x] **Team Management Navigation & UX Overhaul**
+  - Added Dashboard tab to CoachingNav (first tab, exact-match routing)
+  - Added CoachingNav to CoachDashboard (was missing — only sub-pages had it)
+  - Removed duplicate section nav bar from dashboard (inconsistent anchor vs navigate behavior)
+  - Restructured dashboard layout: team content (weekly focus, stats, leaderboard, today's workouts) now appears FIRST, org content (roster table, hierarchy cards) moved below
+  - Added empty states for Today's Workouts and Season Leaderboard (previously silently hidden)
+  - Added loading context text to org summary spinners ("Loading schedule…", etc.)
+  - Added ARIA attributes to nav tabs (role=tablist/tab, aria-selected, aria-current=page, focus-visible ring)
+  - Cleaned up unused imports and dead code from dashboard
+
+### Remaining from UX Audit (not yet implemented)
+- [ ] Improve coaching access request flow (redirect feedback, realtime approval, sidebar pending badge)
+- [ ] Add section navigation to CoachingSettings (930+ line page with no anchors)
+- [ ] Improve performance tier rubric UX (help text, examples, mobile-responsive)
+- [ ] Add accessibility to Settings dialogs (role=dialog, Escape key, aria-live)
+
+## Previous Session Summary (2026-03-06)
 
 ### Completed This Session
 - [x] CSV Score Import/Export for coaching assignments (full pipeline)
