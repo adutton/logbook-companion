@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Users, Calendar, Settings, ChevronRight, Activity, ClipboardList, BarChart3, ChevronDown, ChevronsRight, Building2, LayoutDashboard } from 'lucide-react';
 import { RowingShellIcon } from '../icons/RowingIcons';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
-import { getTeamStats } from '../../services/coaching/coachingService';
+import { getTeamStats, getTeamAthleteCounts } from '../../services/coaching/coachingService';
 
 const tabs = [
   { path: '/team-management' as const, label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -40,15 +40,29 @@ export function CoachingNav() {
     || (teamsByOrg.some((g) => g.org_id !== null) && teamsByOrg.some((g) => g.org_id === null));
 
   useEffect(() => {
-    if (!teamId) {
+    // Determine which team(s) to count based on the active filter
+    const effectiveTeamId = filterTeamId ?? teamId;
+    if (!effectiveTeamId && !orgId) {
       setRosterCount(null);
       return;
     }
 
-    getTeamStats(teamId)
-      .then((stats) => setRosterCount(stats.athleteCount))
-      .catch(() => setRosterCount(null));
-  }, [teamId]);
+    // "All Teams" in an org — sum counts across all org teams
+    if (filterTeamId === null && orgId && orgTeams.length > 0) {
+      const ids = orgTeams.map((t) => t.team_id);
+      getTeamAthleteCounts(ids)
+        .then((counts) => setRosterCount(Object.values(counts).reduce((a, b) => a + b, 0)))
+        .catch(() => setRosterCount(null));
+      return;
+    }
+
+    // Single team selected (either via filter pill or active team)
+    if (effectiveTeamId) {
+      getTeamStats(effectiveTeamId)
+        .then((stats) => setRosterCount(stats.athleteCount))
+        .catch(() => setRosterCount(null));
+    }
+  }, [teamId, filterTeamId, orgId, orgTeams]);
 
   useEffect(() => {
     const el = tabsRef.current;
