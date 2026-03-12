@@ -122,6 +122,49 @@ function toCoachingAthlete(athlete: Athlete): CoachingAthlete {
   };
 }
 
+const teamRolePriority: Record<TeamRole, number> = {
+  member: 0,
+  coxswain: 1,
+  coach: 2,
+};
+
+function orgRoleToTeamRole(role: OrgRole): TeamRole {
+  switch (role) {
+    case 'owner':
+    case 'admin':
+    case 'coach':
+    default:
+      return 'coach';
+  }
+}
+
+function resolveOrgName(
+  value: { name: string } | { name: string }[] | null | undefined
+): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) return value[0]?.name ?? null;
+  return value.name ?? null;
+}
+
+function mergeUserTeamInfo(
+  existing: UserTeamInfo | undefined,
+  incoming: UserTeamInfo
+): UserTeamInfo {
+  if (!existing) return incoming;
+
+  const role = teamRolePriority[incoming.role] > teamRolePriority[existing.role]
+    ? incoming.role
+    : existing.role;
+
+  return {
+    team_id: existing.team_id,
+    team_name: existing.team_name !== 'Unnamed Team' ? existing.team_name : incoming.team_name,
+    role,
+    org_id: existing.org_id ?? incoming.org_id ?? null,
+    org_name: existing.org_name ?? incoming.org_name ?? null,
+  };
+}
+
 // ─── Team Resolution ────────────────────────────────────────────────────────
 
 /** Get the first team_id for a given user (from team_members) */
@@ -139,24 +182,90 @@ export async function getTeamForUser(userId: string): Promise<string | null> {
 
 /** Get ALL teams a user belongs to (with team name + role + org info) */
 export async function getTeamsForUser(userId: string): Promise<UserTeamInfo[]> {
-  const { data, error } = await supabase
+  const { data: directRows, error: directError } = await supabase
     .from('team_members')
     .select('team_id, role, teams(name, org_id, organizations(name))')
     .eq('user_id', userId)
     .order('joined_at');
 
-  if (error || !data) return [];
-  return (data as unknown as {
+  if (directError || !directRows) return [];
+
+  const directTeams = (directRows as unknown as {
     team_id: string;
     role: string;
-    teams: { name: string; org_id: string | null; organizations: { name: string } | null };
+    teams: {
+      name: string;
+      org_id: string | null;
+      organizations: { name: string } | { name: string }[] | null;
+    } | null;
   }[]).map((row) => ({
     team_id: row.team_id,
     team_name: row.teams?.name ?? 'Unnamed Team',
     role: row.role as TeamRole,
     org_id: row.teams?.org_id ?? null,
-    org_name: row.teams?.organizations?.name ?? null,
+    org_name: resolveOrgName(row.teams?.organizations),
   }));
+
+  const { data: orgMembershipRows, error: orgMembershipError } = await supabase
+    .from('organization_members')
+    .select('org_id, role, organizations(name)')
+    .eq('user_id', userId);
+
+  if (orgMembershipError || !orgMembershipRows || orgMembershipRows.length === 0) {
+    return directTeams;
+  }
+
+  const orgAccess = new Map<string, { role: OrgRole; org_name: string | null }>();
+  for (const row of orgMembershipRows as unknown as {
+    org_id: string;
+    role: OrgRole;
+    organizations: { name: string } | { name: string }[] | null;
+  }[]) {
+    orgAccess.set(row.org_id, {
+      role: row.role,
+      org_name: resolveOrgName(row.organizations),
+    });
+  }
+
+  const orgIds = [...orgAccess.keys()];
+  if (orgIds.length === 0) return directTeams;
+
+  const { data: orgTeamRows, error: orgTeamsError } = await supabase
+    .from('teams')
+    .select('id, name, org_id')
+    .in('org_id', orgIds)
+    .order('name');
+
+  if (orgTeamsError || !orgTeamRows) {
+    return directTeams;
+  }
+
+  const merged = new Map<string, UserTeamInfo>();
+  for (const team of directTeams) {
+    merged.set(team.team_id, team);
+  }
+
+  for (const row of orgTeamRows as { id: string; name: string; org_id: string | null }[]) {
+    if (!row.org_id) continue;
+    const orgEntry = orgAccess.get(row.org_id);
+    if (!orgEntry) continue;
+
+    const nextTeam: UserTeamInfo = {
+      team_id: row.id,
+      team_name: row.name,
+      role: orgRoleToTeamRole(orgEntry.role),
+      org_id: row.org_id,
+      org_name: orgEntry.org_name,
+    };
+
+    merged.set(nextTeam.team_id, mergeUserTeamInfo(merged.get(nextTeam.team_id), nextTeam));
+  }
+
+  return Array.from(merged.values()).sort((a, b) => {
+    const orgA = a.org_name ?? 'Standalone Teams';
+    const orgB = b.org_name ?? 'Standalone Teams';
+    return orgA.localeCompare(orgB) || a.team_name.localeCompare(b.team_name);
+  });
 }
 
 // ─── Team CRUD ──────────────────────────────────────────────────────────────

@@ -15,8 +15,9 @@ import {
   Mail,
   Building2,
   TriangleAlert,
+  Plus,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import { formatErgTime, getDefaultBenchmarkRubric, parseErgTimeInput, PERFORMANCE_TIER_SQUADS, type SquadKey } from '../../utils/performanceTierRubric';
@@ -399,7 +400,19 @@ export function CoachingSettings() {
       <CoachingNav />
       <div className="px-4 sm:px-6 py-6 max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <h1 className="text-2xl font-bold text-white">Team Settings</h1>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Team Settings</h1>
+            <p className="text-neutral-400 mt-1">Manage this team, or create another one for the same program.</p>
+          </div>
+          <RouterLink
+            to="/team-management/setup"
+            className="self-start flex items-center gap-1.5 px-3 py-2 border border-neutral-700 text-neutral-300 rounded-lg hover:bg-neutral-800 transition-colors text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Another Team</span>
+          </RouterLink>
+        </div>
 
         {/* Error */}
         {error && (

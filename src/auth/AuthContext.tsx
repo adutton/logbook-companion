@@ -84,7 +84,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(data)
       }
 
-      // Check if user has coach or coxswain role in any team, OR has an approved coaching request
+      // Check if user has team-scoped coach/coxswain access, org-scoped coach access,
+      // or an approved coaching request.
       const { data: coachRow } = await supabase
         .from('team_members')
         .select('id')
@@ -94,6 +95,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle()
 
       let isCoach = !!coachRow
+      if (!isCoach) {
+        const { data: orgCoachRow } = await supabase
+          .from('organization_members')
+          .select('id')
+          .eq('user_id', userId)
+          .limit(1)
+          .maybeSingle()
+        isCoach = !!orgCoachRow
+      }
       if (!isCoach) {
         const { data: approvedRequest } = await supabase
           .from('coaching_access_requests')
