@@ -55,4 +55,32 @@ describe('workoutEntryClassifier', () => {
       { fixedType: 'time', fixedValue: 420, label: '7:00' },
     ]);
   });
+
+  test('treats one-repeat distance intervals as a single fixed-distance piece for entry', () => {
+    const shape = parseWorkoutStructureForEntry({
+      type: 'interval',
+      repeats: 1,
+      work: { type: 'distance', value: 2000 },
+      rest: { type: 'time', value: 0 },
+      tags: [],
+    });
+
+    expect(shape).toEqual({
+      type: 'fixed_distance',
+      fixedDistance: 2000,
+      reps: 1,
+      label: '2000m',
+    });
+  });
+
+  test('treats one-repeat interval notation as a single fixed-distance piece for entry', () => {
+    const shape = parseCanonicalForEntry('1x2000m/5:00r');
+
+    expect(shape).toEqual({
+      type: 'fixed_distance',
+      fixedDistance: 2000,
+      reps: 1,
+      label: '2000m',
+    });
+  });
 });

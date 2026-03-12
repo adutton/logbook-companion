@@ -4,6 +4,44 @@
 
 ---
 
+## Phase 36: CSV Single-Piece Assignment Import Alignment (March 12, 2026)
+
+**Timeline**: March 12, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- `src/components/coaching/ImportCsvModal.tsx`
+  - import flow now derives assignment entry shape from `workout_structure` first, with canonical-name fallback to match results-entry behavior.
+  - single-piece assignments now parse CSVs in single-result mode instead of assuming every non-name column is an interval rep.
+  - review step now exposes CSV column selectors for athlete-name and result-time mapping when importing a single-piece effort.
+  - single-piece saves now write top-level fields (`result_time_seconds`, `result_distance_meters`, `result_split_seconds`) and leave `result_intervals` null.
+
+- `src/utils/csvScoreParser.ts`
+  - added assignment-aware parse modes: `intervals` and `single_piece`.
+  - added column metadata + heuristics so single-piece imports prefer overall time columns and avoid metadata columns like split/watts/weight/classification.
+  - interval parsing now prefers rep-labeled/time-like columns instead of blindly consuming every non-empty header.
+
+- `src/utils/workoutEntryClassifier.ts`
+  - one-repeat interval shapes are now normalized to single-piece entry semantics (`fixed_distance` / `fixed_time`) for result capture.
+
+- Tests:
+  - added `src/utils/csvScoreParser.test.ts` for 2k single-piece CSV parsing and interval-column filtering.
+  - extended `src/utils/workoutEntryClassifier.test.ts` with one-repeat interval regression coverage.
+
+### Validation
+
+- Targeted: `npm run test:run -- src/utils/workoutEntryClassifier.test.ts src/utils/csvScoreParser.test.ts` → ✅ pass
+- Repo build: `npm run build` → ✅ pass
+- Full tests: `npm run test:run` → ✅ pass (`225/225`)
+- Repo lint: `npm run lint` → ⚠️ fails on pre-existing unrelated issues outside this change
+
+### Outcome
+
+2k-style benchmark CSVs now follow the assignment/RWN-derived workout shape, so a single continuous test imports as one piece instead of a fake multi-interval workout built from metadata columns.
+
+---
+
 ## Phase 35: Rubric-Based Performance Tier Rendering (Squad + 2k) (February 26, 2026)
 
 **Timeline**: February 26, 2026  

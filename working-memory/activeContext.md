@@ -1,6 +1,21 @@
 # Active Context
 
-> Last updated: March 7, 2026
+> Last updated: March 12, 2026
+
+## Session Summary (2026-03-12)
+
+### Completed This Session
+- [x] **CSV single-piece assignment import fix**
+  - `ImportCsvModal` now derives workout shape from assignment structure/canonical name before parsing CSV rows.
+  - Single-piece assignments (including one-repeat interval-shaped work like `1x2000m`) now parse as a single result column instead of treating every later CSV column as a rep.
+  - Review step now exposes CSV column mapping for athlete name + single-result time when the assignment is a single-piece effort.
+  - Single-piece imports now save into top-level assignment result fields (`result_time_seconds`, `result_distance_meters`, `result_split_seconds`) instead of interval-style `result_intervals`.
+  - Added parser + classifier regression coverage for 2k CSV imports and one-repeat interval normalization.
+
+### Current Notes
+- `npm run build` ✅
+- `npm run test:run` ✅ (`225/225`)
+- `npm run lint` still fails on pre-existing unrelated repo issues (scripts, analytics files, and existing `src/App.tsx` hook/ref lint violations).
 
 ## Session Summary (2026-03-07)
 

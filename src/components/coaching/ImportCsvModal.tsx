@@ -7,7 +7,7 @@
  *   3. Confirm: save matched results via saveAssignmentResults()
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -21,7 +21,7 @@ import {
 import { toast } from 'sonner';
 
 import { Modal } from '../ui/Modal';
-import { parseCsvScores, type CsvScoreRow } from '../../utils/csvScoreParser';
+import { parseCsvScores, type CsvScoreRow, type CsvColumnOption } from '../../utils/csvScoreParser';
 import { matchAthleteNames, type NameMatch } from '../../utils/athleteNameMatcher';
 import {
   saveAssignmentResults,
@@ -31,7 +31,7 @@ import {
   type GroupAssignment,
 } from '../../services/coaching/coachingService';
 import type { CoachingAthlete } from '../../services/coaching/types';
-import { parseWorkoutStructureForEntry, computeSplit } from '../../utils/workoutEntryClassifier';
+import { parseWorkoutStructureForEntry, parseCanonicalForEntry, computeSplit } from '../../utils/workoutEntryClassifier';
 import { supabase } from '../../services/supabase';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -59,23 +59,61 @@ export function ImportCsvModal({
   teamId,
   orgId,
 }: ImportCsvModalProps) {
+  const assignmentShape = useMemo(() => {
+    const shapeSource = assignment.canonical_name;
+    const shapeLabelSource = assignment.canonical_name ?? assignment.template_name ?? assignment.title;
+    return (
+      parseWorkoutStructureForEntry(assignment.workout_structure ?? undefined, shapeLabelSource ?? undefined) ??
+      parseCanonicalForEntry(shapeSource)
+    );
+  }, [assignment.canonical_name, assignment.template_name, assignment.title, assignment.workout_structure]);
+  const isIntervalAssignment = assignmentShape.reps > 1;
+  const importMode = isIntervalAssignment ? 'intervals' as const : 'single_piece' as const;
+
   const [step, setStep] = useState<'upload' | 'review' | 'saving'>('upload');
   const [csvText, setCsvText] = useState('');
   const [parsedRows, setParsedRows] = useState<CsvScoreRow[]>([]);
   const [repCount, setRepCount] = useState(0);
   const [matches, setMatches] = useState<NameMatch[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [columns, setColumns] = useState<CsvColumnOption[]>([]);
+  const [nameColumnIndex, setNameColumnIndex] = useState(0);
+  const [singleResultColumnIndex, setSingleResultColumnIndex] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    setStep('upload');
+    setCsvText('');
+    setParsedRows([]);
+    setRepCount(0);
+    setMatches([]);
+    setParseErrors([]);
+    setColumns([]);
+    setNameColumnIndex(0);
+    setSingleResultColumnIndex(null);
+    setIsSaving(false);
+  }, [open, importMode]);
 
   // ── Step 1: Parse & Match ─────────────────────────────────────────────────
 
   const handleParse = useCallback(
-    (text: string) => {
-      const { rows, repCount: reps, errors } = parseCsvScores(text);
+    (text: string, overrides?: { nameColumnIndex?: number; singleResultColumnIndex?: number | null }) => {
+      const { rows, repCount: reps, errors, columns: parsedColumns, nameColumnIndex: resolvedNameColumnIndex, singleResultColumnIndex: resolvedResultColumnIndex } = parseCsvScores(text, {
+        mode: importMode,
+        nameColumnIndex: overrides?.nameColumnIndex ?? nameColumnIndex,
+        singleResultColumnIndex:
+          overrides?.singleResultColumnIndex ?? singleResultColumnIndex ?? undefined,
+      });
+
       setParsedRows(rows);
       setRepCount(reps);
       setParseErrors(errors);
+      setColumns(parsedColumns);
+      setNameColumnIndex(resolvedNameColumnIndex);
+      setSingleResultColumnIndex(resolvedResultColumnIndex);
 
       if (rows.length === 0) {
         toast.error(errors.length > 0 ? errors[0] : 'No data rows found in CSV.');
@@ -90,7 +128,7 @@ export function ImportCsvModal({
       setMatches(result.matches);
       setStep('review');
     },
-    [athletes]
+    [athletes, importMode, nameColumnIndex, singleResultColumnIndex]
   );
 
   const handleFileSelect = useCallback(
@@ -146,10 +184,7 @@ export function ImportCsvModal({
     setStep('saving');
 
     try {
-      // Determine distance per rep from workout structure (needed for split calc)
-      const shape = parseWorkoutStructureForEntry(
-        assignment.workout_structure ?? undefined
-      );
+      const shape = assignmentShape;
 
       // Find which athletes already have assignment rows
       const existingRows = await getAssignmentResultsWithAthletes(
@@ -200,15 +235,46 @@ export function ImportCsvModal({
         const csvRow = parsedRows.find((r) => r.line === m.csvLine)!;
         const allDnf = csvRow.intervals.every((i) => i.dnf);
 
+        // Single-piece workouts should follow the same semantics as manual results entry:
+        // store the top-level result fields and leave result_intervals null.
+        if (!isIntervalAssignment) {
+          const primaryResult = csvRow.intervals[0];
+          const totalTime = allDnf
+            ? null
+            : primaryResult?.time_seconds ?? csvRow.total_seconds ?? null;
+          let resultDistance: number | null = null;
+          let resultSplit: number | null = null;
+
+          if (shape.type === 'fixed_distance' && totalTime != null && shape.fixedDistance) {
+            resultDistance = shape.fixedDistance;
+            resultSplit = computeSplit(totalTime, resultDistance);
+          }
+
+          const ath = m.athlete!;
+          const weight = latestWeightMap.get(ath.id)
+            ?? (ath.weight_kg && ath.weight_kg > 0 ? ath.weight_kg : null);
+
+          return {
+            athlete_id: ath.id,
+            completed: true,
+            result_time_seconds: totalTime,
+            result_distance_meters: resultDistance,
+            result_split_seconds: resultSplit,
+            result_stroke_rate: null,
+            result_intervals: null,
+            result_weight_kg: weight,
+          };
+        }
+
         const enrichedIntervals: IntervalResult[] = csvRow.intervals.map((iv, i) => {
           if (iv.dnf) {
             return { rep: iv.rep, dnf: true, time_seconds: null, distance_meters: null, split_seconds: null, stroke_rate: null };
           }
 
           let repDistance: number | null = null;
-          if (shape?.type === 'distance_interval' && shape.fixedDistance) {
+          if (shape.type === 'distance_interval' && shape.fixedDistance) {
             repDistance = shape.fixedDistance;
-          } else if (shape?.type === 'variable_interval' && shape.variableReps?.[i]) {
+          } else if (shape.type === 'variable_interval' && shape.variableReps?.[i]) {
             const vr = shape.variableReps[i];
             if (vr.fixedType === 'distance') repDistance = vr.fixedValue;
           }
@@ -253,7 +319,7 @@ export function ImportCsvModal({
     } finally {
       setIsSaving(false);
     }
-  }, [matches, parsedRows, groupAssignmentId, assignment, teamId, orgId, onComplete]);
+  }, [matches, parsedRows, groupAssignmentId, assignment, teamId, orgId, onComplete, assignmentShape, isIntervalAssignment]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -265,6 +331,8 @@ export function ImportCsvModal({
   const matchedAthleteIds = new Set(
     matches.filter((m) => m.athlete).map((m) => m.athlete!.id)
   );
+  const selectedResultColumnLabel =
+    columns.find((column) => column.index === singleResultColumnIndex)?.header ?? 'Result Time';
 
   // ── Format helpers ────────────────────────────────────────────────────────
 
@@ -281,14 +349,18 @@ export function ImportCsvModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Import Results from CSV"
-      description={
-        step === 'upload'
-          ? 'Upload a CSV file or paste data. First column = athlete name, remaining columns = rep times.'
+        title="Import Results from CSV"
+        description={
+          step === 'upload'
+          ? importMode === 'single_piece'
+            ? 'Upload a CSV file or paste data. This assignment is a single-piece result, so you can choose the athlete and result-time columns during review.'
+            : 'Upload a CSV file or paste data. First column = athlete name, remaining columns = rep times.'
           : step === 'review'
-            ? `${matchedCount} matched · ${unmatchedCount} unmatched · ${repCount} reps detected`
+            ? importMode === 'single_piece'
+              ? `${matchedCount} matched · ${unmatchedCount} unmatched · single-piece import`
+              : `${matchedCount} matched · ${unmatchedCount} unmatched · ${repCount} reps detected`
             : 'Saving results…'
-      }
+        }
       size="full"
       className="max-w-5xl"
       closeOnBackdrop={!isSaving}
@@ -371,6 +443,55 @@ export function ImportCsvModal({
       {/* ── Step 2: Review Matches ── */}
       {step === 'review' && (
         <div className="space-y-3">
+          {columns.length > 0 && (
+            <div className="rounded-lg border border-border bg-surface-secondary/60 p-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-content-muted mb-3">
+                <span className="font-medium text-content-secondary">Assignment shape:</span>
+                <span className="inline-flex items-center rounded-full border border-border px-2 py-1">
+                  {assignmentShape.label}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-border px-2 py-1">
+                  {importMode === 'single_piece' ? 'Single piece' : 'Interval workout'}
+                </span>
+              </div>
+              <div className={`grid gap-3 ${importMode === 'single_piece' ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
+                <label className="block text-xs text-content-muted">
+                  Athlete name column
+                  <select
+                    value={nameColumnIndex}
+                    onChange={(e) => handleParse(csvText, { nameColumnIndex: Number(e.target.value) })}
+                    className="mt-1 w-full rounded-lg border border-border bg-surface-primary px-3 py-2 text-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  >
+                    {columns.map((column) => (
+                      <option key={column.index} value={column.index}>
+                        {column.header}{column.sample ? ` — ${column.sample}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {importMode === 'single_piece' && (
+                  <label className="block text-xs text-content-muted">
+                    Result time column
+                    <select
+                      value={singleResultColumnIndex ?? ''}
+                      onChange={(e) => handleParse(csvText, { singleResultColumnIndex: Number(e.target.value) })}
+                      className="mt-1 w-full rounded-lg border border-border bg-surface-primary px-3 py-2 text-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                    >
+                      {columns
+                        .filter((column) => column.index !== nameColumnIndex)
+                        .map((column) => (
+                          <option key={column.index} value={column.index}>
+                            {column.header}{column.sample ? ` — ${column.sample}` : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Summary badges */}
           <div className="flex flex-wrap gap-2 text-xs">
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-900/30 text-emerald-400 border border-emerald-800/50">
@@ -391,7 +512,7 @@ export function ImportCsvModal({
             )}
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-neutral-800 text-neutral-400 border border-neutral-700">
               <FileSpreadsheet className="w-3 h-3" />
-              {parsedRows.length} rows · {repCount} reps
+              {parsedRows.length} rows · {importMode === 'single_piece' ? 'single piece' : `${repCount} reps`}
             </span>
           </div>
 
@@ -405,10 +526,12 @@ export function ImportCsvModal({
                   <th className="text-left px-3 py-2 font-medium">Status</th>
                   {Array.from({ length: repCount }, (_, i) => (
                     <th key={i} className="text-right px-2 py-2 font-medium font-mono">
-                      R{i + 1}
+                      {importMode === 'single_piece' ? selectedResultColumnLabel : `R${i + 1}`}
                     </th>
                   ))}
-                  <th className="text-right px-3 py-2 font-medium">Total</th>
+                  {importMode !== 'single_piece' && (
+                    <th className="text-right px-3 py-2 font-medium">Total</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -510,9 +633,11 @@ export function ImportCsvModal({
                       ))}
 
                       {/* Total */}
-                      <td className="text-right px-3 py-2 font-mono text-xs text-content-primary font-medium">
-                        {fmtTime(csvRow?.total_seconds)}
-                      </td>
+                      {importMode !== 'single_piece' && (
+                        <td className="text-right px-3 py-2 font-mono text-xs text-content-primary font-medium">
+                          {fmtTime(csvRow?.total_seconds)}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

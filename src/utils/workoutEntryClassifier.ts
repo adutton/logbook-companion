@@ -86,6 +86,14 @@ export function parseWorkoutStructureForEntry(
 
     case 'interval': {
       if (workoutStructure.work.type === 'distance') {
+        if (workoutStructure.repeats <= 1) {
+          return {
+            type: 'fixed_distance',
+            fixedDistance: workoutStructure.work.value,
+            reps: 1,
+            label: `${workoutStructure.work.value}m`,
+          };
+        }
         return {
           type: 'distance_interval',
           fixedDistance: workoutStructure.work.value,
@@ -94,6 +102,14 @@ export function parseWorkoutStructureForEntry(
         };
       }
       if (workoutStructure.work.type === 'time') {
+        if (workoutStructure.repeats <= 1) {
+          return {
+            type: 'fixed_time',
+            fixedTime: workoutStructure.work.value,
+            reps: 1,
+            label: formatTimeLabel(workoutStructure.work.value),
+          };
+        }
         return {
           type: 'time_interval',
           fixedTime: workoutStructure.work.value,
@@ -189,6 +205,14 @@ export function parseCanonicalForEntry(canonical: string | null | undefined): En
 
     case 'interval': {
       if (structure.work.type === 'distance') {
+        if (structure.repeats <= 1) {
+          return {
+            type: 'fixed_distance',
+            fixedDistance: structure.work.value,
+            reps: 1,
+            label: `${structure.work.value}m`,
+          };
+        }
         return {
           type: 'distance_interval',
           fixedDistance: structure.work.value,
@@ -197,6 +221,14 @@ export function parseCanonicalForEntry(canonical: string | null | undefined): En
         };
       }
       if (structure.work.type === 'time') {
+        if (structure.repeats <= 1) {
+          return {
+            type: 'fixed_time',
+            fixedTime: structure.work.value,
+            reps: 1,
+            label: formatTimeLabel(structure.work.value),
+          };
+        }
         return {
           type: 'time_interval',
           fixedTime: structure.work.value,
