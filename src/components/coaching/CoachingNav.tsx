@@ -153,6 +153,7 @@ export function CoachingNav() {
       {/* Team filter pills (org coaches with multiple teams) */}
       {showFilterPills && (
         <div className="flex items-center gap-1.5 mb-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <span className="shrink-0 text-xs font-medium text-neutral-500 uppercase tracking-wider mr-1">Filter:</span>
           <button
             onClick={() => setFilterTeamId(null)}
             className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${

@@ -181,6 +181,7 @@ export const CoachDashboard: React.FC = () => {
   const [orgRosterLoading, setOrgRosterLoading] = useState(false);
   const [showOrgRoster, setShowOrgRoster] = useState(false);
   const [orgSectionsOpen, setOrgSectionsOpen] = useState(true);
+  const [teamHierarchyOpen, setTeamHierarchyOpen] = useState(false);
   const [orgRosterSearch, setOrgRosterSearch] = useState('');
   const [orgDataLoading, setOrgDataLoading] = useState(false);
   const [orgSessions, setOrgSessions] = useState<OrgSessionRow[]>([]);
@@ -1044,11 +1045,20 @@ export const CoachDashboard: React.FC = () => {
 
       {/* ── Org / Team Hierarchy ──────────────────────────── */}
       <div className="mb-8 space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
-          <Building2 className="w-4 h-4" />
-          {orgId ? `${currentOrgName} & Teams` : 'Organizations & Teams'}
-        </h2>
-        {sortedOrgGroups.map((group) => (
+        <button
+          onClick={() => setTeamHierarchyOpen((v) => !v)}
+          className="w-full flex items-center gap-2 text-left group"
+        >
+          {teamHierarchyOpen
+            ? <ChevronDown className="w-4 h-4 text-neutral-500" />
+            : <ChevronRight className="w-4 h-4 text-neutral-500" />}
+          <span className="text-sm font-semibold uppercase tracking-wider text-neutral-500 group-hover:text-neutral-300 transition-colors flex items-center gap-2">
+            <Building2 className="w-4 h-4" />
+            {orgId ? `${currentOrgName} & Teams` : 'Organizations & Teams'}
+          </span>
+          <div className="h-px flex-1 bg-neutral-800" />
+        </button>
+        {teamHierarchyOpen && sortedOrgGroups.map((group) => (
           <OrgCard
             key={group.org_id ?? '__standalone'}
             group={group}

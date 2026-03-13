@@ -39,6 +39,7 @@ import {
   FileText,
   FileDown,
   Upload,
+  Flag,
 } from 'lucide-react';
 import {
   BarChart,
@@ -420,6 +421,105 @@ function SplitBarChart({ rows }: { rows: EnrichedRow[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ─── Chart: Race Finish ───────────────────────────────────────────────────────
+
+function RaceFinishChart({ rows }: { rows: EnrichedRow[] }) {
+  const finishers = [...rows]
+    .filter((r) => r.completed && !r.dnf && r.avg_split_seconds != null)
+    .sort((a, b) => (a.avg_split_seconds ?? 999) - (b.avg_split_seconds ?? 999));
+
+  if (finishers.length < 2) return null;
+
+  // Use result_time_seconds if available (single-distance test), otherwise total interval time
+  const getTime = (r: EnrichedRow) => r.result_time_seconds ?? r.total_interval_time_seconds ?? null;
+  const timesAvailable = finishers.some((r) => getTime(r) != null);
+  if (!timesAvailable) return null;
+
+  const fastestTime = Math.min(...finishers.map((r) => getTime(r) ?? Infinity));
+  const slowestTime = Math.max(...finishers.map((r) => getTime(r) ?? 0));
+
+  const medalColors = ['#fbbf24', '#94a3b8', '#d97706']; // gold, silver, bronze
+
+  const data = finishers.map((r, i) => {
+    const time = getTime(r) ?? 0;
+    return {
+      name: r.athlete_name,
+      time,
+      timeLabel: fmtTime(time),
+      splitLabel: fmtSplit(r.avg_split_seconds),
+      gap: i === 0 ? '' : `+${(time - fastestTime).toFixed(1)}s`,
+      fill: i < 3 ? medalColors[i] : '#4b5563',
+      rank: i + 1,
+    };
+  });
+
+  const barHeight = 28;
+  const chartHeight = Math.max(180, data.length * barHeight + 60);
+
+  return (
+    <div className="bg-neutral-800/50 rounded-xl p-4 space-y-3 col-span-full">
+      <h3 className="text-sm font-semibold text-neutral-300 flex items-center gap-2">
+        <Flag className="w-4 h-4 text-indigo-400" />
+        Race Finish
+      </h3>
+      <div role="img" aria-label="Race finish order chart">
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ top: 5, right: 80, left: 10, bottom: 5 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
+            <XAxis
+              type="number"
+              domain={[fastestTime - (slowestTime - fastestTime) * 0.05, slowestTime + (slowestTime - fastestTime) * 0.05]}
+              tickFormatter={(v) => fmtTime(v)}
+              tick={{ fill: '#9ca3af', fontSize: 10 }}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={110}
+              tick={({ x, y, payload }: { x: number; y: number; payload: { value: string; index: number } }) => {
+                const item = data[payload.index];
+                const medal = item?.rank <= 3;
+                return (
+                  <g>
+                    <text x={x} y={y} textAnchor="end" dominantBaseline="central" fill={medal ? item.fill : '#9ca3af'} fontSize={11} fontWeight={medal ? 600 : 400}>
+                      {`${item?.rank}. ${payload.value}`}
+                    </text>
+                  </g>
+                );
+              }}
+              interval={0}
+            />
+            <Tooltip
+              contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
+              content={({ payload }) => {
+                if (!payload?.length) return null;
+                const p = payload[0].payload as (typeof data)[number];
+                return (
+                  <div className="p-2 text-xs text-neutral-200">
+                    <div className="font-semibold">{p.name}</div>
+                    <div>Time: {p.timeLabel}</div>
+                    <div>Split: {p.splitLabel}</div>
+                    {p.gap && <div className="text-neutral-400">{p.gap}</div>}
+                  </div>
+                );
+              }}
+            />
+            <Bar dataKey="time" radius={[0, 4, 4, 0]} barSize={barHeight - 6}>
+              {data.map((d, i) => (
+                <Cell key={i} fill={d.fill} fillOpacity={i < 3 ? 0.9 : 0.5} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -2207,6 +2307,9 @@ export function AssignmentResults() {
                   <RepProgressionChart rows={rows} repLabels={repLabels} />
                 </div>
               )}
+
+              {/* Race finish visualization (full-width, single-distance tests) */}
+              {!isInterval && <RaceFinishChart rows={rows} />}
 
               {/* Bar charts (1-2 per row on wider screens) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
