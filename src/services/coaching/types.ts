@@ -37,6 +37,7 @@ export interface Team {
   max_members: number;
   is_public: boolean;
   org_id?: string | null; // FK → organizations (null for standalone/legacy teams)
+  titan_window_size: number; // default 5 — rolling window for season Titan Index
   created_at: string;
   updated_at: string;
 }

@@ -636,8 +636,8 @@ function BoatingForm({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-md my-8">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-start justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 w-full max-w-2xl my-8 max-h-[calc(100vh-4rem)] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">{boating ? 'Edit Lineup' : 'New Lineup'}</h2>
           <button onClick={onCancel} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors" title="Close">
@@ -646,7 +646,7 @@ function BoatingForm({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="boat-name" className="block text-sm font-medium text-neutral-300 mb-2">Boat Name</label>
               <input id="boat-name" type="text" value={boatName} onChange={(e) => setBoatName(e.target.value)}
@@ -667,12 +667,11 @@ function BoatingForm({
                 <option value="1x">1x (Single)</option>
               </select>
             </div>
-          </div>
-
-          <div>
-            <label htmlFor="boating-date" className="block text-sm font-medium text-neutral-300 mb-2">Date</label>
-            <input id="boating-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
-              className="w-full px-4 py-3 bg-neutral-800 border border-neutral-700 rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
+            <div>
+              <label htmlFor="boating-date" className="block text-sm font-medium text-neutral-300 mb-2">Date</label>
+              <input id="boating-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
+                className="w-full px-4 py-3 bg-neutral-800 border border-neutral-700 rounded-xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none" />
+            </div>
           </div>
 
           {/* Seat assignments */}
@@ -681,7 +680,7 @@ function BoatingForm({
 
             {hasCox && (
               <div className="flex items-center gap-3 p-2 bg-amber-900/20 rounded-xl">
-                <label htmlFor="seat-cox" className="w-24 text-sm font-medium text-amber-400">Coxswain</label>
+                <label htmlFor="seat-cox" className="w-20 text-sm font-medium text-amber-400 shrink-0">Coxswain</label>
                 <select id="seat-cox" value={getAthleteForSeat(0)} onChange={(e) => setPosition(0, e.target.value)}
                   className="flex-1 px-3 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none">
                   <option value="">— Select —</option>
@@ -692,11 +691,12 @@ function BoatingForm({
               </div>
             )}
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {Array.from({ length: seatCount }, (_, i) => seatCount - i).map((seat) => (
               <div key={seat} className={`flex items-center gap-3 p-2 rounded-xl ${
                 seat === seatCount ? 'bg-indigo-500/5' : seat === 1 ? 'bg-teal-900/20' : ''
               }`}>
-                <label htmlFor={`seat-${seat}`} className={`w-24 text-sm font-medium ${
+                <label htmlFor={`seat-${seat}`} className={`w-20 text-sm font-medium shrink-0 ${
                   seat === seatCount ? 'text-indigo-400' : seat === 1 ? 'text-teal-400' : 'text-neutral-400'
                 }`}>{getSeatLabel(seat)}</label>
                 <select id={`seat-${seat}`} value={getAthleteForSeat(seat)} onChange={(e) => setPosition(seat, e.target.value)}
@@ -708,6 +708,7 @@ function BoatingForm({
                 </select>
               </div>
             ))}
+            </div>
           </div>
 
           <div>

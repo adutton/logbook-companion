@@ -331,7 +331,7 @@ export async function createTeam(
 /** Update team name/description */
 export async function updateTeam(
   teamId: string,
-  updates: Partial<Pick<Team, 'name' | 'description'>>
+  updates: Partial<Pick<Team, 'name' | 'description' | 'titan_window_size'>>
 ): Promise<Team> {
   return throwOnError(
     await supabase
@@ -2309,6 +2309,83 @@ export async function saveAssignmentResults(
 
     if (error) throw error;
   }
+
+  // Fire-and-forget: compute per-workout titan indexes for this assignment
+  computeAndStoreWorkoutTitanIndex(groupAssignmentId).catch(() => {});
+}
+
+/**
+ * Compute per-workout Titan Index (0–100) for all completed athletes in a
+ * group assignment, then write the values back to daily_workout_assignments.
+ *
+ * Called after saveAssignmentResults. Runs asynchronously — failures are
+ * non-fatal (the leaderboard still works, it just won't have stored titan
+ * data for this workout until the next score save).
+ */
+async function computeAndStoreWorkoutTitanIndex(groupAssignmentId: string): Promise<void> {
+  // 1. Fetch all completed rows for this assignment
+  const cols = resultWeightColumnAvailable !== false
+    ? 'athlete_id, result_split_seconds, result_intervals, result_weight_kg'
+    : 'athlete_id, result_split_seconds, result_intervals';
+  const { data: rows, error: fetchErr } = await supabase
+    .from('daily_workout_assignments')
+    .select(cols)
+    .eq('group_assignment_id', groupAssignmentId)
+    .eq('completed', true);
+  if (fetchErr || !rows || rows.length < 2) return;
+
+  // 2. Fetch athlete weights for those missing result_weight_kg
+  const athleteIds = (rows as unknown as Array<Record<string, unknown>>).map((r) => r.athlete_id as string);
+  const { data: athletes } = await supabase
+    .from('athletes')
+    .select('id, weight_kg')
+    .in('id', athleteIds);
+  const weightMap = new Map((athletes ?? []).map((a: { id: string; weight_kg: number | null }) => [a.id, a.weight_kg]));
+
+  // 3. Build per-athlete split + wplb
+  const scored: Array<{ athleteId: string; split: number; wplb: number }> = [];
+  for (const r of (rows as unknown as Array<Record<string, unknown>>)) {
+    const split = calcLeaderboardAvgSplit(r as LeaderboardDailyRow);
+    if (split == null || split <= 0) continue;
+    const resultWeight = (r.result_weight_kg as number | null) ?? null;
+    const athleteWeight = weightMap.get(r.athlete_id as string) ?? null;
+    const effectiveWeightKg = (resultWeight && resultWeight > 0) ? resultWeight : (athleteWeight && athleteWeight > 0 ? athleteWeight : null);
+    if (!effectiveWeightKg) continue;
+    const watts = wattsFromSplit(split);
+    const wplb = (watts / effectiveWeightKg) / 2.20462;
+    scored.push({ athleteId: r.athlete_id as string, split, wplb });
+  }
+  if (scored.length < 2) return;
+
+  // 4. Z-score both dimensions
+  const splits = scored.map((s) => s.split);
+  const wplbs = scored.map((s) => s.wplb);
+  const mean = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
+  const std = (arr: number[], m: number) => Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length);
+  const splitMean = mean(splits); const splitStd = std(splits, splitMean);
+  const wplbMean = mean(wplbs); const wplbStd = std(wplbs, wplbMean);
+
+  const rawScores: Array<{ athleteId: string; raw: number }> = [];
+  for (const s of scored) {
+    const speedZ = splitStd > 0 ? -(s.split - splitMean) / splitStd : 0;
+    const effZ = wplbStd > 0 ? (s.wplb - wplbMean) / wplbStd : 0;
+    rawScores.push({ athleteId: s.athleteId, raw: (speedZ + effZ) / 2 });
+  }
+
+  const rawVals = rawScores.map((r) => r.raw);
+  const minZ = Math.min(...rawVals); const maxZ = Math.max(...rawVals);
+  const range = maxZ - minZ;
+  if (range <= 0) return;
+
+  // 5. Write titan_index back to each row
+  for (const r of rawScores) {
+    const titan = ((r.raw - minZ) / range) * 100;
+    await supabase
+      .from('daily_workout_assignments')
+      .update({ titan_index: Math.round(titan * 10) / 10 })
+      .eq('group_assignment_id', groupAssignmentId)
+      .eq('athlete_id', r.athleteId);
+  }
 }
 
 /** Compliance grid data: all athletes × all assignments for a date range */
@@ -2577,6 +2654,7 @@ type LeaderboardDailyRow = {
   result_distance_meters?: number | null;
   result_weight_kg?: number | null;
   result_intervals?: IntervalResult[] | null;
+  titan_index?: number | null;
 };
 
 function calcLeaderboardAvgSplit(row: LeaderboardDailyRow): number | null {
@@ -2635,8 +2713,10 @@ export interface SeasonLeaderboardEntry {
   latest_distance: number | null;
   /** Most recent assignment: watts per pound */
   latest_wplb: number | null;
+  /** Rolling-window Titan Index (average of last N per-workout titan indexes). Higher is better. */
+  titan_index: number | null;
   /** Per-assignment raw scores for client-side re-ranking when filters change */
-  score_history: { assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null }[];
+  score_history: { assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null; titan_index: number | null }[];
 }
 
 /**
@@ -2646,8 +2726,9 @@ export interface SeasonLeaderboardEntry {
  */
 export async function getSeasonMeasuredLeaderboard(
   teamId: string,
-  opts?: { from?: string; to?: string; limit?: number; orgId?: string }
+  opts?: { from?: string; to?: string; limit?: number; orgId?: string; titanWindowSize?: number }
 ): Promise<SeasonLeaderboardEntry[]> {
+  void (opts?.titanWindowSize); // reserved for rolling window feature
   const assignments = await getGroupAssignments(teamId, { from: opts?.from, to: opts?.to, orgId: opts?.orgId });
   if (assignments.length === 0) return [];
 
@@ -2667,7 +2748,7 @@ export async function getSeasonMeasuredLeaderboard(
   if (resultWeightColumnAvailable !== false) {
     let query = supabase
       .from('daily_workout_assignments')
-      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_time_seconds, result_distance_meters, result_weight_kg, result_intervals')
+      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_time_seconds, result_distance_meters, result_weight_kg, result_intervals, titan_index')
       .in('group_assignment_id', assignmentIds);
     if (!hasOrgAssignments) {
       query = query.eq('team_id', teamId);
@@ -2684,7 +2765,7 @@ export async function getSeasonMeasuredLeaderboard(
   if (!rows) {
     let query = supabase
       .from('daily_workout_assignments')
-      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_time_seconds, result_distance_meters, result_intervals')
+      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_time_seconds, result_distance_meters, result_intervals, titan_index')
       .in('group_assignment_id', assignmentIds);
     if (!hasOrgAssignments) {
       query = query.eq('team_id', teamId);
@@ -2697,10 +2778,10 @@ export async function getSeasonMeasuredLeaderboard(
 
   const perAthleteRanks = new Map<string, {
     raw: number[]; wplb: number[]; splits: number[]; wplbValues: number[];
-    times: number[]; distances: number[];
+    times: number[]; distances: number[]; titanIndexes: number[];
     rawByDate: Array<{ date: string; rank: number; totalAthletes: number }>;
     latest: { split: number | null; time: number | null; distance: number | null; wplb: number | null; date: string };
-    scoreHistory: Array<{ assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null }>;
+    scoreHistory: Array<{ assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null; titan_index: number | null }>;
   }>();
   // Assignments are sorted by scheduled_date ascending, so the last one processed is most recent
   for (const assignment of assignments) {
@@ -2724,7 +2805,7 @@ export async function getSeasonMeasuredLeaderboard(
     const rawSorted = [...perAssignmentRows].sort((a, b) => (a.split ?? Number.POSITIVE_INFINITY) - (b.split ?? Number.POSITIVE_INFINITY));
     const totalInAssignment = rawSorted.length;
     rawSorted.forEach((row, idx) => {
-      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], splits: [], wplbValues: [], times: [], distances: [], rawByDate: [], latest: { split: null, time: null, distance: null, wplb: null, date: '' }, scoreHistory: [] };
+      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], splits: [], wplbValues: [], times: [], distances: [], titanIndexes: [], rawByDate: [], latest: { split: null, time: null, distance: null, wplb: null, date: '' }, scoreHistory: [] };
       entry.raw.push(idx + 1);
       if (row.split != null) entry.splits.push(row.split);
       if (row.time != null) entry.times.push(row.time);
@@ -2736,14 +2817,14 @@ export async function getSeasonMeasuredLeaderboard(
       }
       // Track raw scores per assignment for client-side re-ranking
       const assignmentLabel = assignment.title || assignment.template_name || assignment.canonical_name || 'Workout';
-      entry.scoreHistory.push({ assignmentId: assignment.id, date: assignment.scheduled_date, label: assignmentLabel, split: row.split!, time: row.time, distance: row.distance, wplb: row.wplb });
+      entry.scoreHistory.push({ assignmentId: assignment.id, date: assignment.scheduled_date, label: assignmentLabel, split: row.split!, time: row.time, distance: row.distance, wplb: row.wplb, titan_index: null });
       perAthleteRanks.set(row.athleteId, entry);
     });
 
     const weighted = perAssignmentRows.filter((r) => r.wplb != null);
     const wplbSorted = [...weighted].sort((a, b) => (b.wplb ?? 0) - (a.wplb ?? 0));
     wplbSorted.forEach((row, idx) => {
-      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], splits: [], wplbValues: [], times: [], distances: [], rawByDate: [], latest: { split: null, time: null, distance: null, wplb: null, date: '' }, scoreHistory: [] };
+      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], splits: [], wplbValues: [], times: [], distances: [], titanIndexes: [], rawByDate: [], latest: { split: null, time: null, distance: null, wplb: null, date: '' }, scoreHistory: [] };
       entry.wplb.push(idx + 1);
       if (row.wplb != null) entry.wplbValues.push(row.wplb);
       // Set latest wplb on first encounter (assignments are DESC by date)
