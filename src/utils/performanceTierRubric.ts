@@ -36,6 +36,19 @@ const TIER_LABELS: Record<BenchmarkTier, string> = {
   nationals: 'Nationals',
 };
 
+/** All benchmark tiers in ascending performance order */
+export const BENCHMARK_TIERS: BenchmarkTier[] = ['developmental', 'competitor', 'challenger', 'champion', 'nationals'];
+
+/** Unified tier sort order covering both BenchmarkTier and legacy PerformanceTier values */
+export const TIER_SORT_ORDER: Record<string, number> = {
+  pool: 0,
+  developmental: 1,
+  competitor: 2,
+  challenger: 3,
+  champion: 4,
+  nationals: 5,
+};
+
 function normalizeSquad(rawSquad: string | null | undefined): SquadKey | null {
   if (!rawSquad) return null;
   const s = rawSquad.trim().toLowerCase();

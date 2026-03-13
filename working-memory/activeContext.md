@@ -1,6 +1,30 @@
 # Active Context
 
-> Last updated: March 12, 2026
+> Last updated: March 13, 2026
+
+## Session Summary (2026-03-13) — Roster tier filter, analytics tier filter, tier sort fix
+
+### Completed This Session
+- [x] **Performance tier filter on CoachingRoster**
+  - Added `selectedTier` filter state alongside existing `selectedSquad`
+  - Computes effective tier per athlete: computed benchmark tier (from 2k scores + rubric) takes priority, falls back to manual `performance_tier`
+  - Tier dropdown only shows when 2+ distinct tiers exist in roster
+  - Subtitle reflects active tier filter alongside squad filter
+- [x] **Performance tier filter on TeamAnalytics**
+  - Added `tierFilter` state + UI dropdown alongside squad filter
+  - Loads org rubric and 2k benchmarks to compute effective tiers
+  - Filters erg comparison data and athlete lists by tier
+  - Auto-resets filters when team/org context changes
+- [x] **Fixed stale `performanceTierOrder` in CoachingRoster**
+  - Old: `{ pool: 0, developmental: 1, challenger: 2, champion: 3 }` — missing `competitor` and `nationals`
+  - New: uses shared `TIER_SORT_ORDER` from `performanceTierRubric.ts` covering all 6 tier values (pool, developmental, competitor, challenger, champion, nationals)
+- [x] **Exported shared tier constants from `performanceTierRubric.ts`**
+  - `BENCHMARK_TIERS`: ordered array of all 5 benchmark tiers
+  - `TIER_SORT_ORDER`: unified sort order covering both `BenchmarkTier` and legacy `PerformanceTier` values
+
+### Validation
+- `npm run build` ✅
+- `npm run test:run` ✅ (225/225)
 
 ## Session Summary (2026-03-12) — Multi-coach fixes, assignment results
 

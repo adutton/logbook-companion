@@ -11,6 +11,7 @@ import {
   getOrgAthletesWithTeam,
   getTeamsForOrg,
   getSeasonMeasuredLeaderboard,
+  getErgScores,
   type CoachingAthlete,
   type TeamErgComparison,
   type ZoneDistribution,
@@ -20,9 +21,11 @@ import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { SquadPowerComparisonChart } from '../../components/coaching/SquadPowerComparisonChart';
 import { WattsPerKgChart } from '../../components/coaching/WattsPerKgChart';
 import { TrainingZoneDonut } from '../../components/coaching/TrainingZoneDonut';
+import { buildBest2kByAthlete, deriveBenchmarkTier, TIER_SORT_ORDER, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
+import { getOrganizationsForUser } from '../../services/coaching/coachingService';
 
 export function TeamAnalytics() {
-  const { teamId, orgId, isLoadingTeam, teamError, filterTeamId } = useCoachingContext();
+  const { userId, teamId, orgId, isLoadingTeam, teamError, filterTeamId } = useCoachingContext();
 
   const [athletes, setAthletes] = useState<CoachingAthlete[]>([]);
   const [ergComparison, setErgComparison] = useState<TeamErgComparison[]>([]);
@@ -31,6 +34,9 @@ export function TeamAnalytics() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [squadFilter, setSquadFilter] = useState<string | 'all'>('all');
+  const [tierFilter, setTierFilter] = useState<string | 'all'>('all');
+  const [best2kByAthlete, setBest2kByAthlete] = useState<Record<string, number>>({});
+  const [orgRubric, setOrgRubric] = useState<PerformanceTierRubricConfig | null>(null);
 
   const isOrg = !!orgId;
   // Sync team filter with nav pills — null means "all"
@@ -78,8 +84,27 @@ export function TeamAnalytics() {
     if (!isLoadingTeam) loadData();
   }, [isLoadingTeam, loadData]);
 
-  // Reset squad filter when org changes
-  useEffect(() => { setSquadFilter('all'); }, [orgId, filterTeamId]);
+  // Load org rubric
+  useEffect(() => {
+    if (!userId || !orgId) { setOrgRubric(null); return; }
+    getOrganizationsForUser(userId)
+      .then((orgs) => {
+        const org = orgs.find((o) => o.id === orgId);
+        setOrgRubric(org?.performance_tier_rubric ?? null);
+      })
+      .catch(() => setOrgRubric(null));
+  }, [userId, orgId]);
+
+  // Load 2k benchmarks
+  useEffect(() => {
+    if (!teamId) return;
+    getErgScores(teamId)
+      .then((scores) => setBest2kByAthlete(buildBest2kByAthlete(scores)))
+      .catch(() => {});
+  }, [teamId]);
+
+  // Reset filters when org/team changes
+  useEffect(() => { setSquadFilter('all'); setTierFilter('all'); }, [orgId, filterTeamId]);
 
   // Filter by team first, then by squad
   const teamFilteredErgData = useMemo(
@@ -105,15 +130,51 @@ export function TeamAnalytics() {
     }
   }, [squads, squadFilter]);
 
-  const filteredErgData = useMemo(
-    () => squadFilter === 'all' ? teamFilteredErgData : teamFilteredErgData.filter((e) => e.squad === squadFilter),
-    [teamFilteredErgData, squadFilter]
-  );
+  // Compute effective tier per athlete
+  const effectiveTierByAthlete = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const a of teamFilteredAthletes) {
+      const best2k = best2kByAthlete[a.id] ?? null;
+      const benchmarkTier = deriveBenchmarkTier(a.squad ?? null, best2k, orgRubric);
+      map[a.id] = benchmarkTier ?? a.performance_tier ?? null;
+    }
+    return map;
+  }, [teamFilteredAthletes, best2kByAthlete, orgRubric]);
 
-  const filteredAthletes = useMemo(
-    () => squadFilter === 'all' ? teamFilteredAthletes : teamFilteredAthletes.filter((a) => a.squad === squadFilter),
-    [teamFilteredAthletes, squadFilter]
-  );
+  // Distinct tiers present
+  const activeTiers = useMemo(() => {
+    const tierSet = new Set<string>();
+    for (const tier of Object.values(effectiveTierByAthlete)) {
+      if (tier) tierSet.add(tier);
+    }
+    return [...tierSet].sort((a, b) => (TIER_SORT_ORDER[a] ?? 99) - (TIER_SORT_ORDER[b] ?? 99));
+  }, [effectiveTierByAthlete]);
+
+  // Reset tier filter when tier no longer exists
+  useEffect(() => {
+    if (tierFilter !== 'all' && !activeTiers.includes(tierFilter)) {
+      setTierFilter('all');
+    }
+  }, [activeTiers, tierFilter]);
+
+  const filteredErgData = useMemo(() => {
+    let data = squadFilter === 'all' ? teamFilteredErgData : teamFilteredErgData.filter((e) => e.squad === squadFilter);
+    if (tierFilter !== 'all') {
+      const athleteIdsInTier = new Set(
+        teamFilteredAthletes.filter((a) => effectiveTierByAthlete[a.id] === tierFilter).map((a) => a.id)
+      );
+      data = data.filter((e) => athleteIdsInTier.has(e.athleteId));
+    }
+    return data;
+  }, [teamFilteredErgData, squadFilter, tierFilter, teamFilteredAthletes, effectiveTierByAthlete]);
+
+  const filteredAthletes = useMemo(() => {
+    let result = squadFilter === 'all' ? teamFilteredAthletes : teamFilteredAthletes.filter((a) => a.squad === squadFilter);
+    if (tierFilter !== 'all') {
+      result = result.filter((a) => effectiveTierByAthlete[a.id] === tierFilter);
+    }
+    return result;
+  }, [teamFilteredAthletes, squadFilter, tierFilter, effectiveTierByAthlete]);
 
   const hasZoneData = zoneDistribution && zoneDistribution.total > 0;
   const hasErgData = ergComparison.length > 0;
@@ -148,6 +209,23 @@ export function TeamAnalytics() {
                   <option value="all">All Squads</option>
                   {squads.map((s) => (
                     <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Tier filter */}
+            {activeTiers.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Tier</span>
+                <select
+                  value={tierFilter}
+                  onChange={(e) => setTierFilter(e.target.value)}
+                  className="px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  aria-label="Filter by performance tier"
+                >
+                  <option value="all">All Tiers</option>
+                  {activeTiers.map((t) => (
+                    <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
                   ))}
                 </select>
               </div>

@@ -25,13 +25,12 @@ import { BulkRosterModal } from '../../components/coaching/BulkRosterModal';
 import { downloadCsv } from '../../utils/csvExport';
 import { exportToPdf, exportToExcel } from '../../utils/exportUtils';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
-import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
+import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime, TIER_SORT_ORDER, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 
 const experienceLevelOrder: Record<string, number> = { beginner: 0, intermediate: 1, experienced: 2, advanced: 3 };
-const performanceTierOrder: Record<string, number> = { pool: 0, developmental: 1, challenger: 2, champion: 3 };
 
 /** Extract a numeric grade for sorting: "8th" → 8, "10th" → 10, "12" → 12.
  *  Non-numeric grades (masters, alumni, etc.) sort after all numeric grades. */
@@ -56,6 +55,7 @@ export function CoachingRoster() {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [deletingAthlete, setDeletingAthlete] = useState<CoachingAthlete | null>(null);
   const [selectedSquad, setSelectedSquad] = useState<string | 'all'>('all');
+  const [selectedTier, setSelectedTier] = useState<string | 'all'>('all');
   const [showMissingOnly, setShowMissingOnly] = useState(false);
   const [completions, setCompletions] = useState<AssignmentCompletion[]>([]);
   const [hasAssignmentsToday, setHasAssignmentsToday] = useState(false);
@@ -326,6 +326,26 @@ export function CoachingRoster() {
   // Derived: distinct squad names + filtered list
   const squads = [...new Set(athletes.map((a) => a.squad).filter((s): s is string => !!s))].sort();
 
+  // Compute effective tier for each athlete (computed benchmark tier if available, else manual)
+  const effectiveTierByAthlete = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const a of athletes) {
+      const best2k = best2kByAthlete[a.id] ?? null;
+      const benchmarkTier = deriveBenchmarkTier(a.squad ?? null, best2k, orgRubric);
+      map[a.id] = benchmarkTier ?? a.performance_tier ?? null;
+    }
+    return map;
+  }, [athletes, best2kByAthlete, orgRubric]);
+
+  // Distinct tiers present in the current roster
+  const activeTiers = useMemo(() => {
+    const tierSet = new Set<string>();
+    for (const tier of Object.values(effectiveTierByAthlete)) {
+      if (tier) tierSet.add(tier);
+    }
+    return [...tierSet].sort((a, b) => (TIER_SORT_ORDER[a] ?? 99) - (TIER_SORT_ORDER[b] ?? 99));
+  }, [effectiveTierByAthlete]);
+
   // Build a set of athlete IDs that are "missing" (have at least one incomplete assignment today)
   const missingAthleteIds = new Set<string>();
   for (const comp of completions) {
@@ -336,6 +356,9 @@ export function CoachingRoster() {
     completions.filter((comp) => comp.missing_athletes.some((m) => m.id === athleteId));
 
   let filteredAthletes = selectedSquad === 'all' ? athletes : athletes.filter((a) => a.squad === selectedSquad);
+  if (selectedTier !== 'all') {
+    filteredAthletes = filteredAthletes.filter((a) => effectiveTierByAthlete[a.id] === selectedTier);
+  }
   if (showMissingOnly && hasAssignmentsToday) {
     filteredAthletes = filteredAthletes.filter((a) => missingAthleteIds.has(a.id));
   }
@@ -357,7 +380,7 @@ export function CoachingRoster() {
           cmp = (experienceLevelOrder[a.experience_level ?? ''] ?? -1) - (experienceLevelOrder[b.experience_level ?? ''] ?? -1);
           break;
         case 'performance_tier':
-          cmp = (performanceTierOrder[a.performance_tier ?? ''] ?? -1) - (performanceTierOrder[b.performance_tier ?? ''] ?? -1);
+          cmp = (TIER_SORT_ORDER[effectiveTierByAthlete[a.id] ?? ''] ?? -1) - (TIER_SORT_ORDER[effectiveTierByAthlete[b.id] ?? ''] ?? -1);
           break;
         case 'height': cmp = (a.height_cm ?? 0) - (b.height_cm ?? 0); break;
         case 'weight': cmp = (a.weight_kg ?? 0) - (b.weight_kg ?? 0); break;
@@ -416,7 +439,7 @@ export function CoachingRoster() {
               {isOrgWide ? 'Program Roster' : 'Team Roster'}
             </h1>
             <p className="text-neutral-400 mt-1 text-sm">
-              {filteredAthletes.length}{selectedSquad !== 'all' ? ` in ${selectedSquad}` : ''} athlete{filteredAthletes.length !== 1 ? 's' : ''}{selectedSquad !== 'all' ? ` (${athletes.length} total)` : ''}
+              {filteredAthletes.length}{selectedSquad !== 'all' ? ` in ${selectedSquad}` : ''}{selectedTier !== 'all' ? ` · ${selectedTier.charAt(0).toUpperCase() + selectedTier.slice(1)} tier` : ''} athlete{filteredAthletes.length !== 1 ? 's' : ''}{selectedSquad !== 'all' || selectedTier !== 'all' ? ` (${athletes.length} total)` : ''}
               {isOrgWide && <span className="text-neutral-600"> · All Teams</span>}
               {!isOrgWide && filterTeamName && <span className="text-neutral-600"> · {filterTeamName}</span>}
               <span className="text-neutral-600 ml-2 hidden sm:inline">· Click any cell to edit</span>
@@ -436,6 +459,21 @@ export function CoachingRoster() {
                   <option value="all">All Squads</option>
                   {squads.map((s) => (
                     <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {activeTiers.length > 1 && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedTier}
+                  onChange={(e) => setSelectedTier(e.target.value)}
+                  className="px-2 sm:px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  aria-label="Filter by performance tier"
+                >
+                  <option value="all">All Tiers</option>
+                  {activeTiers.map((t) => (
+                    <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
                   ))}
                 </select>
               </div>
