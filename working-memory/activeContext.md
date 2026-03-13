@@ -5,6 +5,30 @@
 ## Session Summary (2026-03-12)
 
 ### Completed This Session
+- [x] **Coach/org visibility + team creation RLS fixes**
+  - Added missing `organization_members` coach row for Haley (`8075da04-f7da-40fd-96c5-b17c891d5056`) in org `2026 Titan Boys Rowing` (`542e127e-8ce2-43f4-bcb5-7d6bf817906f`).
+  - `getTeamsForUser()` now merges direct team memberships with org-derived teams so org coaches resolve all teams in coaching context.
+  - Applied live MCP migrations to align org-coach/team visibility helpers and touched coaching policies.
+  - Fixed `teams` create flow RLS in two parts:
+    - widened `teams` insert policy with `can_create_teams(...)`,
+    - replaced self-referential `teams` select policy so `INSERT ... RETURNING` works for `POST /rest/v1/teams?select=*`.
+  - Added a `Create Another Team` CTA in `CoachingSettings`.
+
+### Current Notes
+- Live DB validation now succeeds for the full authenticated flow:
+  - insert new team with `return=representation`,
+  - insert self into `team_members` as coach,
+  - assign the new team to org `542e127e-8ce2-43f4-bcb5-7d6bf817906f`.
+- `src/auth/AuthContext.tsx` now treats `organization_members` membership as coach access, matching org-level coaching behavior.
+- Validation:
+  - `npx eslint src/auth/AuthContext.tsx src/pages/coaching/CoachingSettings.tsx` ✅
+  - `npm run build` ✅
+  - `npm run test:run` ✅ (`225/225`)
+  - `npm run lint` still fails on pre-existing unrelated issues (`reproduce_rwn.ts` first failure in latest run).
+
+## Session Summary (2026-03-12)
+
+### Completed This Session
 - [x] **CSV single-piece assignment import fix**
   - `ImportCsvModal` now derives workout shape from assignment structure/canonical name before parsing CSV rows.
   - Single-piece assignments (including one-repeat interval-shaped work like `1x2000m`) now parse as a single result column instead of treating every later CSV column as a rep.

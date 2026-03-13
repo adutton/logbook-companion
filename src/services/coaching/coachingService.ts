@@ -1387,8 +1387,14 @@ export async function getGroupAssignments(
     .order('scheduled_date', { ascending: false });
 
   if (opts?.orgId) {
-    // Org-level: fetch both org-wide assignments AND team-scoped ones for this team
-    query = query.or(`org_id.eq.${opts.orgId},team_id.eq.${teamId}`);
+    // Org-level: fetch org-wide assignments AND team-scoped ones for ALL org teams
+    const orgTeams = await getTeamsForOrg(opts.orgId);
+    const orgTeamIds = orgTeams.map((t) => t.id);
+    if (orgTeamIds.length > 0) {
+      query = query.or(`org_id.eq.${opts.orgId},team_id.in.(${orgTeamIds.join(',')})`);
+    } else {
+      query = query.or(`org_id.eq.${opts.orgId},team_id.eq.${teamId}`);
+    }
   } else {
     query = query.eq('team_id', teamId);
   }

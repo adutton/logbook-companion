@@ -4,6 +4,64 @@
 
 ---
 
+## Phase 37: Coaching Org Visibility + Team Creation RLS Alignment (March 12, 2026)
+
+**Timeline**: March 12, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- Live data repair:
+  - inserted missing `organization_members` row for Haley as `coach` on `2026 Titan Boys Rowing`.
+
+- `src/services/coaching/coachingService.ts`
+  - `getTeamsForUser()` now merges:
+    - direct `team_members`,
+    - `organization_members`,
+    - all teams in orgs the user belongs to.
+  - prevents org coaches from only seeing directly assigned teams.
+
+- `src/auth/AuthContext.tsx`
+  - coach access now also recognizes `organization_members`, in addition to team coach/coxswain roles and approved coaching requests.
+
+- `src/pages/coaching/CoachingSettings.tsx`
+  - added a visible `Create Another Team` CTA linking to `/team-management/setup`.
+
+- Migrations applied live via Supabase MCP:
+  - `fix_org_coach_team_visibility_rls`
+  - `optimize_org_coach_visibility_policies`
+  - `split_coaching_manage_policies`
+  - `merge_team_member_insert_policies`
+  - `align_team_creation_policy_with_coach_access`
+  - `fix_team_select_policy_for_insert_returning`
+  - `fix_team_select_policy_aliases`
+
+### Key Debugging Outcome
+
+- The reported `POST /rest/v1/teams?select=*` 403 was not just an insert-policy problem.
+- Root cause was stacked:
+  - `teams` insert policy was too narrow for app-level coach access.
+  - `teams` select policy was self-referential (`can_view_team(id, auth.uid())` querying `teams` again), which broke `INSERT ... RETURNING` under RLS.
+- Replaced the `teams` SELECT policy with direct row-based visibility checks so PostgREST can return newly created rows immediately.
+
+### Validation
+
+- Live DB simulation under authenticated user `93c46300-57eb-48c8-b35c-cc49c76cfa66`:
+  - `INSERT INTO teams ... RETURNING *` → ✅ pass
+  - `INSERT INTO team_members ... RETURNING *` → ✅ pass
+  - `UPDATE teams SET org_id = ... RETURNING *` → ✅ pass
+- App validation:
+  - `npx eslint src/auth/AuthContext.tsx src/pages/coaching/CoachingSettings.tsx` → ✅ pass
+  - `npm run build` → ✅ pass
+  - `npm run test:run` → ✅ pass (`225/225`)
+  - `npm run lint` → ⚠️ fails on pre-existing unrelated issues (`reproduce_rwn.ts` first failure in latest run)
+
+### Outcome
+
+Org-level coaches now resolve org teams correctly, and the team creation flow no longer fails on the `teams` RLS `return=representation` path that previously produced the 403.
+
+---
+
 ## Phase 36: CSV Single-Piece Assignment Import Alignment (March 12, 2026)
 
 **Timeline**: March 12, 2026  
