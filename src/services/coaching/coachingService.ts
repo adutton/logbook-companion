@@ -903,7 +903,7 @@ export async function transferAthlete(
   fromTeamId: string,
   toTeamId: string
 ): Promise<void> {
-  throwOnError(
+  const rows = throwOnError(
     await supabase
       .from('team_athletes')
       .update({ team_id: toTeamId, squad: null, performance_tier: null })
@@ -911,6 +911,9 @@ export async function transferAthlete(
       .eq('team_id', fromTeamId)
       .select()
   );
+  if (!rows || (rows as unknown[]).length === 0) {
+    throw new Error('Transfer failed — athlete not found on the source team');
+  }
 }
 
 export async function getAthletes(teamId: string): Promise<CoachingAthlete[]> {

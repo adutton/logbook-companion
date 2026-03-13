@@ -29,6 +29,12 @@
     - `coaching_weekly_plans`: uses `can_coach_team()` (was inline `team_members` only)
     - `daily_workout_assignments` INSERT/UPDATE/DELETE/SELECT: uses `can_coach_team()` for team path
 
+- [x] **Athlete transfer not persisting (PATCH returns `[]`)**
+  - Root cause: `CoachingRoster.tsx` passed `teamId` (context team) as `fromTeamId`, but in org-wide or filtered views the athlete's actual team differs from the context team. The `.eq('team_id', fromTeamId)` filter matched 0 rows.
+  - Fixed `handleTransfer` to use `athlete.team_id ?? teamId` as `fromTeamId`.
+  - Same bug existed for `updateAthleteSquad` and `updateAthletePerformanceTier` — fixed both.
+  - `transferAthlete()` in `coachingService.ts` now throws if no rows updated (was silently succeeding).
+
 ### Validation
 - `npm run build` ✅
 - `npm run test:run` ✅ (225/225)
