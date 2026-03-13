@@ -1951,9 +1951,9 @@ export async function getAssignmentResultsWithAthletes(
   let teamLookup = new Map<string, string>(); // team_id → team_name
 
   if (orgId) {
-    // Org-wide: fetch all athletes across all org teams, plus team lookup
+    // Org-wide: fetch all athletes across all org teams with current team info
     const [orgAthletes, teams] = await Promise.all([
-      getOrgAthletes(orgId),
+      getOrgAthletesWithTeam(orgId),
       getTeamsForOrg(orgId),
     ]);
     teamLookup = new Map(teams.map((t) => [t.id, t.name]));
@@ -1964,6 +1964,8 @@ export async function getAssignmentResultsWithAthletes(
       weight_kg: a.weight_kg,
       side: a.side ?? null,
       user_id: a.user_id ?? null,
+      current_team_id: a.team_id ?? null,
+      current_team_name: a.team_name ?? null,
       team_athletes: [{ squad: a.squad, performance_tier: a.performance_tier ?? null }],
     }));
   } else {
@@ -2013,8 +2015,8 @@ export async function getAssignmentResultsWithAthletes(
     }
   }
 
-  // Build lookup map
-  type AthleteInfo = { name: string; squad: string | null; performance_tier: PerformanceTier | null; weight_kg: number | null; side: string | null; is_coxswain: boolean };
+  // Build lookup map (use current team from team_athletes, not snapshot from assignment row)
+  type AthleteInfo = { name: string; squad: string | null; performance_tier: PerformanceTier | null; weight_kg: number | null; side: string | null; is_coxswain: boolean; current_team_id: string | null; current_team_name: string | null };
   const athleteMap = new Map<string, AthleteInfo>();
   for (const a of athleteRows ?? []) {
     const ta = (a.team_athletes as unknown as Array<{ squad: string | null; performance_tier: PerformanceTier | null }>)[0];
@@ -2022,27 +2024,38 @@ export async function getAssignmentResultsWithAthletes(
     const side = (a.side as string | null) ?? null;
     const userId = (a.user_id as string | null) ?? null;
     const is_coxswain = side === 'coxswain' || (userId != null && coxswainUserIds.has(userId));
-    athleteMap.set(a.id as string, {
-      name,
-      squad: ta?.squad ?? null,
-      performance_tier: ta?.performance_tier ?? null,
-      weight_kg: (a.weight_kg as number | null) ?? null,
-      side,
-      is_coxswain,
-    });
+    const athleteId = a.id as string;
+    // For org path: current_team_id is populated from getOrgAthletesWithTeam
+    // For team path: current team is the teamId param (all athletes fetched via that team)
+    const currentTeamId = (a.current_team_id as string | null) ?? (orgId ? null : teamId);
+    const currentTeamName = (a.current_team_name as string | null) ?? (orgId ? null : (teamLookup.get(teamId) ?? null));
+    // De-duplicate: keep first seen (athletes may appear on multiple teams in org path)
+    if (!athleteMap.has(athleteId)) {
+      athleteMap.set(athleteId, {
+        name,
+        squad: ta?.squad ?? null,
+        performance_tier: ta?.performance_tier ?? null,
+        weight_kg: (a.weight_kg as number | null) ?? null,
+        side,
+        is_coxswain,
+        current_team_id: currentTeamId,
+        current_team_name: currentTeamName,
+      });
+    }
   }
 
   return (rows ?? []).map((row) => {
     const info = athleteMap.get(row.athlete_id as string);
-    const rowTeamId = (row.team_id as string | null) ?? null;
+    // Use athlete's CURRENT team (from team_athletes), falling back to assignment snapshot
+    const currentTeamId = info?.current_team_id ?? (row.team_id as string | null) ?? null;
     return {
       id: row.id as string,
       athlete_id: row.athlete_id as string,
       athlete_name: info?.name ?? 'Unknown',
       squad: info?.squad ?? null,
       performance_tier: info?.performance_tier ?? null,
-      team_id: rowTeamId,
-      team_name: rowTeamId ? (teamLookup.get(rowTeamId) ?? null) : null,
+      team_id: currentTeamId,
+      team_name: currentTeamId ? (teamLookup.get(currentTeamId) ?? null) : null,
       weight_kg: info?.weight_kg ?? null,
       side: info?.side ?? null,
       is_coxswain: info?.is_coxswain ?? false,
@@ -2116,6 +2129,8 @@ export async function saveAssignmentResults(
     };
     if (r.completed) {
       updatePayload.completed_at = new Date().toISOString();
+    } else {
+      updatePayload.completed_at = null;
     }
     if (resultWeightColumnAvailable !== false && r.result_weight_kg !== undefined) {
       updatePayload.result_weight_kg = r.result_weight_kg;

@@ -1395,7 +1395,7 @@ export function ResultsEntryModal({
 
         return {
           athlete_id: e.athlete_id,
-          completed: e.completed || e.wasCompleted,
+          completed: e.completed,
           result_weight_kg: resultWeightKg,
           result_time_seconds: resultTime,
           result_distance_meters: resultDist,
@@ -1610,7 +1610,7 @@ export function ResultsEntryModal({
                         type="checkbox"
                         checked={entry.completed}
                         onChange={(e) => updateEntry(idx, 'completed', e.target.checked)}
-                        disabled={entry.wasCompleted}
+                        disabled={false}
                         className="accent-emerald-500 w-4 h-4"
                         aria-label={`Mark ${athlete?.name ?? 'athlete'} complete`}
                       />

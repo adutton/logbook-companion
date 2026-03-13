@@ -2,29 +2,37 @@
 
 > Last updated: March 12, 2026
 
-## Session Summary (2026-03-12)
+## Session Summary (2026-03-12) — Multi-coach fixes, assignment results
 
 ### Completed This Session
 - [x] **Coach/org visibility + team creation RLS fixes**
-  - Added missing `organization_members` coach row for Haley (`8075da04-f7da-40fd-96c5-b17c891d5056`) in org `2026 Titan Boys Rowing` (`542e127e-8ce2-43f4-bcb5-7d6bf817906f`).
-  - `getTeamsForUser()` now merges direct team memberships with org-derived teams so org coaches resolve all teams in coaching context.
-  - Applied live MCP migrations to align org-coach/team visibility helpers and touched coaching policies.
-  - Fixed `teams` create flow RLS in two parts:
-    - widened `teams` insert policy with `can_create_teams(...)`,
-    - replaced self-referential `teams` select policy so `INSERT ... RETURNING` works for `POST /rest/v1/teams?select=*`.
-  - Added a `Create Another Team` CTA in `CoachingSettings`.
+  - Added missing `organization_members` coach row for Haley.
+  - `getTeamsForUser()` now merges direct team memberships with org-derived teams.
+  - Applied live MCP migrations for org-coach/team visibility helpers.
+  - Fixed `teams` create flow RLS (insert policy + select policy for RETURNING).
+  - Added `Create Another Team` CTA in `CoachingSettings`.
+- [x] **Assignment page org-wide filter fix**
+  - `getGroupAssignments()` now fetches all org team IDs and includes all team-scoped assignments.
+- [x] **Assignment results — time display tenths**
+  - `fmtTime()` in `AssignmentResults.tsx` now uses `.toFixed(1)` for tenths of a second.
+- [x] **Assignment results — uncomplete athletes**
+  - Removed `disabled={entry.wasCompleted}` from checkbox in `CoachingAssignments.tsx`.
+  - Changed save payload from `completed: e.completed || e.wasCompleted` to `completed: e.completed`.
+  - `saveAssignmentResults()` now clears `completed_at = null` when uncompleting.
+- [x] **Assignment results — current team affiliation**
+  - `getAssignmentResultsWithAthletes()` now uses `getOrgAthletesWithTeam()` for org path, storing each athlete's CURRENT `team_id`/`team_name` from `team_athletes` instead of the snapshot in `daily_workout_assignments.team_id`.
+  - Team filter in results page automatically reflects current teams.
+- [x] **RLS org-coach access — remaining tables**
+  - Applied migration `fix_org_coach_access_remaining_tables` via MCP:
+    - `teams` UPDATE/DELETE: now uses `can_coach_team()` instead of `coach_id = auth.uid()`
+    - `group_assignments` UPDATE/DELETE: any team/org coach, not just creator
+    - `coaching_weekly_plans`: uses `can_coach_team()` (was inline `team_members` only)
+    - `daily_workout_assignments` INSERT/UPDATE/DELETE/SELECT: uses `can_coach_team()` for team path
 
-### Current Notes
-- Live DB validation now succeeds for the full authenticated flow:
-  - insert new team with `return=representation`,
-  - insert self into `team_members` as coach,
-  - assign the new team to org `542e127e-8ce2-43f4-bcb5-7d6bf817906f`.
-- `src/auth/AuthContext.tsx` now treats `organization_members` membership as coach access, matching org-level coaching behavior.
-- Validation:
-  - `npx eslint src/auth/AuthContext.tsx src/pages/coaching/CoachingSettings.tsx` ✅
-  - `npm run build` ✅
-  - `npm run test:run` ✅ (`225/225`)
-  - `npm run lint` still fails on pre-existing unrelated issues (`reproduce_rwn.ts` first failure in latest run).
+### Validation
+- `npm run build` ✅
+- `npm run test:run` ✅ (225/225)
+- `npm run lint` still fails on pre-existing unrelated issues
 
 ## Session Summary (2026-03-12)
 
