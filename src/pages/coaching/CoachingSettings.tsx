@@ -16,6 +16,7 @@ import {
   Building2,
   TriangleAlert,
   Plus,
+  BarChart3,
 } from 'lucide-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
@@ -37,6 +38,7 @@ import {
   removeTeamFromOrg,
   createOrganization,
   updateOrganization,
+  backfillTitanIndexes,
 } from '../../services/coaching/coachingService';
 import type { Team, TeamMemberWithProfile, TeamRole, Organization } from '../../services/coaching/types';
 
@@ -89,6 +91,11 @@ export function CoachingSettings() {
   const navigate = useNavigate();
 
   const [team, setTeam] = useState<Team | null>(null);
+  const [titanWindowSize, setTitanWindowSize] = useState<number>(5);
+  const [isSavingTitan, setIsSavingTitan] = useState(false);
+  const [titanSaveSuccess, setTitanSaveSuccess] = useState(false);
+  const [isBackfilling, setIsBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<string | null>(null);
   const [members, setMembers] = useState<TeamMemberWithProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +154,7 @@ export function CoachingSettings() {
     Promise.all([getTeam(teamId), getTeamMembers(teamId), userId ? getOrganizationsForUser(userId) : Promise.resolve([])])
       .then(([t, m, userOrgs]) => {
         setTeam(t);
+        setTitanWindowSize(t?.titan_window_size ?? 5);
         setMembers(m);
         setEditName(t?.name ?? '');
         setEditDescription(t?.description ?? '');
@@ -838,6 +846,94 @@ export function CoachingSettings() {
               })}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── Analytics Settings ──────────────────────────────────────── */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-indigo-500/10 rounded-lg">
+            <BarChart3 className="w-5 h-5 text-indigo-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">Analytics</h2>
+            <p className="text-neutral-500 text-sm">Configure how performance metrics are calculated</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-neutral-300 mb-1">Titan Index Window</label>
+            <p className="text-xs text-neutral-500 mb-2">
+              Number of recent scored workouts used to compute the rolling Titan Index on the season leaderboard.
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={titanWindowSize}
+                onChange={(e) => setTitanWindowSize(Math.max(1, Math.min(50, parseInt(e.target.value) || 5)))}
+                aria-label="Titan Index window size"
+                className="w-20 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              />
+              <span className="text-sm text-neutral-500">workouts</span>
+              <button
+                onClick={async () => {
+                  if (!teamId) return;
+                  setIsSavingTitan(true);
+                  try {
+                    const updated = await updateTeam(teamId, { titan_window_size: titanWindowSize });
+                    setTeam(updated);
+                    setTitanSaveSuccess(true);
+                    setTimeout(() => setTitanSaveSuccess(false), 2000);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to save');
+                  } finally {
+                    setIsSavingTitan(false);
+                  }
+                }}
+                disabled={isSavingTitan || titanWindowSize === (team?.titan_window_size ?? 5)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isSavingTitan ? <Loader2 className="w-4 h-4 animate-spin" /> : titanSaveSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                {titanSaveSuccess ? 'Saved' : 'Save'}
+              </button>
+            </div>
+          </div>
+
+          {/* Backfill existing data */}
+          <div className="border-t border-neutral-800 pt-3">
+            <label className="block text-sm font-medium text-neutral-300 mb-1">Backfill Titan Index</label>
+            <p className="text-xs text-neutral-500 mb-2">
+              Compute Titan Index for all past workouts that don't have one yet. This is safe to run multiple times.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={async () => {
+                  if (!teamId) return;
+                  setIsBackfilling(true);
+                  setBackfillResult(null);
+                  try {
+                    const count = await backfillTitanIndexes(teamId, { orgId: team?.org_id ?? undefined });
+                    setBackfillResult(count > 0 ? `Done — updated ${count} workout${count === 1 ? '' : 's'}` : 'All workouts already have Titan Index scores');
+                  } catch (err) {
+                    setBackfillResult(err instanceof Error ? err.message : 'Backfill failed');
+                  } finally {
+                    setIsBackfilling(false);
+                  }
+                }}
+                disabled={isBackfilling}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-neutral-700 hover:bg-neutral-600 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isBackfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                {isBackfilling ? 'Computing…' : 'Run Backfill'}
+              </button>
+              {backfillResult && (
+                <span className="text-xs text-neutral-400">{backfillResult}</span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

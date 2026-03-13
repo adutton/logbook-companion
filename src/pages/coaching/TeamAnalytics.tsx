@@ -11,6 +11,7 @@ import {
   getOrgAthletesWithTeam,
   getTeamsForOrg,
   getSeasonMeasuredLeaderboard,
+  getTeam,
   rerankLeaderboard,
   getErgScores,
   type CoachingAthlete,
@@ -56,6 +57,9 @@ export function TeamAnalytics() {
     if (!teamId) return;
     setIsLoading(true);
     try {
+      // Fetch team config for titan window size
+      const teamConfig = await getTeam(teamId);
+      const titanWindowSize = teamConfig?.titan_window_size ?? 5;
       if (isOrg && orgId) {
         // Always fetch org-wide data; client-filter by filterTeamId
         const [, loadedAthletes, ergData, zoneDist, leaderboard] = await Promise.all([
@@ -63,7 +67,7 @@ export function TeamAnalytics() {
           getOrgAthletesWithTeam(orgId),
           getOrgErgComparison(orgId).catch(() => [] as TeamErgComparison[]),
           getOrgTrainingZoneDistribution(orgId).catch(() => null),
-          getSeasonMeasuredLeaderboard(teamId, { orgId }).catch(() => [] as SeasonLeaderboardEntry[]),
+          getSeasonMeasuredLeaderboard(teamId, { orgId, titanWindowSize }).catch(() => [] as SeasonLeaderboardEntry[]),
         ]);
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
@@ -75,7 +79,7 @@ export function TeamAnalytics() {
           getAthletes(teamId),
           getTeamErgComparison(teamId).catch(() => [] as TeamErgComparison[]),
           getTeamTrainingZoneDistribution(teamId).catch(() => null),
-          getSeasonMeasuredLeaderboard(teamId).catch(() => [] as SeasonLeaderboardEntry[]),
+          getSeasonMeasuredLeaderboard(teamId, { titanWindowSize }).catch(() => [] as SeasonLeaderboardEntry[]),
         ]);
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
@@ -208,39 +212,8 @@ export function TeamAnalytics() {
     return isFiltered ? rerankLeaderboard(data) : data;
   }, [teamFilteredLeaderboard, squadFilter, tierFilter, teamFilteredAthletes, effectiveTierByAthlete, filterTeamId]);
 
-  // Compute Titan Index for the full filtered set so it's available for sorting
-  const leaderboardWithTitan = useMemo(() => {
-    const splits: number[] = [];
-    const wplbs: number[] = [];
-    for (const e of filteredLeaderboard) {
-      if (e.latest_split_seconds != null) splits.push(e.latest_split_seconds);
-      if (e.latest_wplb != null) wplbs.push(e.latest_wplb);
-    }
-    if (splits.length < 2 || wplbs.length < 2) {
-      return filteredLeaderboard.map((e) => ({ ...e, titan_index: e.composite_rank != null ? 50 - e.composite_rank : null as number | null }));
-    }
-    const mean = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
-    const std = (arr: number[], m: number) => Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length);
-    const splitMean = mean(splits); const splitStd = std(splits, splitMean);
-    const wplbMean = mean(wplbs); const wplbStd = std(wplbs, wplbMean);
-    const rawScores: number[] = [];
-    const zByAthlete = new Map<string, number>();
-    for (const e of filteredLeaderboard) {
-      if (e.latest_split_seconds == null || e.latest_wplb == null) continue;
-      const speedZ = splitStd > 0 ? -(e.latest_split_seconds - splitMean) / splitStd : 0;
-      const effZ = wplbStd > 0 ? (e.latest_wplb - wplbMean) / wplbStd : 0;
-      const raw = (speedZ + effZ) / 2;
-      rawScores.push(raw);
-      zByAthlete.set(e.athlete_id, raw);
-    }
-    const minZ = Math.min(...rawScores); const maxZ = Math.max(...rawScores);
-    const range = maxZ - minZ;
-    return filteredLeaderboard.map((e) => {
-      const raw = zByAthlete.get(e.athlete_id);
-      const titan = raw != null && range > 0 ? ((raw - minZ) / range) * 100 : null;
-      return { ...e, titan_index: titan };
-    });
-  }, [filteredLeaderboard]);
+  // Titan Index now comes pre-computed from the server (rolling average of last N workouts)
+  const leaderboardWithTitan = filteredLeaderboard;
 
   // Sorted leaderboard (from filtered data with titan index)
   const sortedLeaderboard = useMemo(() => {
@@ -287,7 +260,7 @@ export function TeamAnalytics() {
   const hasLeaderboardData = sortedLeaderboard.length > 0;
   const hasAnyData = hasZoneData || hasErgData || hasLeaderboardData;
 
-  // Trend arrow with popover showing per-assignment rank history
+/*   // Trend arrow with popover showing per-assignment rank history
   const TrendBadge = ({ value, history }: { value: number | null; history: { date: string; rank: number; totalAthletes: number }[] }) => {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLSpanElement>(null);
@@ -333,7 +306,7 @@ export function TeamAnalytics() {
       </span>
     );
   };
-
+ */
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
       <CoachingNav />
@@ -486,9 +459,9 @@ export function TeamAnalytics() {
                       Efficiency<LbSortIcon field="avg_wplb_rank" />
                     </th>
                     <th className="text-center py-2 px-2 w-10">
-                      <span title="Workouts">#</span>
+                      <span title="Workouts"># Workouts</span>
                     </th>
-                    <th className="text-center py-2 pl-2 w-10">Trend</th>
+                    {/* <th className="text-center py-2 pl-2 w-10">Trend</th> */}
                   </tr>
                 </thead>
                 <tbody>
@@ -518,9 +491,9 @@ export function TeamAnalytics() {
                           <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_raw_rank ?? '—'}</td>
                           <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_wplb_rank ?? '—'}</td>
                           <td className="py-2 px-2 text-center font-mono text-neutral-500">{row.assignment_count}</td>
-                          <td className="py-2 pl-2 text-center">
+                          {/* <td className="py-2 pl-2 text-center">
                             <TrendBadge value={row.trend_raw_rank} history={row.rank_history} />
-                          </td>
+                          </td> */}
                         </tr>
                         {isExpanded && recentHistory.length > 0 && (
                           <tr className="bg-neutral-800/20">

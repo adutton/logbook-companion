@@ -2388,6 +2388,29 @@ async function computeAndStoreWorkoutTitanIndex(groupAssignmentId: string): Prom
   }
 }
 
+/**
+ * Backfill titan_index for all group assignments that have completed rows
+ * with NULL titan_index. Returns the number of assignments processed.
+ */
+export async function backfillTitanIndexes(teamId: string, opts?: { orgId?: string }): Promise<number> {
+  const assignments = await getGroupAssignments(teamId, { orgId: opts?.orgId });
+  let processed = 0;
+  for (const assignment of assignments) {
+    // Check if this assignment has any completed rows missing titan_index
+    const { count } = await supabase
+      .from('daily_workout_assignments')
+      .select('id', { count: 'exact', head: true })
+      .eq('group_assignment_id', assignment.id)
+      .eq('completed', true)
+      .is('titan_index', null);
+    if (count && count > 0) {
+      await computeAndStoreWorkoutTitanIndex(assignment.id);
+      processed++;
+    }
+  }
+  return processed;
+}
+
 /** Compliance grid data: all athletes × all assignments for a date range */
 export interface ComplianceCell {
   athlete_id: string;
@@ -2728,7 +2751,7 @@ export async function getSeasonMeasuredLeaderboard(
   teamId: string,
   opts?: { from?: string; to?: string; limit?: number; orgId?: string; titanWindowSize?: number }
 ): Promise<SeasonLeaderboardEntry[]> {
-  void (opts?.titanWindowSize); // reserved for rolling window feature
+  const titanWindow = opts?.titanWindowSize ?? 5;
   const assignments = await getGroupAssignments(teamId, { from: opts?.from, to: opts?.to, orgId: opts?.orgId });
   if (assignments.length === 0) return [];
 
@@ -2797,7 +2820,8 @@ export async function getSeasonMeasuredLeaderboard(
         const wplb = watts != null && effectiveWeightKg ? (watts / effectiveWeightKg) / 2.20462 : null;
         const time = r.result_time_seconds && r.result_time_seconds > 0 ? r.result_time_seconds : null;
         const distance = r.result_distance_meters && r.result_distance_meters > 0 ? r.result_distance_meters : null;
-        return { athleteId: r.athlete_id, split, wplb, time, distance };
+        const titanIdx = typeof r.titan_index === 'number' ? r.titan_index : null;
+        return { athleteId: r.athlete_id, split, wplb, time, distance, titanIdx };
       })
       .filter((r) => r.split != null);
     if (perAssignmentRows.length === 0) continue;
@@ -2815,9 +2839,10 @@ export async function getSeasonMeasuredLeaderboard(
       if (!entry.latest.date) {
         entry.latest = { split: row.split, time: row.time, distance: row.distance, wplb: row.wplb, date: assignment.scheduled_date };
       }
+      if (row.titanIdx != null) entry.titanIndexes.push(row.titanIdx);
       // Track raw scores per assignment for client-side re-ranking
       const assignmentLabel = assignment.title || assignment.template_name || assignment.canonical_name || 'Workout';
-      entry.scoreHistory.push({ assignmentId: assignment.id, date: assignment.scheduled_date, label: assignmentLabel, split: row.split!, time: row.time, distance: row.distance, wplb: row.wplb, titan_index: null });
+      entry.scoreHistory.push({ assignmentId: assignment.id, date: assignment.scheduled_date, label: assignmentLabel, split: row.split!, time: row.time, distance: row.distance, wplb: row.wplb, titan_index: row.titanIdx });
       perAthleteRanks.set(row.athleteId, entry);
     });
 
@@ -2853,6 +2878,11 @@ export async function getSeasonMeasuredLeaderboard(
       ? (avgRaw + avgWplb) / 2
       : avgRaw ?? avgWplb ?? null;
     const composite = compositeRaw != null ? Math.round(compositeRaw) : null;
+    // Rolling Titan Index: average of last N per-workout titan scores
+    const recentTitans = ranks.titanIndexes.slice(-titanWindow);
+    const titanIndex = recentTitans.length > 0
+      ? Math.round((recentTitans.reduce((s, v) => s + v, 0) / recentTitans.length) * 10) / 10
+      : null;
     return {
       athlete_id: athleteId,
       athlete_name: athlete?.name ?? 'Unknown',
@@ -2874,6 +2904,7 @@ export async function getSeasonMeasuredLeaderboard(
       latest_time_seconds: ranks.latest.time,
       latest_distance: ranks.latest.distance,
       latest_wplb: ranks.latest.wplb,
+      titan_index: titanIndex,
       score_history: ranks.scoreHistory,
     } as SeasonLeaderboardEntry;
   });
@@ -2904,9 +2935,9 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
   }
 
   // Per-athlete accumulators
-  const perAthlete = new Map<string, { rawRanks: number[]; wplbRanks: number[]; rankByDate: Array<{ date: string; rank: number; totalAthletes: number }> }>();
+  const perAthlete = new Map<string, { rawRanks: number[]; wplbRanks: number[]; titanIndexes: number[]; rankByDate: Array<{ date: string; rank: number; totalAthletes: number }> }>();
   for (const e of entries) {
-    perAthlete.set(e.athlete_id, { rawRanks: [], wplbRanks: [], rankByDate: [] });
+    perAthlete.set(e.athlete_id, { rawRanks: [], wplbRanks: [], titanIndexes: [], rankByDate: [] });
   }
 
   // For each assignment, rank only the filtered athletes
@@ -2927,6 +2958,14 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
       entry.rankByDate.push({ date: row.date, rank: idx + 1, totalAthletes: total });
     });
 
+    // Collect titan_index values from score_history for this assignment
+    for (const e of entries) {
+      const s = e.score_history.find((h) => h.assignmentId === assignmentId);
+      if (s?.titan_index != null) {
+        perAthlete.get(e.athlete_id)!.titanIndexes.push(s.titan_index);
+      }
+    }
+
     // Wplb rank (descending)
     const withWplb = athleteScores.filter((r) => r.wplb != null);
     const wplbSorted = [...withWplb].sort((a, b) => (b.wplb ?? 0) - (a.wplb ?? 0));
@@ -2944,6 +2983,11 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
     const composite = compositeRaw != null ? Math.round(compositeRaw) : null;
     const sortedTrend = [...ranks.rankByDate].sort((a, b) => a.date.localeCompare(b.date));
     const trend = sortedTrend.length >= 2 ? sortedTrend[sortedTrend.length - 1].rank - sortedTrend[0].rank : null;
+    // Recompute rolling titan_index from the filtered subset's titan values
+    const recentTitans = ranks.titanIndexes.slice(-5);
+    const titanIndex = recentTitans.length > 0
+      ? Math.round((recentTitans.reduce((s, v) => s + v, 0) / recentTitans.length) * 10) / 10
+      : null;
     return {
       ...e,
       avg_raw_rank: avgRaw,
@@ -2951,6 +2995,7 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
       composite_rank: composite,
       trend_raw_rank: trend,
       rank_history: sortedTrend,
+      titan_index: titanIndex,
     };
   });
 }
