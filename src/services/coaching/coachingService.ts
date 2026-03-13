@@ -958,6 +958,45 @@ export async function getAthletes(teamId: string): Promise<CoachingAthlete[]> {
   }));
 }
 
+/** Fetch a single athlete by their athletes.id, regardless of which team they're on. */
+export async function getAthleteById(athleteId: string): Promise<CoachingAthlete | null> {
+  const { data, error } = await supabase
+    .from('athletes')
+    .select('*, team_athletes(team_id, status, squad, performance_tier)')
+    .eq('id', athleteId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    // Fallback without performance_tier column
+    const fallback = await supabase
+      .from('athletes')
+      .select('*, team_athletes(team_id, status, squad)')
+      .eq('id', athleteId)
+      .limit(1)
+      .maybeSingle();
+    if (fallback.error || !fallback.data) return null;
+    const row = fallback.data as Athlete & { team_athletes: TeamAthlete[] };
+    const active = row.team_athletes?.find((ta) => ta.status === 'active') ?? row.team_athletes?.[0];
+    return {
+      ...toCoachingAthlete(row),
+      team_id: active?.team_id ?? undefined,
+      squad: active?.squad ?? null,
+      performance_tier: null,
+    };
+  }
+
+  if (!data) return null;
+  const row = data as Athlete & { team_athletes: TeamAthlete[] };
+  const active = row.team_athletes?.find((ta) => ta.status === 'active') ?? row.team_athletes?.[0];
+  return {
+    ...toCoachingAthlete(row),
+    team_id: active?.team_id ?? undefined,
+    squad: active?.squad ?? null,
+    performance_tier: (active?.performance_tier as PerformanceTier | null | undefined) ?? null,
+  };
+}
+
 /** Get distinct squad names for a team (for filter dropdowns / autocomplete) */
 export async function getTeamSquads(teamId: string): Promise<string[]> {
   const rows = throwOnError(
@@ -1263,6 +1302,15 @@ export async function createErgScore(
 export async function deleteErgScore(id: string): Promise<void> {
   throwOnError(
     await supabase.from('coaching_erg_scores').delete().eq('id', id)
+  );
+}
+
+export async function updateErgScore(
+  id: string,
+  updates: Partial<Pick<CoachingErgScore, 'date' | 'distance' | 'time_seconds' | 'split_500m' | 'watts' | 'stroke_rate' | 'heart_rate' | 'notes'>>,
+): Promise<void> {
+  throwOnError(
+    await supabase.from('coaching_erg_scores').update(updates).eq('id', id)
   );
 }
 
@@ -1906,6 +1954,101 @@ export async function resolveAssignmentResultsShare(
   };
 }
 
+// ─── Team Leaderboard Shares ──────────────────────────────────────────────────
+
+export interface TeamLeaderboardShareData {
+  shareId: string;
+  expiresAt: string;
+  teamName: string | null;
+  orgName: string | null;
+  filterSquad: string | null;
+  filterTier: string | null;
+  filterTeamId: string | null;
+  assignments: Array<{
+    id: string;
+    scheduled_date: string;
+    title: string | null;
+    template_name: string | null;
+    canonical_name: string | null;
+    is_test: boolean;
+  }>;
+  results: Array<{
+    athlete_id: string;
+    athlete_name: string;
+    squad: string | null;
+    performance_tier: string | null;
+    team_id: string | null;
+    team_name: string | null;
+    weight_kg: number | null;
+    side: string | null;
+    group_assignment_id: string;
+    completed: boolean;
+    result_time_seconds: number | null;
+    result_distance_meters: number | null;
+    result_split_seconds: number | null;
+    result_weight_kg: number | null;
+    result_intervals: IntervalResult[] | null;
+  }>;
+}
+
+export async function createTeamLeaderboardShare(
+  teamId: string,
+  opts?: {
+    orgId?: string | null;
+    filterSquad?: string | null;
+    filterTier?: string | null;
+    filterTeamId?: string | null;
+    expiresInHours?: number;
+  },
+): Promise<{ token: string; expiresAt: string }> {
+  const { data, error } = await supabase.rpc('create_team_leaderboard_share', {
+    p_team_id: teamId,
+    p_org_id: opts?.orgId ?? null,
+    p_filter_squad: opts?.filterSquad ?? null,
+    p_filter_tier: opts?.filterTier ?? null,
+    p_filter_team_id: opts?.filterTeamId ?? null,
+    p_expires_in_hours: opts?.expiresInHours ?? 168,
+  });
+  if (error) throw error;
+
+  const payload = data as { token?: string; expires_at?: string } | null;
+  const token = payload?.token?.trim();
+  const expiresAt = payload?.expires_at?.trim();
+  if (!token || !expiresAt) {
+    throw new Error('Failed to create share link');
+  }
+  return { token, expiresAt };
+}
+
+export function buildTeamLeaderboardShareUrl(token: string): string {
+  return `${window.location.origin}/share/team-leaderboard/${encodeURIComponent(token)}`;
+}
+
+export async function resolveTeamLeaderboardShare(
+  shareToken: string,
+): Promise<TeamLeaderboardShareData | null> {
+  const { data, error } = await supabase.rpc('resolve_team_leaderboard_share', {
+    p_token: shareToken,
+  });
+  if (error) throw error;
+  if (!data) return null;
+
+  const payload = data as Record<string, unknown>;
+  if (!payload.share_id || !payload.expires_at) return null;
+
+  return {
+    shareId: payload.share_id as string,
+    expiresAt: payload.expires_at as string,
+    teamName: (payload.team_name as string) ?? null,
+    orgName: (payload.org_name as string) ?? null,
+    filterSquad: (payload.filter_squad as string) ?? null,
+    filterTier: (payload.filter_tier as string) ?? null,
+    filterTeamId: (payload.filter_team_id as string) ?? null,
+    assignments: (payload.assignments as TeamLeaderboardShareData['assignments']) ?? [],
+    results: (payload.results as TeamLeaderboardShareData['results']) ?? [],
+  };
+}
+
 /**
  * Fetch per-athlete results for a group assignment, enriched with athlete
  * name / squad / weight_kg from the athletes + team_athletes tables.
@@ -2430,6 +2573,8 @@ type LeaderboardDailyRow = {
   athlete_id: string;
   completed: boolean;
   result_split_seconds?: number | null;
+  result_time_seconds?: number | null;
+  result_distance_meters?: number | null;
   result_weight_kg?: number | null;
   result_intervals?: IntervalResult[] | null;
 };
@@ -2474,6 +2619,24 @@ export interface SeasonLeaderboardEntry {
   trend_raw_rank: number | null;
   /** Per-assignment rank history for trend popover, sorted chronologically */
   rank_history: { date: string; rank: number; totalAthletes: number }[];
+  /** Average split time in seconds across all assignments */
+  avg_split_seconds: number | null;
+  /** Average total time in seconds (for single-distance display, e.g. 2k time) */
+  avg_time_seconds: number | null;
+  /** True when all assignments were the same distance (show time instead of split) */
+  is_single_distance: boolean;
+  /** Average watts per pound across all assignments */
+  avg_wplb: number | null;
+  /** Most recent assignment: split in seconds */
+  latest_split_seconds: number | null;
+  /** Most recent assignment: total time in seconds */
+  latest_time_seconds: number | null;
+  /** Most recent assignment: distance in meters */
+  latest_distance: number | null;
+  /** Most recent assignment: watts per pound */
+  latest_wplb: number | null;
+  /** Per-assignment raw scores for client-side re-ranking when filters change */
+  score_history: { assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null }[];
 }
 
 /**
@@ -2504,7 +2667,7 @@ export async function getSeasonMeasuredLeaderboard(
   if (resultWeightColumnAvailable !== false) {
     let query = supabase
       .from('daily_workout_assignments')
-      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_weight_kg, result_intervals')
+      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_time_seconds, result_distance_meters, result_weight_kg, result_intervals')
       .in('group_assignment_id', assignmentIds);
     if (!hasOrgAssignments) {
       query = query.eq('team_id', teamId);
@@ -2521,7 +2684,7 @@ export async function getSeasonMeasuredLeaderboard(
   if (!rows) {
     let query = supabase
       .from('daily_workout_assignments')
-      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_intervals')
+      .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_time_seconds, result_distance_meters, result_intervals')
       .in('group_assignment_id', assignmentIds);
     if (!hasOrgAssignments) {
       query = query.eq('team_id', teamId);
@@ -2532,7 +2695,14 @@ export async function getSeasonMeasuredLeaderboard(
       .map((r) => ({ ...r, result_weight_kg: null }));
   }
 
-  const perAthleteRanks = new Map<string, { raw: number[]; wplb: number[]; rawByDate: Array<{ date: string; rank: number; totalAthletes: number }> }>();
+  const perAthleteRanks = new Map<string, {
+    raw: number[]; wplb: number[]; splits: number[]; wplbValues: number[];
+    times: number[]; distances: number[];
+    rawByDate: Array<{ date: string; rank: number; totalAthletes: number }>;
+    latest: { split: number | null; time: number | null; distance: number | null; wplb: number | null; date: string };
+    scoreHistory: Array<{ assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null }>;
+  }>();
+  // Assignments are sorted by scheduled_date ascending, so the last one processed is most recent
   for (const assignment of assignments) {
     const perAssignmentRows = (rows ?? [])
       .filter((r) => r.group_assignment_id === assignment.id && r.completed)
@@ -2544,7 +2714,9 @@ export async function getSeasonMeasuredLeaderboard(
           : (athlete?.weight_kg && athlete.weight_kg > 0 ? athlete.weight_kg : null);
         const watts = split && split > 0 ? wattsFromSplit(split) : null;
         const wplb = watts != null && effectiveWeightKg ? (watts / effectiveWeightKg) / 2.20462 : null;
-        return { athleteId: r.athlete_id, split, wplb };
+        const time = r.result_time_seconds && r.result_time_seconds > 0 ? r.result_time_seconds : null;
+        const distance = r.result_distance_meters && r.result_distance_meters > 0 ? r.result_distance_meters : null;
+        return { athleteId: r.athlete_id, split, wplb, time, distance };
       })
       .filter((r) => r.split != null);
     if (perAssignmentRows.length === 0) continue;
@@ -2552,17 +2724,32 @@ export async function getSeasonMeasuredLeaderboard(
     const rawSorted = [...perAssignmentRows].sort((a, b) => (a.split ?? Number.POSITIVE_INFINITY) - (b.split ?? Number.POSITIVE_INFINITY));
     const totalInAssignment = rawSorted.length;
     rawSorted.forEach((row, idx) => {
-      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], rawByDate: [] };
+      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], splits: [], wplbValues: [], times: [], distances: [], rawByDate: [], latest: { split: null, time: null, distance: null, wplb: null, date: '' }, scoreHistory: [] };
       entry.raw.push(idx + 1);
+      if (row.split != null) entry.splits.push(row.split);
+      if (row.time != null) entry.times.push(row.time);
+      if (row.distance != null) entry.distances.push(row.distance);
       entry.rawByDate.push({ date: assignment.scheduled_date, rank: idx + 1, totalAthletes: totalInAssignment });
+      // Only set latest on first encounter (assignments are DESC by date, so first = most recent)
+      if (!entry.latest.date) {
+        entry.latest = { split: row.split, time: row.time, distance: row.distance, wplb: row.wplb, date: assignment.scheduled_date };
+      }
+      // Track raw scores per assignment for client-side re-ranking
+      const assignmentLabel = assignment.title || assignment.template_name || assignment.canonical_name || 'Workout';
+      entry.scoreHistory.push({ assignmentId: assignment.id, date: assignment.scheduled_date, label: assignmentLabel, split: row.split!, time: row.time, distance: row.distance, wplb: row.wplb });
       perAthleteRanks.set(row.athleteId, entry);
     });
 
     const weighted = perAssignmentRows.filter((r) => r.wplb != null);
     const wplbSorted = [...weighted].sort((a, b) => (b.wplb ?? 0) - (a.wplb ?? 0));
     wplbSorted.forEach((row, idx) => {
-      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], rawByDate: [] };
+      const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], splits: [], wplbValues: [], times: [], distances: [], rawByDate: [], latest: { split: null, time: null, distance: null, wplb: null, date: '' }, scoreHistory: [] };
       entry.wplb.push(idx + 1);
+      if (row.wplb != null) entry.wplbValues.push(row.wplb);
+      // Set latest wplb on first encounter (assignments are DESC by date)
+      if (row.wplb != null && !entry.latest.wplb) {
+        entry.latest.wplb = row.wplb;
+      }
       perAthleteRanks.set(row.athleteId, entry);
     });
   }
@@ -2573,6 +2760,12 @@ export async function getSeasonMeasuredLeaderboard(
     const trend = sortedTrend.length >= 2 ? sortedTrend[sortedTrend.length - 1].rank - sortedTrend[0].rank : null;
     const avgRaw = ranks.raw.length > 0 ? Math.round(ranks.raw.reduce((sum, v) => sum + v, 0) / ranks.raw.length) : null;
     const avgWplb = ranks.wplb.length > 0 ? Math.round(ranks.wplb.reduce((sum, v) => sum + v, 0) / ranks.wplb.length) : null;
+    const avgSplit = ranks.splits.length > 0 ? ranks.splits.reduce((sum, v) => sum + v, 0) / ranks.splits.length : null;
+    const avgWplbValue = ranks.wplbValues.length > 0 ? ranks.wplbValues.reduce((sum, v) => sum + v, 0) / ranks.wplbValues.length : null;
+    const avgTime = ranks.times.length > 0 ? ranks.times.reduce((sum, v) => sum + v, 0) / ranks.times.length : null;
+    // Single distance if all recorded distances are the same
+    const uniqueDistances = new Set(ranks.distances);
+    const isSingleDistance = uniqueDistances.size === 1 && avgTime != null;
     // Composite: average of raw rank + efficiency rank (both available),
     // falls back to whichever is available, or null
     const compositeRaw = avgRaw != null && avgWplb != null
@@ -2592,6 +2785,15 @@ export async function getSeasonMeasuredLeaderboard(
       composite_rank: composite,
       trend_raw_rank: trend,
       rank_history: sortedTrend,
+      avg_split_seconds: avgSplit,
+      avg_time_seconds: avgTime,
+      is_single_distance: isSingleDistance,
+      avg_wplb: avgWplbValue,
+      latest_split_seconds: ranks.latest.split,
+      latest_time_seconds: ranks.latest.time,
+      latest_distance: ranks.latest.distance,
+      latest_wplb: ranks.latest.wplb,
+      score_history: ranks.scoreHistory,
     } as SeasonLeaderboardEntry;
   });
 
@@ -2604,6 +2806,72 @@ export async function getSeasonMeasuredLeaderboard(
   });
 
   return opts?.limit ? leaderboard.slice(0, opts.limit) : leaderboard;
+}
+
+/**
+ * Re-rank a filtered subset of leaderboard entries using their per-assignment raw scores.
+ * This recalculates avg_raw_rank, avg_wplb_rank, composite_rank, and rank_history
+ * relative to only the athletes in the provided array.
+ */
+export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLeaderboardEntry[] {
+  if (entries.length === 0) return [];
+
+  // Collect all unique assignment IDs from score_history
+  const assignmentIds = new Set<string>();
+  for (const e of entries) {
+    for (const s of e.score_history) assignmentIds.add(s.assignmentId);
+  }
+
+  // Per-athlete accumulators
+  const perAthlete = new Map<string, { rawRanks: number[]; wplbRanks: number[]; rankByDate: Array<{ date: string; rank: number; totalAthletes: number }> }>();
+  for (const e of entries) {
+    perAthlete.set(e.athlete_id, { rawRanks: [], wplbRanks: [], rankByDate: [] });
+  }
+
+  // For each assignment, rank only the filtered athletes
+  for (const assignmentId of assignmentIds) {
+    const athleteScores: Array<{ athleteId: string; split: number; wplb: number | null; date: string }> = [];
+    for (const e of entries) {
+      const s = e.score_history.find((h) => h.assignmentId === assignmentId);
+      if (s) athleteScores.push({ athleteId: e.athlete_id, split: s.split, wplb: s.wplb, date: s.date });
+    }
+    if (athleteScores.length === 0) continue;
+
+    // Raw rank by split (ascending)
+    const rawSorted = [...athleteScores].sort((a, b) => a.split - b.split);
+    const total = rawSorted.length;
+    rawSorted.forEach((row, idx) => {
+      const entry = perAthlete.get(row.athleteId)!;
+      entry.rawRanks.push(idx + 1);
+      entry.rankByDate.push({ date: row.date, rank: idx + 1, totalAthletes: total });
+    });
+
+    // Wplb rank (descending)
+    const withWplb = athleteScores.filter((r) => r.wplb != null);
+    const wplbSorted = [...withWplb].sort((a, b) => (b.wplb ?? 0) - (a.wplb ?? 0));
+    wplbSorted.forEach((row, idx) => {
+      perAthlete.get(row.athleteId)!.wplbRanks.push(idx + 1);
+    });
+  }
+
+  // Build re-ranked entries
+  return entries.map((e) => {
+    const ranks = perAthlete.get(e.athlete_id)!;
+    const avgRaw = ranks.rawRanks.length > 0 ? Math.round(ranks.rawRanks.reduce((s, v) => s + v, 0) / ranks.rawRanks.length) : null;
+    const avgWplb = ranks.wplbRanks.length > 0 ? Math.round(ranks.wplbRanks.reduce((s, v) => s + v, 0) / ranks.wplbRanks.length) : null;
+    const compositeRaw = avgRaw != null && avgWplb != null ? (avgRaw + avgWplb) / 2 : avgRaw ?? avgWplb ?? null;
+    const composite = compositeRaw != null ? Math.round(compositeRaw) : null;
+    const sortedTrend = [...ranks.rankByDate].sort((a, b) => a.date.localeCompare(b.date));
+    const trend = sortedTrend.length >= 2 ? sortedTrend[sortedTrend.length - 1].rank - sortedTrend[0].rank : null;
+    return {
+      ...e,
+      avg_raw_rank: avgRaw,
+      avg_wplb_rank: avgWplb,
+      composite_rank: composite,
+      trend_raw_rank: trend,
+      rank_history: sortedTrend,
+    };
+  });
 }
 
 // ─── Team Analytics ────────────────────────────────────────────────────────
@@ -2662,6 +2930,8 @@ export interface TeamErgComparison {
   date: string;
   /** Grouping label for the chart selector, e.g. "2k Test · Mar 10" or "2000m" */
   assignmentLabel: string;
+  /** group_assignment_id for linking to results page */
+  assignmentId?: string;
 }
 
 /** Format a date string as short month + day, e.g. "Mar 10" */
@@ -2727,7 +2997,7 @@ export async function getTeamErgComparison(teamId: string): Promise<TeamErgCompa
     byAssignment.get(gaId)!.rows.push(r);
   }
 
-  for (const [, { label, rows }] of byAssignment) {
+  for (const [gaId, { label, rows }] of byAssignment) {
     // Best result per athlete within this assignment
     const bestPerAthlete = new Map<string, AssignmentRow>();
     for (const r of rows) {
@@ -2736,6 +3006,8 @@ export async function getTeamErgComparison(teamId: string): Promise<TeamErgCompa
         bestPerAthlete.set(r.athlete_id, r);
       }
     }
+
+    const realAssignmentId = gaId.startsWith('ungrouped_') ? undefined : gaId;
 
     for (const r of bestPerAthlete.values()) {
       const athlete = athleteMap.get(r.athlete_id);
@@ -2754,6 +3026,7 @@ export async function getTeamErgComparison(teamId: string): Promise<TeamErgCompa
         bestWatts: watts,
         date: r.workout_date,
         assignmentLabel: label,
+        assignmentId: realAssignmentId,
       });
     }
   }

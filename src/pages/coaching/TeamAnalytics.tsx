@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Loader2, BarChart3, ChevronUp, ChevronDown, ChevronsUpDown, ArrowUp, ArrowDown, Minus } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { Loader2, BarChart3, ChevronUp, ChevronDown, ChevronsUpDown, ArrowUp, ArrowDown, Minus, ChevronRight, Share2, Check } from 'lucide-react';
 import { EmptyState } from '../../components/ui';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import {
@@ -11,17 +11,22 @@ import {
   getOrgAthletesWithTeam,
   getTeamsForOrg,
   getSeasonMeasuredLeaderboard,
+  rerankLeaderboard,
   getErgScores,
   type CoachingAthlete,
   type TeamErgComparison,
   type ZoneDistribution,
   type SeasonLeaderboardEntry,
+  createTeamLeaderboardShare,
+  buildTeamLeaderboardShareUrl,
 } from '../../services/coaching/coachingService';
 import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { ErgComparisonChart } from '../../components/coaching/ErgComparisonChart';
 import { TrainingZoneDonut } from '../../components/coaching/TrainingZoneDonut';
+import { RankOverTimeChart } from '../../components/coaching/RankOverTimeChart';
 import { buildBest2kByAthlete, deriveBenchmarkTier, TIER_SORT_ORDER, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
 import { getOrganizationsForUser } from '../../services/coaching/coachingService';
+import { formatSplit } from '../../utils/paceCalculator';
 
 export function TeamAnalytics() {
   const { userId, teamId, orgId, isLoadingTeam, teamError, filterTeamId } = useCoachingContext();
@@ -36,9 +41,11 @@ export function TeamAnalytics() {
   const [tierFilter, setTierFilter] = useState<string | 'all'>('all');
   const [best2kByAthlete, setBest2kByAthlete] = useState<Record<string, number>>({});
   const [orgRubric, setOrgRubric] = useState<PerformanceTierRubricConfig | null>(null);
-  const [lbSortField, setLbSortField] = useState<'composite_rank' | 'avg_raw_rank' | 'avg_wplb_rank'>('composite_rank');
+  const [lbSortField, setLbSortField] = useState<'titan_index' | 'composite_rank' | 'avg_raw_rank' | 'avg_wplb_rank'>('titan_index');
   const [lbSortAsc, setLbSortAsc] = useState(true);
   const [lbPage, setLbPage] = useState(0);
+  const [expandedAthleteId, setExpandedAthleteId] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'copied'>('idle');
   const LB_PAGE_SIZE = 16;
 
   const isOrg = !!orgId;
@@ -195,18 +202,62 @@ export function TeamAnalytics() {
       );
       data = data.filter((e) => athleteIdsInTier.has(e.athlete_id));
     }
-    return data;
-  }, [teamFilteredLeaderboard, squadFilter, tierFilter, teamFilteredAthletes, effectiveTierByAthlete]);
+    // Re-rank within the filtered group so ranks are relative to visible athletes
+    // Apply whenever any filter narrows the set (team, squad, or tier)
+    const isFiltered = !!filterTeamId || squadFilter !== 'all' || tierFilter !== 'all';
+    return isFiltered ? rerankLeaderboard(data) : data;
+  }, [teamFilteredLeaderboard, squadFilter, tierFilter, teamFilteredAthletes, effectiveTierByAthlete, filterTeamId]);
 
-  // Sorted leaderboard (from filtered data)
+  // Compute Titan Index for the full filtered set so it's available for sorting
+  const leaderboardWithTitan = useMemo(() => {
+    const splits: number[] = [];
+    const wplbs: number[] = [];
+    for (const e of filteredLeaderboard) {
+      if (e.latest_split_seconds != null) splits.push(e.latest_split_seconds);
+      if (e.latest_wplb != null) wplbs.push(e.latest_wplb);
+    }
+    if (splits.length < 2 || wplbs.length < 2) {
+      return filteredLeaderboard.map((e) => ({ ...e, titan_index: e.composite_rank != null ? 50 - e.composite_rank : null as number | null }));
+    }
+    const mean = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
+    const std = (arr: number[], m: number) => Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length);
+    const splitMean = mean(splits); const splitStd = std(splits, splitMean);
+    const wplbMean = mean(wplbs); const wplbStd = std(wplbs, wplbMean);
+    const rawScores: number[] = [];
+    const zByAthlete = new Map<string, number>();
+    for (const e of filteredLeaderboard) {
+      if (e.latest_split_seconds == null || e.latest_wplb == null) continue;
+      const speedZ = splitStd > 0 ? -(e.latest_split_seconds - splitMean) / splitStd : 0;
+      const effZ = wplbStd > 0 ? (e.latest_wplb - wplbMean) / wplbStd : 0;
+      const raw = (speedZ + effZ) / 2;
+      rawScores.push(raw);
+      zByAthlete.set(e.athlete_id, raw);
+    }
+    const minZ = Math.min(...rawScores); const maxZ = Math.max(...rawScores);
+    const range = maxZ - minZ;
+    return filteredLeaderboard.map((e) => {
+      const raw = zByAthlete.get(e.athlete_id);
+      const titan = raw != null && range > 0 ? ((raw - minZ) / range) * 100 : null;
+      return { ...e, titan_index: titan };
+    });
+  }, [filteredLeaderboard]);
+
+  // Sorted leaderboard (from filtered data with titan index)
   const sortedLeaderboard = useMemo(() => {
-    const sorted = [...filteredLeaderboard].sort((a, b) => {
+    const sorted = [...leaderboardWithTitan].sort((a, b) => {
+      if (lbSortField === 'titan_index') {
+        // Higher is better, default descending
+        const av = a.titan_index ?? -Infinity;
+        const bv = b.titan_index ?? -Infinity;
+        return lbSortAsc ? av - bv : bv - av;
+      }
+      // composite_rank, avg_raw_rank, avg_wplb_rank — lower is better
       const av = a[lbSortField] ?? Number.POSITIVE_INFINITY;
       const bv = b[lbSortField] ?? Number.POSITIVE_INFINITY;
       return lbSortAsc ? av - bv : bv - av;
     });
     return sorted;
-  }, [filteredLeaderboard, lbSortField, lbSortAsc]);
+  }, [leaderboardWithTitan, lbSortField, lbSortAsc]);
 
   const lbTotalPages = Math.max(1, Math.ceil(sortedLeaderboard.length / LB_PAGE_SIZE));
   const pagedLeaderboard = sortedLeaderboard.slice(lbPage * LB_PAGE_SIZE, (lbPage + 1) * LB_PAGE_SIZE);
@@ -219,7 +270,8 @@ export function TeamAnalytics() {
       setLbSortAsc((prev) => !prev);
     } else {
       setLbSortField(field);
-      setLbSortAsc(true);
+      // Titan Index: higher is better → default descending. Others: lower is better → ascending.
+      setLbSortAsc(field !== 'titan_index');
     }
   };
 
@@ -375,89 +427,185 @@ export function TeamAnalytics() {
           </div>
         )}
 
-        {/* Erg Chart + Leaderboard side by side */}
-        {!isLoading && (hasErgData || hasLeaderboardData) && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left: Unified Erg Comparison Chart */}
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
-              <h3 className="text-sm font-medium text-neutral-400 mb-4">Erg Comparison</h3>
-              {hasErgData ? (
-                <ErgComparisonChart data={filteredErgData} athletes={filteredAthletes} />
-              ) : (
-                <p className="text-sm text-neutral-500">
-                  No erg data for this {squadFilter !== 'all' ? 'squad' : tierFilter !== 'all' ? 'tier' : 'selection'}.
-                </p>
-              )}
+        {/* Leaderboard — full width */}
+        {!isLoading && hasLeaderboardData && (
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-medium text-neutral-400">Season Leaderboard</h3>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (shareStatus !== 'idle') return;
+                  setShareStatus('loading');
+                  try {
+                    const { token } = await createTeamLeaderboardShare(teamId!, {
+                      orgId,
+                      filterSquad: squadFilter !== 'all' ? squadFilter : null,
+                      filterTier: tierFilter !== 'all' ? tierFilter : null,
+                      filterTeamId: filterTeamId ?? null,
+                    });
+                    const url = buildTeamLeaderboardShareUrl(token);
+                    await navigator.clipboard.writeText(url);
+                    setShareStatus('copied');
+                    setTimeout(() => setShareStatus('idle'), 2500);
+                  } catch {
+                    setShareStatus('idle');
+                  }
+                }}
+                disabled={shareStatus === 'loading'}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 transition-colors disabled:opacity-50"
+              >
+                {shareStatus === 'copied' ? <Check className="w-3 h-3 text-emerald-400" /> : <Share2 className="w-3 h-3" />}
+                {shareStatus === 'copied' ? 'Link copied!' : shareStatus === 'loading' ? 'Creating…' : 'Share'}
+              </button>
             </div>
-
-            {/* Right: Leaderboard */}
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
-              <h3 className="text-sm font-medium text-neutral-400 mb-1">Season Leaderboard</h3>
-              <p className="text-[11px] text-neutral-600 mb-4">Composite = avg of score rank + efficiency rank. Lower is better.</p>
-              {hasLeaderboardData ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-neutral-500 border-b border-neutral-800">
-                        <th className="text-left py-2 pr-3">#</th>
-                        <th className="text-left py-2 pr-3">Athlete</th>
-                        <th className="text-right py-2 pr-3 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('composite_rank')}>
-                          Composite<LbSortIcon field="composite_rank" />
-                        </th>
-                        <th className="text-right py-2 pr-3 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_raw_rank')}>
-                          Score<LbSortIcon field="avg_raw_rank" />
-                        </th>
-                        <th className="text-right py-2 pr-3 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_wplb_rank')}>
-                          Efficiency<LbSortIcon field="avg_wplb_rank" />
-                        </th>
-                        <th className="text-right py-2 pr-3">Workouts</th>
-                        <th className="text-right py-2">Trend</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedLeaderboard.map((row, idx) => (
-                        <tr key={row.athlete_id} className="border-b border-neutral-800/50">
-                          <td className="py-2 pr-3 text-neutral-400">{lbPage * LB_PAGE_SIZE + idx + 1}</td>
-                          <td className="py-2 pr-3">
-                            <div className="text-white">{row.athlete_name}</div>
-                            <div className="text-[11px] text-neutral-500">
-                              {[row.squad, row.performance_tier].filter(Boolean).join(' · ') || '—'}
+            <div className="bg-neutral-800/50 border border-neutral-700/40 rounded-lg px-4 py-3 mb-4">
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                <span className="font-semibold text-neutral-200">Season rankings</span> — averaged across all workouts. Expand a row to see individual scores, or go to <a href="/team-management/assignments" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">Team Workouts</a> for per-workout rankings.
+              </p>
+              <p className="text-[11px] text-neutral-500 mt-1">
+                Titan Index = Z-score composite of speed + efficiency. Higher is better.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-neutral-500 border-b border-neutral-800 text-xs">
+                    <th className="text-left py-2 pr-2 w-8">#</th>
+                    <th className="text-left py-2 pr-2">Athlete</th>
+                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('titan_index')}>
+                      Titan Index<LbSortIcon field="titan_index" />
+                    </th>
+                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('composite_rank')}>
+                      Composite<LbSortIcon field="composite_rank" />
+                    </th>
+                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_raw_rank')}>
+                      Speed<LbSortIcon field="avg_raw_rank" />
+                    </th>
+                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_wplb_rank')}>
+                      Efficiency<LbSortIcon field="avg_wplb_rank" />
+                    </th>
+                    <th className="text-center py-2 px-2 w-10">
+                      <span title="Workouts">#</span>
+                    </th>
+                    <th className="text-center py-2 pl-2 w-10">Trend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedLeaderboard.map((row, idx) => {
+                    const isExpanded = expandedAthleteId === row.athlete_id;
+                    const recentHistory = row.score_history.slice(0, 5); // already newest-first from service
+                    return (
+                      <Fragment key={row.athlete_id}>
+                        <tr
+                          className={`border-b border-neutral-800/50 cursor-pointer hover:bg-neutral-800/40 transition-colors ${isExpanded ? 'bg-neutral-800/30' : ''}`}
+                          onClick={() => setExpandedAthleteId(isExpanded ? null : row.athlete_id)}
+                        >
+                          <td className="py-2 pr-2 text-neutral-500">{lbPage * LB_PAGE_SIZE + idx + 1}</td>
+                          <td className="py-2 pr-2">
+                            <div className="flex items-center gap-1.5">
+                              <ChevronRight className={`w-3 h-3 text-neutral-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                              <div>
+                                <div className="text-white">{row.athlete_name}</div>
+                                <div className="text-[11px] text-neutral-500">
+                                  {[row.squad, row.performance_tier].filter(Boolean).join(' · ') || '—'}
+                                </div>
+                              </div>
                             </div>
                           </td>
-                          <td className="py-2 pr-3 text-right font-mono text-white font-semibold">{row.composite_rank ?? '—'}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-neutral-300">{row.avg_raw_rank ?? '—'}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-neutral-300">{row.avg_wplb_rank ?? '—'}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-neutral-400">{row.assignment_count}</td>
-                          <td className="py-2 text-right font-mono">
+                          <td className="py-2 px-2 text-center font-mono text-white font-semibold">{row.titan_index != null ? row.titan_index.toFixed(1) : '—'}</td>
+                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.composite_rank ?? '—'}</td>
+                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_raw_rank ?? '—'}</td>
+                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_wplb_rank ?? '—'}</td>
+                          <td className="py-2 px-2 text-center font-mono text-neutral-500">{row.assignment_count}</td>
+                          <td className="py-2 pl-2 text-center">
                             <TrendBadge value={row.trend_raw_rank} history={row.rank_history} />
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {/* Pagination */}
-                  {lbTotalPages > 1 && (
-                    <div className="flex items-center justify-between mt-3 text-xs text-neutral-500">
-                      <span>Page {lbPage + 1} of {lbTotalPages} ({sortedLeaderboard.length} athletes)</span>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setLbPage((p) => Math.max(0, p - 1))}
-                          disabled={lbPage === 0}
-                          className="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed"
-                        >Prev</button>
-                        <button
-                          onClick={() => setLbPage((p) => Math.min(lbTotalPages - 1, p + 1))}
-                          disabled={lbPage >= lbTotalPages - 1}
-                          className="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed"
-                        >Next</button>
-                      </div>
-                    </div>
-                  )}
+                        {isExpanded && recentHistory.length > 0 && (
+                          <tr className="bg-neutral-800/20">
+                            <td colSpan={8} className="px-4 py-2">
+                              <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-1.5 font-semibold">Recent workouts (newest first)</div>
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-neutral-600">
+                                    <th className="text-left py-1 pr-2">Workout</th>
+                                    <th className="text-left py-1 px-2">Date</th>
+                                    <th className="text-right py-1 px-2">Split</th>
+                                    <th className="text-right py-1 px-2">Time</th>
+                                    <th className="text-right py-1 pl-2">Efficiency</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {recentHistory.map((h) => (
+                                    <tr key={h.assignmentId} className="text-neutral-400 border-t border-neutral-800/30">
+                                      <td className="py-1 pr-2">
+                                        <a
+                                          href={`/team-management/assignments/${h.assignmentId}/results`}
+                                          className="text-indigo-400 hover:text-indigo-300 hover:underline"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {h.label}
+                                        </a>
+                                      </td>
+                                      <td className="py-1 px-2 text-neutral-500">{new Date(h.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                                      <td className="py-1 px-2 text-right font-mono">{formatSplit(h.split)}</td>
+                                      <td className="py-1 px-2 text-right font-mono">{h.time != null ? formatLeaderboardTime(h.time) : '—'}</td>
+                                      <td className="py-1 pl-2 text-right font-mono">{h.wplb != null ? h.wplb.toFixed(2) : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        )}
+                        {isExpanded && recentHistory.length === 0 && (
+                          <tr className="bg-neutral-800/20">
+                            <td colSpan={8} className="px-4 py-3 text-xs text-neutral-500 italic">No workout history available</td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {/* Pagination */}
+              {lbTotalPages > 1 && (
+                <div className="flex items-center justify-between mt-3 text-xs text-neutral-500">
+                  <span>Page {lbPage + 1} of {lbTotalPages} ({sortedLeaderboard.length} athletes)</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setLbPage((p) => Math.max(0, p - 1))}
+                      disabled={lbPage === 0}
+                      className="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >Prev</button>
+                    <button
+                      onClick={() => setLbPage((p) => Math.min(lbTotalPages - 1, p + 1))}
+                      disabled={lbPage >= lbTotalPages - 1}
+                      className="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >Next</button>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-neutral-500">No completed assignments with scores yet.</p>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Charts row */}
+        {!isLoading && (hasErgData || hasLeaderboardData) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Erg Comparison Chart */}
+            {hasErgData && (
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
+                <h3 className="text-sm font-medium text-neutral-400 mb-4">Erg Comparison</h3>
+                <ErgComparisonChart data={filteredErgData} athletes={filteredAthletes} />
+              </div>
+            )}
+
+            {/* Rank Over Time Chart */}
+            {hasLeaderboardData && (
+              <RankOverTimeChart leaderboard={filteredLeaderboard} />
+            )}
           </div>
         )}
 
@@ -465,3 +613,12 @@ export function TeamAnalytics() {
     </div>
   );
 }
+
+/** Format total seconds as M:SS.t (e.g. 6:46.2) for leaderboard display */
+function formatLeaderboardTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs < 10 ? '0' : ''}${secs.toFixed(1)}`;
+}
+
+

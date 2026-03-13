@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, ReferenceLine,
@@ -63,6 +64,12 @@ export function ErgComparisonChart({ data, athletes }: Props) {
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const activeLabel = selectedLabel ?? assignmentLabels[0];
 
+  // Find the assignment ID for the active label (for "View Results" link)
+  const activeAssignmentId = useMemo(() => {
+    if (!activeLabel) return undefined;
+    return data.find((d) => d.assignmentLabel === activeLabel)?.assignmentId;
+  }, [data, activeLabel]);
+
   const athleteMap = useMemo(() => new Map(athletes.map(a => [a.id, a])), [athletes]);
   const hasAnyWeight = athletes.some(a => a.weight_kg && a.weight_kg > 0);
 
@@ -121,17 +128,27 @@ export function ErgComparisonChart({ data, athletes }: Props) {
     <div className="space-y-3">
       {/* Controls */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        {/* Assignment/workout selector */}
-        <select
-          value={activeLabel ?? ''}
-          onChange={(e) => setSelectedLabel(e.target.value)}
-          className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none max-w-[220px] truncate"
-          aria-label="Select workout"
-        >
-          {assignmentLabels.map(label => (
-            <option key={label} value={label}>{label}</option>
-          ))}
-        </select>
+        {/* Assignment/workout selector + View Results link */}
+        <div className="flex items-center gap-2">
+          <select
+            value={activeLabel ?? ''}
+            onChange={(e) => setSelectedLabel(e.target.value)}
+            className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none max-w-[220px] truncate"
+            aria-label="Select workout"
+          >
+            {assignmentLabels.map(label => (
+              <option key={label} value={label}>{label}</option>
+            ))}
+          </select>
+          {activeAssignmentId && (
+            <Link
+              to={`/team-management/assignments/${activeAssignmentId}/results`}
+              className="text-indigo-400 hover:text-indigo-300 text-xs font-medium whitespace-nowrap transition-colors"
+            >
+              View Results →
+            </Link>
+          )}
+        </div>
 
         <div className="flex items-center gap-3">
           {/* Metric toggle */}

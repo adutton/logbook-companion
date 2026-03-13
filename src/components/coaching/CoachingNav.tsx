@@ -9,7 +9,7 @@ const tabs = [
   { path: '/team-management' as const, label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { path: '/team-management/roster' as const, label: 'Roster', icon: Users, exact: false },
   { path: '/team-management/schedule' as const, label: 'Schedule', icon: Calendar, exact: false },
-  { path: '/team-management/assignments' as const, label: 'Assignments', icon: ClipboardList, exact: false },
+  { path: '/team-management/assignments' as const, label: 'Team Workouts', icon: ClipboardList, exact: false },
   { path: '/team-management/boatings' as const, label: 'Boatings', icon: RowingShellIcon, exact: false },
   { path: '/team-management/analytics' as const, label: 'Analytics', icon: BarChart3, exact: false },
   { path: '/team-management/live' as const, label: 'Live', icon: Activity, exact: false },

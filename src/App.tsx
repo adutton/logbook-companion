@@ -40,6 +40,7 @@ import { MyTeamSettings } from './pages/team/MyTeamSettings';
 import { CoachingProvider } from './contexts/CoachingContext';
 import { NotFound } from './pages/NotFound';
 import { PublicAssignmentResultsShare } from './pages/PublicAssignmentResultsShare';
+import { PublicTeamLeaderboardShare } from './pages/PublicTeamLeaderboardShare';
 
 import { Layout } from './components/Layout';
 import { AutoSync } from './components/AutoSync';
@@ -134,6 +135,7 @@ const AppContent: React.FC = () => {
                   <Route path="/auth/bootstrap" element={<AuthBootstrap />} />
           <Route path="/callback" element={<Callback />} />
           <Route path="/share/assignment-results/:shareToken" element={<PublicAssignmentResultsShare />} />
+          <Route path="/share/team-leaderboard/:shareToken" element={<PublicTeamLeaderboardShare />} />
           <Route path="/about" element={<About />} />
           <Route
             path="/"

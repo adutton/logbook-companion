@@ -86,7 +86,7 @@ import { supabase } from '../../services/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate' | 'best' | 'best_eff' | 'worst';
+type SortField = 'name' | 'split' | 'watts' | 'wpkg' | 'distance' | 'time' | 'stroke_rate' | 'best' | 'best_eff' | 'worst' | 'titan';
 type SortDir = 'asc' | 'desc';
 
 interface EnrichedRow extends AssignmentResultRow {
@@ -1221,7 +1221,7 @@ function SummaryTable({
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortField(field);
-      setSortDir('asc');
+      setSortDir(field === 'titan' ? 'desc' : 'asc');
     }
   }
 
@@ -1242,6 +1242,44 @@ function SummaryTable({
       return haystack.includes(needle);
     });
   }, [rows, searchTerm, statusFilter]);
+
+  // Titan Index: Z-score composite of speed (split) + efficiency (W/lb), 0-100 scale
+  const titanMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const eligible = filteredRows.filter(
+      (r) => r.completed && !r.dnf && r.avg_split_seconds != null && r.wplb != null,
+    );
+    if (eligible.length < 2) return map;
+
+    const splits = eligible.map((r) => r.avg_split_seconds!);
+    const wplbs = eligible.map((r) => r.wplb!);
+
+    const mean = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
+    const std = (arr: number[], m: number) => {
+      const variance = arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length;
+      return Math.sqrt(variance);
+    };
+
+    const splitMean = mean(splits);
+    const splitStd = std(splits, splitMean);
+    const wplbMean = mean(wplbs);
+    const wplbStd = std(wplbs, wplbMean);
+    if (splitStd === 0 || wplbStd === 0) return map;
+
+    const raw: { id: string; z: number }[] = [];
+    for (const r of eligible) {
+      const speedZ = -(r.avg_split_seconds! - splitMean) / splitStd; // lower split = higher Z
+      const effZ = (r.wplb! - wplbMean) / wplbStd;
+      raw.push({ id: r.athlete_id, z: (speedZ + effZ) / 2 });
+    }
+    const minZ = Math.min(...raw.map((r) => r.z));
+    const maxZ = Math.max(...raw.map((r) => r.z));
+    const range = maxZ - minZ || 1;
+    for (const r of raw) {
+      map.set(r.id, ((r.z - minZ) / range) * 100);
+    }
+    return map;
+  }, [filteredRows]);
 
   const sorted = useMemo(() => {
     return [...filteredRows].sort((a, b) => {
@@ -1274,6 +1312,7 @@ function SummaryTable({
         case 'best': av = a.rep_best_split_seconds; bv = b.rep_best_split_seconds; break;
         case 'best_eff': av = a.best_interval_wplb; bv = b.best_interval_wplb; break;
         case 'worst': av = a.rep_worst_split_seconds; bv = b.rep_worst_split_seconds; break;
+        case 'titan': av = titanMap.get(a.athlete_id) ?? null; bv = titanMap.get(b.athlete_id) ?? null; break;
       }
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
@@ -1281,7 +1320,7 @@ function SummaryTable({
       const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [filteredRows, sortField, sortDir]);
+  }, [filteredRows, sortField, sortDir, titanMap]);
 
   const completedRows = useMemo(() => sorted.filter((r) => r.completed), [sorted]);
   const notCompletedRows = useMemo(() => sorted.filter((r) => !r.completed), [sorted]);
@@ -1297,6 +1336,7 @@ function SummaryTable({
   const firstNotCompletedIdx = visibleRows.findIndex((r) => !r.completed);
 
   const hasWpkg = visibleRows.some((r) => r.wpkg != null);
+  const hasTitan = titanMap.size > 0;
 
   return (
     <div className="bg-neutral-800/50 rounded-xl overflow-hidden">
@@ -1368,6 +1408,7 @@ function SummaryTable({
               <SortTh label="Distance" field="distance" sortField={sortField} onSort={toggleSort} />
               <SortTh label="Time" field="time" sortField={sortField} onSort={toggleSort} />
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
+              {hasTitan && <SortTh label="Titan Index" field="titan" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <SortTh label={bestRepLabel} field="best" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <SortTh label="Best Split" field="best" sortField={sortField} onSort={toggleSort} />}
               {isInterval && hasWpkg && <SortTh label="Efficiency" field="best_eff" sortField={sortField} onSort={toggleSort} />}
@@ -1455,6 +1496,11 @@ function SummaryTable({
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtDist(row.result_distance_meters ?? row.total_interval_distance_meters)}</td>
                   <td className="px-3 py-2 text-right font-mono text-neutral-200">{fmtTime(row.result_time_seconds ?? row.total_interval_time_seconds)}</td>
                   <td className="px-3 py-2 text-right text-neutral-200">{row.result_stroke_rate ?? '—'}</td>
+                  {hasTitan && (
+                    <td className="px-3 py-2 text-right font-mono text-neutral-200 font-semibold">
+                      {titanMap.get(row.athlete_id) != null ? titanMap.get(row.athlete_id)!.toFixed(1) : '—'}
+                    </td>
+                  )}
                   {isInterval && (
                     <td className="px-3 py-2 text-right font-mono text-neutral-300 text-xs">
                       {fmtBestRep(row)}
@@ -1756,7 +1802,7 @@ export function AssignmentResults() {
           <div className="space-y-1">
             <Breadcrumb items={[
               { label: 'Team Management', to: '/team-management' },
-              { label: 'Assignments', to: '/team-management/assignments' },
+              { label: 'Team Workouts', to: '/team-management/assignments' },
               { label: assignment.title || assignment.template_name || 'Results' },
             ]} />
 

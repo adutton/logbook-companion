@@ -66,8 +66,11 @@ export function CoachingAssignments() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [bulkCompleteAssignmentId, setBulkCompleteAssignmentId] = useState<string | null>(null);
   const [editingAssignment, setEditingAssignment] = useState<GroupAssignment | null>(null);
-  const [viewMode, setViewMode] = useState<'calendar' | 'compliance'>('calendar');
+  const [viewMode, setViewMode] = useState<'calendar' | 'compliance' | 'list'>('list');
   const [complianceCells, setComplianceCells] = useState<ComplianceCell[]>([]);
+  const [allAssignments, setAllAssignments] = useState<GroupAssignment[]>([]);
+  const [allComplianceCells, setAllComplianceCells] = useState<ComplianceCell[]>([]);
+  const [isLoadingList, setIsLoadingList] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
 
   // Computed dates
@@ -114,6 +117,31 @@ export function CoachingAssignments() {
       loadData();
     }
   }, [isLoadingTeam, teamId, loadData]);
+
+  // Load ALL assignments for list view (no date filter)
+  const loadAllAssignments = useCallback(async () => {
+    if (!teamId) return;
+    setIsLoadingList(true);
+    try {
+      const [asgn, cells] = await Promise.all([
+        getGroupAssignments(teamId, { orgId: orgId ?? undefined }),
+        getComplianceData(teamId, '2000-01-01', '2099-12-31', orgId ?? undefined),
+      ]);
+      setAllAssignments(asgn);
+      setAllComplianceCells(cells);
+    } catch {
+      // Fall back to empty — list will show without completion stats
+    } finally {
+      setIsLoadingList(false);
+    }
+  }, [teamId, orgId]);
+
+  // Fetch list data when switching to list view
+  useEffect(() => {
+    if (viewMode === 'list' && allAssignments.length === 0 && !isLoadingList) {
+      loadAllAssignments();
+    }
+  }, [viewMode, allAssignments.length, isLoadingList, loadAllAssignments]);
 
   const handleCreate = async (input: GroupAssignmentInput, athleteIds: string[]) => {
     try {
@@ -213,7 +241,7 @@ export function CoachingAssignments() {
           {/* Left: Title + scope indicator */}
           <div className="shrink-0">
             <h1 className="text-xl sm:text-2xl font-bold text-neutral-100">
-              Assignments
+              Team Workouts
             </h1>
             <p className="text-xs text-neutral-500 mt-0.5">
               {orgId && activeTeam?.org_name
@@ -275,6 +303,17 @@ export function CoachingAssignments() {
                 <BarChart3 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Compliance</span>
               </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-neutral-700 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">List</span>
+              </button>
             </div>
             <button
               onClick={() => setShowCreateForm(true)}
@@ -292,6 +331,17 @@ export function CoachingAssignments() {
             assignments={assignments}
             athletes={ergAthletes}
             cells={complianceCells}
+          />
+        ) : viewMode === 'list' ? (
+          <AssignmentListView
+            assignments={allAssignments}
+            complianceCells={allComplianceCells}
+            ergAthletes={ergAthletes}
+            ergOrgAthletes={ergOrgAthletes}
+            isLoading={isLoadingList}
+            teamName={teamName}
+            orgId={orgId}
+            filterTeamId={filterTeamId}
           />
         ) : (
         <>
@@ -371,7 +421,7 @@ export function CoachingAssignments() {
               {dayAssignments.length === 0 ? (
                 <EmptyState
                   icon={<ClipboardList className="w-8 h-8" />}
-                  title="No assignments"
+                  title="No workouts"
                   description="No workouts assigned for this date."
                   action={
                     <button
@@ -1808,6 +1858,154 @@ export function ResultsEntryModal({
   );
 }
 
+// ─── Assignment List View ────────────────────────────────────────────────────
+
+function AssignmentListView({
+  assignments,
+  complianceCells,
+  ergAthletes,
+  ergOrgAthletes,
+  isLoading,
+  teamName,
+  orgId,
+  filterTeamId,
+}: {
+  assignments: GroupAssignment[];
+  complianceCells: ComplianceCell[];
+  ergAthletes: CoachingAthlete[];
+  ergOrgAthletes: CoachingAthlete[];
+  isLoading: boolean;
+  teamName?: string;
+  orgId?: string | null;
+  filterTeamId?: string | null;
+}) {
+  // Build set of non-coxswain athlete IDs for filtering compliance
+  const ergAthleteIds = useMemo(() => {
+    const allErg = orgId && ergOrgAthletes.length > 0 ? ergOrgAthletes : ergAthletes;
+    return new Set(allErg.map((a) => a.id));
+  }, [ergAthletes, ergOrgAthletes, orgId]);
+
+  // Build completion stats per assignment (excluding coxswains)
+  const completionByAssignment = useMemo(() => {
+    const map = new Map<string, { total: number; completed: number }>();
+    // Filter to non-coxswain athletes only
+    const filtered = complianceCells.filter((c) => ergAthleteIds.has(c.athlete_id));
+    for (const cell of filtered) {
+      const entry = map.get(cell.group_assignment_id) ?? { total: 0, completed: 0 };
+      entry.total++;
+      if (cell.completed) entry.completed++;
+      map.set(cell.group_assignment_id, entry);
+    }
+    return map;
+  }, [complianceCells, ergAthleteIds]);
+
+  // Filter by team if needed
+  const visibleAssignments = useMemo(() => {
+    let list = assignments;
+    if (filterTeamId) {
+      list = list.filter((a) => a.team_id === filterTeamId || a.org_id);
+    }
+    // Already sorted newest first from getGroupAssignments
+    return list;
+  }, [assignments, filterTeamId]);
+
+  const fmtDate = (d: string) => {
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (visibleAssignments.length === 0) {
+    return (
+      <EmptyState
+        icon={<ClipboardList className="w-8 h-8" />}
+        title="No workouts yet"
+        description="Assign a workout to get started."
+      />
+    );
+  }
+
+  return (
+    <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-neutral-500 border-b border-neutral-800 bg-neutral-900/50">
+            <th className="text-left py-3 px-4 font-medium">Assignment</th>
+            <th className="text-left py-3 px-3 font-medium">Date</th>
+            <th className="text-right py-3 px-3 font-medium">Completion</th>
+            <th className="text-left py-3 px-3 font-medium">Scope</th>
+            <th className="text-right py-3 px-4 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibleAssignments.map((a) => {
+            const stats = completionByAssignment.get(a.id);
+            const pct = stats && stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : null;
+            const displayName = a.title || a.template_name || 'Workout';
+            const isOrg = !!a.org_id;
+
+            return (
+              <tr key={a.id} className="border-b border-neutral-800/50 hover:bg-neutral-800/30 transition-colors">
+                <td className="py-3 px-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-medium">{displayName}</span>
+                    {a.is_test_template && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase rounded bg-indigo-500/20 text-indigo-400">Test</span>
+                    )}
+                    {a.training_zone && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase rounded bg-neutral-700 text-neutral-400">{a.training_zone}</span>
+                    )}
+                  </div>
+                  {a.canonical_name && (
+                    <div className="text-[11px] text-neutral-500 font-mono mt-0.5">{a.canonical_name}</div>
+                  )}
+                </td>
+                <td className="py-3 px-3 text-neutral-300 whitespace-nowrap">{fmtDate(a.scheduled_date)}</td>
+                <td className="py-3 px-3 text-right">
+                  {stats ? (
+                    <div className="flex items-center justify-end gap-2">
+                      <span className="text-neutral-400 text-xs">{stats.completed}/{stats.total}</span>
+                      <span className={`font-mono font-medium text-xs min-w-[36px] text-right ${
+                        pct === 100 ? 'text-emerald-400' : pct && pct >= 50 ? 'text-yellow-400' : 'text-neutral-500'
+                      }`}>
+                        {pct}%
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-neutral-600 text-xs">—</span>
+                  )}
+                </td>
+                <td className="py-3 px-3">
+                  {isOrg ? (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase rounded bg-purple-500/20 text-purple-400">All Teams</span>
+                  ) : (
+                    <span className="text-neutral-400 text-xs">{teamName || 'Team'}</span>
+                  )}
+                </td>
+                <td className="py-3 px-4 text-right">
+                  <Link
+                    to={`/team-management/assignments/${a.id}/results`}
+                    className="text-indigo-400 hover:text-indigo-300 text-xs font-medium transition-colors"
+                  >
+                    View Results →
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Compliance Grid ────────────────────────────────────────────────────────
 
 function ComplianceGrid({
@@ -1848,7 +2046,7 @@ function ComplianceGrid({
   if (sortedAssignments.length === 0) {
     return (
       <div className="text-center py-8 text-neutral-500 text-sm">
-        No assignments this week.
+        No workouts this week.
       </div>
     );
   }

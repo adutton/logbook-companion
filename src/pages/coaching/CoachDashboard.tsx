@@ -32,6 +32,7 @@ import type { CoachingBoating, CoachingSession, UserTeamInfo, TeamRole } from '.
 import { format } from 'date-fns';
 import { cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '../../utils/unitConversion';
 import { benchmarkCriteriaIndicator, benchmarkTierBadgeClass, benchmarkTierLabel, buildBest2kByAthlete, deriveBenchmarkTier, formatErgTime, type PerformanceTierRubricConfig } from '../../utils/performanceTierRubric';
+import { formatSplit } from '../../utils/paceCalculator';
 import { useMeasurementUnits } from '../../hooks/useMeasurementUnits';
 import { toast } from 'sonner';
 
@@ -573,15 +574,15 @@ export const CoachDashboard: React.FC = () => {
                 {/* Assignments summary card */}
                 <Link to="/team-management/assignments" className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 hover:border-neutral-700 transition-colors group">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Assignments</h3>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Team Workouts</h3>
                     <ClipboardList className="w-4 h-4 text-neutral-600 group-hover:text-indigo-400 transition-colors" />
                   </div>
                   {orgDataLoading ? (
-                    <div className="flex items-center gap-2 text-neutral-500 text-xs"><Loader2 className="w-4 h-4 animate-spin" /><span>Loading assignments…</span></div>
+                    <div className="flex items-center gap-2 text-neutral-500 text-xs"><Loader2 className="w-4 h-4 animate-spin" /><span>Loading workouts…</span></div>
                   ) : (
                     <>
                       <div className="text-2xl font-bold text-white">{[...groupedOrgAssignments.values()].reduce((n, r) => n + r.length, 0)}</div>
-                      <p className="text-xs text-neutral-500 mt-1">assignments · {groupedOrgAssignments.size} team{groupedOrgAssignments.size !== 1 ? 's' : ''}</p>
+                      <p className="text-xs text-neutral-500 mt-1">workouts · {groupedOrgAssignments.size} team{groupedOrgAssignments.size !== 1 ? 's' : ''}</p>
                     </>
                   )}
                 </Link>
@@ -658,7 +659,7 @@ export const CoachDashboard: React.FC = () => {
                 ) : (
                   <>
                     <div className="text-2xl font-bold text-neutral-600">—</div>
-                    <div className="text-xs text-neutral-500 mt-1">No assignments</div>
+                    <div className="text-xs text-neutral-500 mt-1">No workouts</div>
                   </>
                 )}
               </div>
@@ -672,25 +673,42 @@ export const CoachDashboard: React.FC = () => {
               </div>
               {seasonLeaderboard.length > 0 ? (
               <div className="space-y-2">
-                {seasonLeaderboard.map((row, idx) => (
-                  <div key={row.athlete_id} className="flex items-center justify-between text-sm">
-                    <div className="min-w-0">
-                      <span className="text-neutral-500 mr-2">{idx + 1}.</span>
-                      <span className="text-neutral-100">{row.athlete_name}</span>
-                      {(row.squad || row.performance_tier) && (
-                        <span className="text-[11px] text-neutral-500 ml-2">
-                          {[row.squad, row.performance_tier].filter(Boolean).join(' · ')}
+                {seasonLeaderboard.map((row, idx) => {
+                  const speedDisplay = row.latest_time_seconds != null && row.latest_distance != null
+                    ? formatLbTime(row.latest_time_seconds)
+                    : row.latest_split_seconds != null
+                      ? formatSplit(row.latest_split_seconds)
+                      : null;
+                  return (
+                    <div key={row.athlete_id} className="flex items-center justify-between text-sm gap-3">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-neutral-500 mr-2">{idx + 1}.</span>
+                        <span className="text-neutral-100">{row.athlete_name}</span>
+                        {(row.squad || row.performance_tier) && (
+                          <span className="text-[11px] text-neutral-500 ml-2">
+                            {[row.squad, row.performance_tier].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs font-mono shrink-0">
+                        <span className="text-white font-semibold">{row.composite_rank ?? '—'}</span>
+                        <span className="text-neutral-400 whitespace-nowrap">
+                          {speedDisplay != null ? (
+                            <>{speedDisplay} <span className="text-neutral-600">({row.avg_raw_rank})</span></>
+                          ) : '—'}
                         </span>
-                      )}
+                        <span className="text-neutral-400 whitespace-nowrap">
+                          {row.latest_wplb != null ? (
+                            <>{row.latest_wplb.toFixed(2)} <span className="text-neutral-600">({row.avg_wplb_rank})</span></>
+                          ) : '—'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-xs text-neutral-300 font-mono shrink-0">
-                      {row.composite_rank != null ? row.composite_rank : '—'}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               ) : (
-                <p className="text-sm text-neutral-500">No completed assignments with scores yet.</p>
+                <p className="text-sm text-neutral-500">No completed workouts with scores yet.</p>
               )}
             </div>
 
@@ -1050,3 +1068,9 @@ export const CoachDashboard: React.FC = () => {
     </>
   );
 };
+
+function formatLbTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs < 10 ? '0' : ''}${secs.toFixed(1)}`;
+}

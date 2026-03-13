@@ -2,6 +2,42 @@
 
 > Last updated: March 13, 2026
 
+## Session Summary (2026-03-13) — Public share, expandable rows, Assignments → Team Workouts
+
+### Completed This Session
+- [x] **Expandable leaderboard rows** — Click athlete name to expand/collapse showing last 5 workouts (newest first) with workout name, date, split, time, efficiency, and link to assignment results
+- [x] **Added `label` to score_history** — Each history entry now includes the assignment title/template name
+- [x] **Public team leaderboard share** — Full stack:
+  - DB: `team_leaderboard_shares` table + `create_team_leaderboard_share` / `resolve_team_leaderboard_share` SECURITY DEFINER RPCs
+  - Service: `createTeamLeaderboardShare`, `resolveTeamLeaderboardShare`, `buildTeamLeaderboardShareUrl`
+  - UI: Share button in TeamAnalytics leaderboard header (generates link, copies to clipboard)
+  - Public page: `/share/team-leaderboard/:shareToken` — full leaderboard with Titan Index, expandable rows, squad filter
+- [x] **Renamed "Assignments" → "Team Workouts"** across nav, page headings, breadcrumbs, dashboard cards, empty states
+- [x] **Titan Index on assignment results** (prior in session)
+- [x] **Titan Index sorting fix** (prior in session)
+- [x] **IIFE cleanup in TeamAnalytics** — removed dead `computeTitanIndex` function and unused `LbEntry` type
+
+### Validation
+- `npm run build` ✅
+- [x] **Rank Over Time line chart**
+  - New `RankOverTimeChart` component using Recharts `LineChart`
+  - Shows composite rank per assignment date for top N athletes (configurable: 5/10/15/20)
+  - Y-axis reversed (rank 1 at top), connects nulls, color-coded per athlete
+  - Uses existing `rank_history` data from `SeasonLeaderboardEntry`
+  - Added to TeamAnalytics below the erg chart + leaderboard grid
+  - Filtered by squad/tier via `filteredLeaderboard`
+- [x] **Assignments list view** (prior in session)
+- [x] **Coxswain exclusion from compliance** (prior in session)
+- [x] **Trend badge redesign** (prior in session)
+- [x] **W/kg → W/lb "Efficiency"** (prior in session)
+- [x] **Chart selector dropdown with assignment names** (prior in session)
+
+### Remaining
+- [ ] **Public team analytics share page** — create share token mechanism, DB migration, new public page
+
+### Validation
+- `npm run build` ✅
+
 ## Session Summary (2026-03-13) — Analytics filtering fixes, erg chart data gap
 
 ### Completed This Session

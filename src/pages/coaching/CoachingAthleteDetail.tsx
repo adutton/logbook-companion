@@ -5,11 +5,14 @@ import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import {
   getAthletes,
+  getAthleteById,
+  getOrgAthletesWithTeam,
   getErgScoresForAthlete,
   getNotesForAthlete,
   getAssignmentsForAthlete,
   markAssignmentAsTest,
   deleteErgScore,
+  updateErgScore,
   updateAthlete,
   updateAthleteSquad,
   deleteAthlete,
@@ -20,7 +23,7 @@ import {
   type AthleteAssignment,
 } from '../../services/coaching/coachingService';
 import { format } from 'date-fns';
-import { Edit2, Trash2, Loader2, AlertTriangle, MessageSquare, ClipboardList, CheckCircle2, Circle, Timer } from 'lucide-react';
+import { Edit2, Trash2, Loader2, AlertTriangle, MessageSquare, ClipboardList, CheckCircle2, Circle, Timer, X, Check, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatSplit, calculateWattsFromSplit } from '../../utils/paceCalculator';
 import { formatHeight, formatWeight } from '../../utils/unitConversion';
@@ -33,7 +36,7 @@ import { AthleteEditorModal } from '../../components/coaching/AthleteEditorModal
 export function CoachingAthleteDetail() {
   const { athleteId } = useParams<{ athleteId: string }>();
   const navigate = useNavigate();
-  const { teamId, userId, isLoadingTeam } = useCoachingContext();
+  const { teamId, userId, orgId, isLoadingTeam } = useCoachingContext();
 
   const [athlete, setAthlete] = useState<CoachingAthlete | null>(null);
   const [allAthletes, setAllAthletes] = useState<CoachingAthlete[]>([]);
@@ -47,13 +50,21 @@ export function CoachingAthleteDetail() {
   const units = useMeasurementUnits();
 
   useEffect(() => {
-    if (!teamId || !athleteId || isLoadingTeam) return;
+    if (!athleteId || isLoadingTeam || (!teamId && !orgId)) return;
     
     const loadData = async () => {
       try {
-        const athletes = await getAthletes(teamId);
-        setAllAthletes(athletes);
-        const found = athletes.find((a) => a.id === athleteId);
+        // Load the specific athlete directly by ID (works cross-team)
+        const found = await getAthleteById(athleteId);
+
+        // Also load the roster for prev/next navigation
+        const roster = orgId
+          ? await getOrgAthletesWithTeam(orgId)
+          : teamId
+            ? await getAthletes(teamId)
+            : [];
+        setAllAthletes(roster);
+
         if (found) {
           setAthlete(found);
           const [scores, notes, assignments] = await Promise.all([
@@ -75,7 +86,7 @@ export function CoachingAthleteDetail() {
     };
     
     loadData();
-  }, [teamId, athleteId, isLoadingTeam]);
+  }, [teamId, orgId, athleteId, isLoadingTeam]);
 
   const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string }) => {
     if (!athleteId || !teamId) return;
@@ -238,6 +249,25 @@ export function CoachingAthleteDetail() {
             </div>
           )}
         </div>
+
+        {/* Erg Scores Table — full CRUD */}
+        {ergScores.length > 0 && (
+          <ErgScoresTable
+            scores={ergScores}
+            onUpdate={async (id, updates) => {
+              await updateErgScore(id, updates);
+              const refreshed = await getErgScoresForAthlete(athleteId!, 50);
+              setErgScores(refreshed);
+              toast.success('Score updated');
+            }}
+            onDelete={async (id) => {
+              await deleteErgScore(id);
+              const refreshed = await getErgScoresForAthlete(athleteId!, 50);
+              setErgScores(refreshed);
+              toast.success('Score deleted');
+            }}
+          />
+        )}
 
         {/* Training Zone Distribution */}
         {assignmentHistory.length > 0 && (
@@ -490,5 +520,203 @@ export function CoachingAthleteDetail() {
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return `${mins}:${secs.toFixed(1).padStart(4, '0')}`;
+}
+
+/* ─── Erg Scores Table with inline edit / delete ──────────────────────────── */
+
+interface ErgScoresTableProps {
+  scores: CoachingErgScore[];
+  onUpdate: (id: string, updates: Partial<Pick<CoachingErgScore, 'date' | 'distance' | 'time_seconds' | 'split_500m' | 'watts' | 'stroke_rate' | 'heart_rate' | 'notes'>>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}
+
+interface EditState {
+  date: string;
+  distance: string;
+  minutes: string;
+  seconds: string;
+  tenths: string;
+  strokeRate: string;
+  heartRate: string;
+  notes: string;
+}
+
+function ErgScoresTable({ scores, onUpdate, onDelete }: ErgScoresTableProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [editState, setEditState] = useState<EditState>({
+    date: '', distance: '', minutes: '', seconds: '', tenths: '', strokeRate: '', heartRate: '', notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = (score: CoachingErgScore) => {
+    const totalSec = score.time_seconds;
+    const mins = Math.floor(totalSec / 60);
+    const secs = Math.floor(totalSec % 60);
+    const tenths = Math.round((totalSec % 1) * 10);
+    setEditState({
+      date: score.date,
+      distance: String(score.distance),
+      minutes: String(mins),
+      seconds: String(secs).padStart(2, '0'),
+      tenths: String(tenths),
+      strokeRate: score.stroke_rate ? String(score.stroke_rate) : '',
+      heartRate: score.heart_rate ? String(score.heart_rate) : '',
+      notes: score.notes ?? '',
+    });
+    setEditingId(score.id);
+    setDeleteConfirmId(null);
+  };
+
+  const cancelEdit = () => { setEditingId(null); };
+
+  const saveEdit = async (id: string) => {
+    setSaving(true);
+    try {
+      const dist = Number(editState.distance);
+      const totalSec = Number(editState.minutes) * 60 + Number(editState.seconds) + Number(editState.tenths || 0) / 10;
+      const split = dist > 0 ? (totalSec / dist) * 500 : 0;
+      const watts = split > 0 ? 2.80 / Math.pow(split / 500, 3) : 0;
+      await onUpdate(id, {
+        date: editState.date,
+        distance: dist,
+        time_seconds: totalSec,
+        split_500m: split,
+        watts,
+        stroke_rate: editState.strokeRate ? Number(editState.strokeRate) : undefined,
+        heart_rate: editState.heartRate ? Number(editState.heartRate) : undefined,
+        notes: editState.notes || undefined,
+      });
+      setEditingId(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update score');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = async (id: string) => {
+    setSaving(true);
+    try {
+      await onDelete(id);
+      setDeleteConfirmId(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete score');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inp = "px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-white text-xs w-full focus:ring-1 focus:ring-indigo-500 outline-none";
+
+  return (
+    <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
+      <h2 className="font-semibold text-white mb-4 flex items-center gap-2">
+        <Activity className="w-5 h-5" />
+        Erg Scores
+        <span className="text-sm text-neutral-500 font-normal">({scores.length})</span>
+      </h2>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-neutral-500 border-b border-neutral-800 text-xs">
+              <th className="text-left py-2 pr-2">Date</th>
+              <th className="text-right py-2 pr-2">Distance</th>
+              <th className="text-right py-2 pr-2">Time</th>
+              <th className="text-right py-2 pr-2">Split</th>
+              <th className="text-right py-2 pr-2">Watts</th>
+              <th className="text-right py-2 pr-2">SR</th>
+              <th className="text-right py-2 pr-2">HR</th>
+              <th className="text-left py-2 pr-2">Notes</th>
+              <th className="text-right py-2 w-20"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {scores.map((score) => {
+              const isEditing = editingId === score.id;
+              const isDeleting = deleteConfirmId === score.id;
+
+              if (isEditing) {
+                return (
+                  <tr key={score.id} className="border-b border-neutral-800/50 bg-neutral-800/30">
+                    <td className="py-2 pr-2">
+                      <input type="date" className={inp} value={editState.date} onChange={(e) => setEditState(s => ({ ...s, date: e.target.value }))} />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input type="number" className={`${inp} text-right w-20`} value={editState.distance} onChange={(e) => setEditState(s => ({ ...s, distance: e.target.value }))} />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <div className="flex items-center gap-0.5 justify-end">
+                        <input type="number" className={`${inp} w-10 text-right`} value={editState.minutes} min={0} onChange={(e) => setEditState(s => ({ ...s, minutes: e.target.value }))} />
+                        <span className="text-neutral-500">:</span>
+                        <input type="number" className={`${inp} w-10 text-right`} value={editState.seconds} min={0} max={59} onChange={(e) => setEditState(s => ({ ...s, seconds: e.target.value }))} />
+                        <span className="text-neutral-500">.</span>
+                        <input type="number" className={`${inp} w-8 text-right`} value={editState.tenths} min={0} max={9} onChange={(e) => setEditState(s => ({ ...s, tenths: e.target.value }))} />
+                      </div>
+                    </td>
+                    <td className="py-2 pr-2 text-right text-neutral-500 text-xs">auto</td>
+                    <td className="py-2 pr-2 text-right text-neutral-500 text-xs">auto</td>
+                    <td className="py-2 pr-2">
+                      <input type="number" className={`${inp} text-right w-12`} value={editState.strokeRate} placeholder="—" onChange={(e) => setEditState(s => ({ ...s, strokeRate: e.target.value }))} />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input type="number" className={`${inp} text-right w-14`} value={editState.heartRate} placeholder="—" onChange={(e) => setEditState(s => ({ ...s, heartRate: e.target.value }))} />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input type="text" className={inp} value={editState.notes} placeholder="—" onChange={(e) => setEditState(s => ({ ...s, notes: e.target.value }))} />
+                    </td>
+                    <td className="py-2 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => saveEdit(score.id)} disabled={saving} className="p-1 text-green-400 hover:text-green-300 disabled:opacity-50" title="Save">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={cancelEdit} className="p-1 text-neutral-400 hover:text-neutral-300" title="Cancel">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }
+
+              return (
+                <tr key={score.id} className="border-b border-neutral-800/50 hover:bg-neutral-800/30 transition-colors">
+                  <td className="py-2 pr-2 text-neutral-300">{format(new Date(score.date + 'T00:00:00'), 'MMM d, yyyy')}</td>
+                  <td className="py-2 pr-2 text-right font-mono text-white">{score.distance}m</td>
+                  <td className="py-2 pr-2 text-right font-mono text-white">{formatTime(score.time_seconds)}</td>
+                  <td className="py-2 pr-2 text-right font-mono text-neutral-300">{score.split_500m ? formatSplit(score.split_500m) : '—'}</td>
+                  <td className="py-2 pr-2 text-right font-mono text-neutral-300">{score.watts ? Math.round(score.watts) : '—'}</td>
+                  <td className="py-2 pr-2 text-right font-mono text-neutral-400">{score.stroke_rate ?? '—'}</td>
+                  <td className="py-2 pr-2 text-right font-mono text-neutral-400">{score.heart_rate ?? '—'}</td>
+                  <td className="py-2 pr-2 text-neutral-400 text-xs max-w-[120px] truncate" title={score.notes ?? undefined}>{score.notes || '—'}</td>
+                  <td className="py-2 text-right">
+                    {isDeleting ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => confirmDelete(score.id)} disabled={saving} className="px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-50">
+                          Delete
+                        </button>
+                        <button onClick={() => setDeleteConfirmId(null)} className="p-1 text-neutral-400 hover:text-neutral-300">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 [tr:hover_&]:opacity-100">
+                        <button onClick={() => startEdit(score)} className="p-1 text-neutral-500 hover:text-indigo-400 transition-colors" title="Edit">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => { setDeleteConfirmId(score.id); setEditingId(null); }} className="p-1 text-neutral-500 hover:text-red-400 transition-colors" title="Delete">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
