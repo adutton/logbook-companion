@@ -19,7 +19,8 @@ import { CoachingNav } from '../../components/coaching/CoachingNav';
 import { toast } from 'sonner';
 
 export function CoachingBoatings() {
-  const { userId, teamId, isLoadingTeam } = useCoachingContext();
+  const { userId, teamId, isLoadingTeam, filterTeamId } = useCoachingContext();
+  const effectiveTeamId = filterTeamId ?? teamId;
   const [athletes, setAthletes] = useState<CoachingAthlete[]>([]);
   const [boatings, setBoatings] = useState<CoachingBoating[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -30,20 +31,20 @@ export function CoachingBoatings() {
   const [selectedSquad, setSelectedSquad] = useState<string | 'all'>('all');
 
   useEffect(() => {
-    if (!teamId || isLoadingTeam) return;
-    Promise.all([getAthletes(teamId), getBoatings(teamId)])
+    if (!effectiveTeamId || isLoadingTeam) return;
+    Promise.all([getAthletes(effectiveTeamId), getBoatings(effectiveTeamId)])
       .then(([a, b]) => {
         setAthletes(a);
         setBoatings(b);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setIsLoading(false));
-  }, [teamId, isLoadingTeam]);
+  }, [effectiveTeamId, isLoadingTeam]);
 
   const refreshData = async () => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
-      const [a, b] = await Promise.all([getAthletes(teamId), getBoatings(teamId)]);
+      const [a, b] = await Promise.all([getAthletes(effectiveTeamId), getBoatings(effectiveTeamId)]);
       setAthletes(a);
       setBoatings(b);
     } catch (err) {
@@ -52,9 +53,9 @@ export function CoachingBoatings() {
   };
 
   const handleSave = async (data: Pick<CoachingBoating, 'date' | 'boat_name' | 'boat_type' | 'positions' | 'notes'>) => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
-      await createBoating(teamId, userId, data);
+      await createBoating(effectiveTeamId, userId, data);
       setIsAdding(false);
       await refreshData();
     } catch (err) {
@@ -83,9 +84,9 @@ export function CoachingBoatings() {
   };
 
   const handleDuplicate = async (boating: CoachingBoating) => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
-      await duplicateBoating(teamId, userId, boating);
+      await duplicateBoating(effectiveTeamId, userId, boating);
       await refreshData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to duplicate boating');
@@ -94,7 +95,7 @@ export function CoachingBoatings() {
 
   /** Copy all lineups from the most recent previous day that had lineups */
   const handleCopyPreviousDay = async () => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
       // Find the most recent day before today that has boatings
@@ -103,7 +104,7 @@ export function CoachingBoatings() {
       const sourceDate = pastDates[0];
       const sourceBoatings = boatingsByDate[sourceDate];
       for (const b of sourceBoatings) {
-        await duplicateBoating(teamId, userId, b);
+        await duplicateBoating(effectiveTeamId, userId, b);
       }
       await refreshData();
     } catch (err) {

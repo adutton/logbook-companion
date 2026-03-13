@@ -51,6 +51,7 @@ import { kgToLbs, lbsToKg } from '../../utils/unitConversion';
 
 export function CoachingAssignments() {
   const { userId, teamId, teamName, orgId, activeTeam, isLoadingTeam, filterTeamId, filterTeamName } = useCoachingContext();
+  const effectiveTeamId = filterTeamId ?? teamId;
 
   // Data
   const [assignments, setAssignments] = useState<GroupAssignment[]>([]);
@@ -81,16 +82,16 @@ export function CoachingAssignments() {
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   const loadData = useCallback(async () => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
       const fromStr = format(weekStart, 'yyyy-MM-dd');
       const toStr = format(weekEnd, 'yyyy-MM-dd');
       const [asgn, ath, sq, tmpl, compliance] = await Promise.all([
-        getGroupAssignments(teamId, { from: fromStr, to: toStr, orgId: orgId ?? undefined }),
-        getAthletes(teamId),
-        getTeamSquads(teamId),
+        getGroupAssignments(effectiveTeamId, { from: fromStr, to: toStr, orgId: orgId ?? undefined }),
+        getAthletes(effectiveTeamId),
+        getTeamSquads(effectiveTeamId),
         fetchTemplates({ sortBy: 'popular' }),
-        getComplianceData(teamId, fromStr, toStr, orgId ?? undefined),
+        getComplianceData(effectiveTeamId, fromStr, toStr, orgId ?? undefined),
       ]);
       setAssignments(asgn);
       setAthletes(ath);
@@ -109,23 +110,23 @@ export function CoachingAssignments() {
     } finally {
       setIsLoading(false);
     }
-  }, [teamId, orgId, weekStart.toISOString(), weekEnd.toISOString()]);
+  }, [effectiveTeamId, orgId, weekStart.toISOString(), weekEnd.toISOString()]);
 
   useEffect(() => {
-    if (!isLoadingTeam && teamId) {
+    if (!isLoadingTeam && effectiveTeamId) {
       setIsLoading(true);
       loadData();
     }
-  }, [isLoadingTeam, teamId, loadData]);
+  }, [isLoadingTeam, effectiveTeamId, loadData]);
 
   // Load ALL assignments for list view (no date filter)
   const loadAllAssignments = useCallback(async () => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     setIsLoadingList(true);
     try {
       const [asgn, cells] = await Promise.all([
-        getGroupAssignments(teamId, { orgId: orgId ?? undefined }),
-        getComplianceData(teamId, '2000-01-01', '2099-12-31', orgId ?? undefined),
+        getGroupAssignments(effectiveTeamId, { orgId: orgId ?? undefined }),
+        getComplianceData(effectiveTeamId, '2000-01-01', '2099-12-31', orgId ?? undefined),
       ]);
       setAllAssignments(asgn);
       setAllComplianceCells(cells);
@@ -134,7 +135,7 @@ export function CoachingAssignments() {
     } finally {
       setIsLoadingList(false);
     }
-  }, [teamId, orgId]);
+  }, [effectiveTeamId, orgId]);
 
   // Fetch list data when switching to list view
   useEffect(() => {
@@ -455,7 +456,7 @@ export function CoachingAssignments() {
         {/* Create Form Modal */}
         {showCreateForm && (
           <CreateAssignmentForm
-            teamId={teamId}
+            teamId={effectiveTeamId}
             userId={userId}
             orgId={orgId}
             athletes={ergAthletes}
@@ -472,7 +473,7 @@ export function CoachingAssignments() {
             groupAssignmentId={bulkCompleteAssignmentId}
             assignment={assignments.find((a) => a.id === bulkCompleteAssignmentId)!}
             athletes={assignments.find((a) => a.id === bulkCompleteAssignmentId)?.org_id && ergOrgAthletes.length > 0 ? ergOrgAthletes : ergAthletes}
-            teamId={teamId!}
+            teamId={effectiveTeamId!}
             orgId={orgId}
             userId={userId}
             onClose={() => setBulkCompleteAssignmentId(null)}

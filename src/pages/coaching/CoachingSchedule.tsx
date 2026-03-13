@@ -88,7 +88,7 @@ export function CoachingSchedule() {
   }, [teamId, effectiveTeamId, isLoadingTeam, viewMode, currentWeek, currentMonth]);
 
   const refreshSessions = async () => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
       let start: string, end: string;
       if (viewMode === 'week') {
@@ -115,9 +115,9 @@ export function CoachingSchedule() {
     sessions.filter((s) => isSameDay(parseLocalDate(s.date), date));
 
   const handleAddSession = async (data: Pick<CoachingSession, 'type' | 'focus' | 'general_notes'> & { group_assignment_id?: string | null }) => {
-    if (!selectedDate || !teamId) return;
+    if (!selectedDate || !effectiveTeamId) return;
     try {
-      await createSession(teamId, userId, {
+      await createSession(effectiveTeamId, userId, {
         ...data,
         date: format(selectedDate, 'yyyy-MM-dd'),
       });
@@ -149,9 +149,9 @@ export function CoachingSchedule() {
   };
 
   const handleAddNote = async (sessionId: string, athleteId: string, note: string) => {
-    if (!teamId) return;
+    if (!effectiveTeamId) return;
     try {
-      await createNote(teamId, userId, { session_id: sessionId, athlete_id: athleteId, note });
+      await createNote(effectiveTeamId, userId, { session_id: sessionId, athlete_id: athleteId, note });
       setAddingNoteFor(null);
       setNotesVersion((v) => v + 1);
     } catch (err) {
@@ -270,9 +270,9 @@ export function CoachingSchedule() {
       {viewMode === 'week' && (
         <div className="space-y-3">
           {/* Weekly Focus Banner */}
-          {teamId && (
+          {effectiveTeamId && (
             <WeeklyFocusBanner
-              teamId={teamId}
+              teamId={effectiveTeamId}
               weekStart={getWeekStart(weekStart)}
               onEdit={() => navigate('/team-management')}
             />
