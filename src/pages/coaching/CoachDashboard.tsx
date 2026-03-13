@@ -162,7 +162,7 @@ const OrgCard: React.FC<OrgCardProps> = ({ group, activeTeamId, athleteCounts, o
 /* ── Main Dashboard ───────────────────────────────────────── */
 
 export const CoachDashboard: React.FC = () => {
-  const { hasTeam, isLoadingTeam, teamId, orgId, userId, teamName, teams, teamsByOrg, switchTeam } = useCoachingContext();
+  const { hasTeam, isLoadingTeam, teamId, orgId, userId, teamName, teams, teamsByOrg, switchTeam, filterTeamId } = useCoachingContext();
   const navigate = useNavigate();
   const units = useMeasurementUnits();
   const isImperial = units === 'imperial';
@@ -209,6 +209,13 @@ export const CoachDashboard: React.FC = () => {
     return fromGroup ?? 'Organization';
   }, [orgId, teams, teamsByOrg]);
   const teamIdByName = useMemo(() => new Map(teams.map((team) => [team.team_name, team.team_id])), [teams]);
+
+  // The "view" team: when a filter pill is selected, show that team. Otherwise fall back to active team.
+  const viewTeamId = filterTeamId ?? teamId;
+  const isOrgWideView = filterTeamId === null && orgTeams.length > 1;
+  const viewTeamName = isOrgWideView
+    ? `${currentOrgName ?? 'Organization'} — All Teams`
+    : (teams.find((t) => t.team_id === viewTeamId)?.team_name ?? teamName);
 
   const handleOpenTeam = useCallback((nextTeamId: string) => {
     switchTeam(nextTeamId);
@@ -407,7 +414,7 @@ export const CoachDashboard: React.FC = () => {
   }, [orgBoatings]);
 
   useEffect(() => {
-    if (!teamId) return;
+    if (!viewTeamId && !orgId) return;
 
     // Reset state so stale data from previous team doesn't linger
     setTodayLoading(true);
@@ -418,23 +425,95 @@ export const CoachDashboard: React.FC = () => {
 
     const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-    Promise.all([
-      getAssignmentsForDate(teamId, todayStr, orgId ?? undefined),
-      getAthletes(teamId).then((athletes: CoachingAthlete[]) =>
-        getAssignmentCompletions(teamId, todayStr, athletes, orgId ?? undefined)
-      ),
-      getTeamStats(teamId),
-      getSeasonMeasuredLeaderboard(teamId, { limit: 5, orgId: orgId ?? undefined }),
-    ])
-      .then(([asgn, comps, stats, leaderboard]) => {
-        setTodayAssignments(asgn);
-        setCompletions(comps);
-        setTeamStats(stats);
-        setSeasonLeaderboard(leaderboard);
-      })
-      .catch(() => { /* non-critical dashboard card */ })
-      .finally(() => setTodayLoading(false));
-  }, [teamId, orgId]);
+    if (isOrgWideView && orgId && orgTeams.length > 0) {
+      // Org-wide: aggregate across all teams
+      Promise.all(
+        orgTeams.map(async (team) => {
+          const [asgn, athletes] = await Promise.all([
+            getAssignmentsForDate(team.team_id, todayStr, orgId),
+            getAthletes(team.team_id),
+          ]);
+          const comps = await getAssignmentCompletions(team.team_id, todayStr, athletes, orgId);
+          const stats = await getTeamStats(team.team_id);
+          const lb = await getSeasonMeasuredLeaderboard(team.team_id, { limit: 10, orgId });
+          return { asgn, comps, stats, lb };
+        })
+      )
+        .then((results) => {
+          // Merge assignments (deduplicate by id for org-wide ones)
+          const seenIds = new Set<string>();
+          const mergedAsgn: GroupAssignment[] = [];
+          for (const r of results) {
+            for (const a of r.asgn) {
+              if (!seenIds.has(a.id)) { seenIds.add(a.id); mergedAsgn.push(a); }
+            }
+          }
+          setTodayAssignments(mergedAsgn);
+
+          // Merge completions
+          const seenCompIds = new Set<string>();
+          const mergedComps: AssignmentCompletion[] = [];
+          for (const r of results) {
+            for (const c of r.comps) {
+              const key = `${c.group_assignment_id}`;
+              if (!seenCompIds.has(key)) { seenCompIds.add(key); mergedComps.push(c); }
+            }
+          }
+          setCompletions(mergedComps);
+
+          // Aggregate stats
+          const aggStats = results.reduce(
+            (acc, r) => {
+              if (!r.stats) return acc;
+              return {
+                athleteCount: acc.athleteCount + r.stats.athleteCount,
+                squadCount: acc.squadCount + r.stats.squadCount,
+                sessionsThisWeek: acc.sessionsThisWeek + r.stats.sessionsThisWeek,
+                weeklyCompletionRate: null as number | null,
+              };
+            },
+            { athleteCount: 0, squadCount: 0, sessionsThisWeek: 0, weeklyCompletionRate: null as number | null }
+          );
+          // Average completion rates
+          const rates = results.map((r) => r.stats?.weeklyCompletionRate).filter((r): r is number => r != null);
+          aggStats.weeklyCompletionRate = rates.length > 0 ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : null;
+          setTeamStats(aggStats);
+
+          // Merge + re-sort leaderboard by composite rank (take top 5)
+          const allLb = results.flatMap((r) => r.lb);
+          const lbMap = new Map<string, SeasonLeaderboardEntry>();
+          for (const entry of allLb) {
+            if (!lbMap.has(entry.athlete_id) || (entry.composite_rank ?? 999) < (lbMap.get(entry.athlete_id)!.composite_rank ?? 999)) {
+              lbMap.set(entry.athlete_id, entry);
+            }
+          }
+          const mergedLb = [...lbMap.values()].sort((a, b) => (a.composite_rank ?? 999) - (b.composite_rank ?? 999)).slice(0, 5);
+          setSeasonLeaderboard(mergedLb);
+        })
+        .catch(() => { /* non-critical dashboard card */ })
+        .finally(() => setTodayLoading(false));
+    } else if (viewTeamId) {
+      // Single team view
+      Promise.all([
+        getAssignmentsForDate(viewTeamId, todayStr, orgId ?? undefined),
+        getAthletes(viewTeamId).then((athletes: CoachingAthlete[]) =>
+          getAssignmentCompletions(viewTeamId, todayStr, athletes, orgId ?? undefined)
+        ),
+        getTeamStats(viewTeamId),
+        getSeasonMeasuredLeaderboard(viewTeamId, { limit: 5, orgId: orgId ?? undefined }),
+      ])
+        .then(([asgn, comps, stats, leaderboard]) => {
+          setTodayAssignments(asgn);
+          setCompletions(comps);
+          setTeamStats(stats);
+          setSeasonLeaderboard(leaderboard);
+        })
+        .catch(() => { /* non-critical dashboard card */ })
+        .finally(() => setTodayLoading(false));
+    } else {
+      setTodayLoading(false);
+    }
+  }, [viewTeamId, orgId, isOrgWideView, orgTeams]);
 
   useEffect(() => {
     if (!orgId || orgTeams.length === 0) {
@@ -611,14 +690,14 @@ export const CoachDashboard: React.FC = () => {
           <div className="mb-4 flex items-center gap-2">
             <div className="h-px flex-1 bg-neutral-800" />
             <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500 shrink-0">
-              {teamName} — Quick View
+              {viewTeamName} — Quick View
             </span>
             <div className="h-px flex-1 bg-neutral-800" />
           </div>
 
           {/* Weekly Focus */}
           <div className="mb-6">
-            <WeeklyFocusCard teamId={teamId} userId={userId} />
+            <WeeklyFocusCard teamId={viewTeamId || teamId} userId={userId} />
           </div>
 
           {/* Team Stats */}

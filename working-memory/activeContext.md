@@ -2,6 +2,29 @@
 
 > Last updated: March 13, 2026
 
+## Session Summary (2026-03-13) — Race finish chart + coach nav UX
+
+### Completed This Session
+- [x] **Race finish chart** — New `RaceFinishChart` component on AssignmentResults
+  - Horizontal bar chart showing athletes as race lanes, sorted by finish time
+  - Bar length proportional to time; gold/silver/bronze colors for top 3
+  - Shows for non-interval workouts with ≥2 finishers
+  - Tooltip with time, split, and gap from leader
+  - Full-width above the existing bar charts grid
+- [x] **Filter pills label** — Added "Filter:" label before team pills in CoachingNav to clarify they're data filters, not context switches
+- [x] **Team hierarchy collapsible** — Org/Team hierarchy section at bottom of CoachDashboard now collapsible (default collapsed), reducing visual noise since org overview cards are already prominent at top
+- [x] **Titan Index on assignment results** (prior in session)
+- [x] **Expandable leaderboard rows** with workout history (prior in session)
+- [x] **Public team leaderboard share** (prior in session)
+- [x] **"Assignments" → "Team Workouts"** rename (prior in session)
+- [x] **Leaderboard rank-only columns + composite rank** (prior in session)
+
+### Validation
+- `npm run build` ✅
+
+### Remaining
+- [ ] **Public team analytics share page** — create share token mechanism, DB migration, new public page
+
 ## Session Summary (2026-03-13) — Public share, expandable rows, Assignments → Team Workouts
 
 ### Completed This Session
