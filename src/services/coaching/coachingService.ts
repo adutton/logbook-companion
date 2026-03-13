@@ -2739,7 +2739,7 @@ export interface SeasonLeaderboardEntry {
   /** Rolling-window Titan Index (average of last N per-workout titan indexes). Higher is better. */
   titan_index: number | null;
   /** Per-assignment raw scores for client-side re-ranking when filters change */
-  score_history: { assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null; titan_index: number | null }[];
+  score_history: { assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null; titan_index: number | null; is_test: boolean }[];
 }
 
 /**
@@ -2749,9 +2749,10 @@ export interface SeasonLeaderboardEntry {
  */
 export async function getSeasonMeasuredLeaderboard(
   teamId: string,
-  opts?: { from?: string; to?: string; limit?: number; orgId?: string; titanWindowSize?: number }
+  opts?: { from?: string; to?: string; limit?: number; orgId?: string; titanWindowSize?: number; titanTestOnly?: boolean }
 ): Promise<SeasonLeaderboardEntry[]> {
   const titanWindow = opts?.titanWindowSize ?? 5;
+  const titanTestOnly = opts?.titanTestOnly ?? false;
   const assignments = await getGroupAssignments(teamId, { from: opts?.from, to: opts?.to, orgId: opts?.orgId });
   if (assignments.length === 0) return [];
 
@@ -2804,7 +2805,7 @@ export async function getSeasonMeasuredLeaderboard(
     times: number[]; distances: number[]; titanIndexes: number[];
     rawByDate: Array<{ date: string; rank: number; totalAthletes: number }>;
     latest: { split: number | null; time: number | null; distance: number | null; wplb: number | null; date: string };
-    scoreHistory: Array<{ assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null; titan_index: number | null }>;
+    scoreHistory: Array<{ assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null; titan_index: number | null; is_test: boolean }>;
   }>();
   // Assignments are sorted by scheduled_date ascending, so the last one processed is most recent
   for (const assignment of assignments) {
@@ -2839,10 +2840,10 @@ export async function getSeasonMeasuredLeaderboard(
       if (!entry.latest.date) {
         entry.latest = { split: row.split, time: row.time, distance: row.distance, wplb: row.wplb, date: assignment.scheduled_date };
       }
-      if (row.titanIdx != null) entry.titanIndexes.push(row.titanIdx);
+      if (row.titanIdx != null && (!titanTestOnly || assignment.is_test_template)) entry.titanIndexes.push(row.titanIdx);
       // Track raw scores per assignment for client-side re-ranking
       const assignmentLabel = assignment.title || assignment.template_name || assignment.canonical_name || 'Workout';
-      entry.scoreHistory.push({ assignmentId: assignment.id, date: assignment.scheduled_date, label: assignmentLabel, split: row.split!, time: row.time, distance: row.distance, wplb: row.wplb, titan_index: row.titanIdx });
+      entry.scoreHistory.push({ assignmentId: assignment.id, date: assignment.scheduled_date, label: assignmentLabel, split: row.split!, time: row.time, distance: row.distance, wplb: row.wplb, titan_index: row.titanIdx, is_test: assignment.is_test_template ?? false });
       perAthleteRanks.set(row.athleteId, entry);
     });
 
@@ -2990,6 +2991,7 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
       : null;
     return {
       ...e,
+      assignment_count: ranks.rawRanks.length,
       avg_raw_rank: avgRaw,
       avg_wplb_rank: avgWplb,
       composite_rank: composite,

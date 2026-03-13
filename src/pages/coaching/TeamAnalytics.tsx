@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
-import { Loader2, BarChart3, ChevronUp, ChevronDown, ChevronsUpDown, ArrowUp, ArrowDown, Minus, ChevronRight, Share2, Check } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo,  Fragment } from 'react';
+import { Loader2, BarChart3, ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, Share2, Check } from 'lucide-react';
 import { EmptyState } from '../../components/ui';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import {
@@ -43,10 +43,11 @@ export function TeamAnalytics() {
   const [best2kByAthlete, setBest2kByAthlete] = useState<Record<string, number>>({});
   const [orgRubric, setOrgRubric] = useState<PerformanceTierRubricConfig | null>(null);
   const [lbSortField, setLbSortField] = useState<'titan_index' | 'composite_rank' | 'avg_raw_rank' | 'avg_wplb_rank'>('titan_index');
-  const [lbSortAsc, setLbSortAsc] = useState(true);
+  const [lbSortAsc, setLbSortAsc] = useState(false);
   const [lbPage, setLbPage] = useState(0);
   const [expandedAthleteId, setExpandedAthleteId] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'copied'>('idle');
+  const [titanTestOnly, setTitanTestOnly] = useState(false);
   const LB_PAGE_SIZE = 16;
 
   const isOrg = !!orgId;
@@ -59,7 +60,7 @@ export function TeamAnalytics() {
     try {
       // Fetch team config for titan window size
       const teamConfig = await getTeam(teamId);
-      const titanWindowSize = teamConfig?.titan_window_size ?? 5;
+      const windowSize = teamConfig?.titan_window_size ?? 5;
       if (isOrg && orgId) {
         // Always fetch org-wide data; client-filter by filterTeamId
         const [, loadedAthletes, ergData, zoneDist, leaderboard] = await Promise.all([
@@ -67,7 +68,7 @@ export function TeamAnalytics() {
           getOrgAthletesWithTeam(orgId),
           getOrgErgComparison(orgId).catch(() => [] as TeamErgComparison[]),
           getOrgTrainingZoneDistribution(orgId).catch(() => null),
-          getSeasonMeasuredLeaderboard(teamId, { orgId, titanWindowSize }).catch(() => [] as SeasonLeaderboardEntry[]),
+          getSeasonMeasuredLeaderboard(teamId, { orgId, titanWindowSize: windowSize }).catch(() => [] as SeasonLeaderboardEntry[]),
         ]);
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
@@ -79,7 +80,7 @@ export function TeamAnalytics() {
           getAthletes(teamId),
           getTeamErgComparison(teamId).catch(() => [] as TeamErgComparison[]),
           getTeamTrainingZoneDistribution(teamId).catch(() => null),
-          getSeasonMeasuredLeaderboard(teamId, { titanWindowSize }).catch(() => [] as SeasonLeaderboardEntry[]),
+          getSeasonMeasuredLeaderboard(teamId, { titanWindowSize: windowSize }).catch(() => [] as SeasonLeaderboardEntry[]),
         ]);
         setAthletes(loadedAthletes.filter((a) => a.side !== 'coxswain'));
         setErgComparison(ergData);
@@ -212,8 +213,19 @@ export function TeamAnalytics() {
     return isFiltered ? rerankLeaderboard(data) : data;
   }, [teamFilteredLeaderboard, squadFilter, tierFilter, teamFilteredAthletes, effectiveTierByAthlete, filterTeamId]);
 
-  // Titan Index now comes pre-computed from the server (rolling average of last N workouts)
-  const leaderboardWithTitan = filteredLeaderboard;
+  // Recompute all ranks when test-only toggle is active
+  const leaderboardWithTitan = useMemo(() => {
+    if (!titanTestOnly) return filteredLeaderboard; // use server-computed (all workouts)
+    // Filter score_history to tests only, then re-rank everything from that subset
+    const testFiltered = filteredLeaderboard.map((entry) => ({
+      ...entry,
+      score_history: entry.score_history.filter((h) => h.is_test),
+    }));
+    // Remove athletes with no test scores
+    const withTests = testFiltered.filter((e) => e.score_history.length > 0);
+    // Re-rank speed, efficiency, composite, and titan from test-only data
+    return rerankLeaderboard(withTests);
+  }, [filteredLeaderboard, titanTestOnly]);
 
   // Sorted leaderboard (from filtered data with titan index)
   const sortedLeaderboard = useMemo(() => {
@@ -433,12 +445,26 @@ export function TeamAnalytics() {
               </button>
             </div>
             <div className="bg-neutral-800/50 border border-neutral-700/40 rounded-lg px-4 py-3 mb-4">
-              <p className="text-xs text-neutral-300 leading-relaxed">
-                <span className="font-semibold text-neutral-200">Season rankings</span> — averaged across all workouts. Expand a row to see individual scores, or go to <a href="/team-management/assignments" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">Team Workouts</a> for per-workout rankings.
-              </p>
-              <p className="text-[11px] text-neutral-500 mt-1">
-                Titan Index = Z-score composite of speed + efficiency. Higher is better.
-              </p>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs text-neutral-300 leading-relaxed">
+                    <span className="font-semibold text-neutral-200">Season rankings</span> — averaged across all workouts. Expand a row to see individual scores, or go to <a href="/team-management/assignments" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">Team Workouts</a> for per-workout rankings.
+                  </p>
+                  <p className="text-[11px] text-neutral-500 mt-1">
+                    Titan Index = Z-score composite of speed + efficiency. Higher is better.{titanTestOnly ? ' (Tests only)' : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setTitanTestOnly(false)}
+                    className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${!titanTestOnly ? 'bg-indigo-600 text-white' : 'bg-neutral-700 text-neutral-400 hover:text-neutral-200'}`}
+                  >All Workouts</button>
+                  <button
+                    onClick={() => setTitanTestOnly(true)}
+                    className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${titanTestOnly ? 'bg-indigo-600 text-white' : 'bg-neutral-700 text-neutral-400 hover:text-neutral-200'}`}
+                  >Tests Only</button>
+                </div>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
