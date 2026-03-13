@@ -238,13 +238,13 @@ export function CoachingRoster() {
         const trimmed = resolvedValue.trim() || null;
         if (trimmed !== (a.squad ?? null)) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, squad: trimmed } : x));
-          await updateAthleteSquad(a.team_id ?? teamId, athleteId, trimmed);
+          await updateAthleteSquad(a.team_id ?? effectiveTeamId, athleteId, trimmed);
         }
       } else if (field === 'performance_tier') {
         const val: CoachingAthlete['performance_tier'] = (resolvedValue.trim() || null) as CoachingAthlete['performance_tier'];
         if (val !== (a.performance_tier ?? null)) {
           setAthletes(prev => prev.map(x => x.id === athleteId ? { ...x, performance_tier: val } : x));
-          await updateAthletePerformanceTier(a.team_id ?? teamId, athleteId, val ?? null);
+          await updateAthletePerformanceTier(a.team_id ?? effectiveTeamId, athleteId, val ?? null);
         }
       } else if (field === 'height') {
         const cm = isImperial
@@ -313,7 +313,7 @@ export function CoachingRoster() {
   const handleTransfer = async (athlete: CoachingAthlete, toTeamId: string) => {
     const destTeam = siblingTeams.find((t) => t.team_id === toTeamId);
     try {
-      await transferAthlete(athlete.id, athlete.team_id ?? teamId, toTeamId);
+      await transferAthlete(athlete.id, athlete.team_id ?? effectiveTeamId, toTeamId);
       // Remove from local state immediately
       setAthletes((prev) => prev.filter((a) => a.id !== athlete.id));
       setTransferringAthlete(null);

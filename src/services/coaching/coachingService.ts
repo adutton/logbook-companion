@@ -952,6 +952,7 @@ export async function getAthletes(teamId: string): Promise<CoachingAthlete[]> {
 
   return (rows ?? []).map(({ team_athletes, ...athlete }) => ({
     ...toCoachingAthlete(athlete as Athlete),
+    team_id: team_athletes[0]?.team_id ?? undefined,
     squad: team_athletes[0]?.squad ?? null,
     performance_tier: (team_athletes[0]?.performance_tier as PerformanceTier | null | undefined) ?? null,
   }));
