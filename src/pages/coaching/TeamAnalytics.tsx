@@ -448,10 +448,13 @@ export function TeamAnalytics() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-xs text-neutral-300 leading-relaxed">
-                    <span className="font-semibold text-neutral-200">Season rankings</span> — averaged across all workouts. Expand a row to see individual scores, or go to <a href="/team-management/assignments" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">Team Workouts</a> for per-workout rankings.
+                    <span className="font-semibold text-neutral-200">{titanTestOnly ? 'Erg Test Rankings' : 'Season Rankings'}</span> — {titanTestOnly
+                      ? 'see who is performing on erg tests. Rankings reflect only scored test pieces so you can identify your strongest testers.'
+                      : 'see who is consistently performing across all tested workouts. Rankings reflect every scored assignment this season.'
+                    } Expand a row to see individual scores, or go to <a href="/team-management/assignments" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">Team Workouts</a> for per-workout rankings.
                   </p>
                   <p className="text-[11px] text-neutral-500 mt-1">
-                    Titan Index = Z-score composite of speed + efficiency. Higher is better.{titanTestOnly ? ' (Tests only)' : ''}
+                    Titan Index = Z-score composite of speed + efficiency. Higher is better.{titanTestOnly ? ' Filtered to tests only.' : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
