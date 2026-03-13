@@ -2464,35 +2464,52 @@ export interface SeasonLeaderboardEntry {
   athlete_name: string;
   squad?: string | null;
   performance_tier?: PerformanceTier | null;
+  team_id?: string | null;
+  team_name?: string | null;
   assignment_count: number;
   avg_raw_rank: number | null;
   avg_wplb_rank: number | null;
+  /** Composite: average of raw rank + efficiency rank. Lower is better. */
+  composite_rank: number | null;
   trend_raw_rank: number | null;
+  /** Per-assignment rank history for trend popover, sorted chronologically */
+  rank_history: { date: string; rank: number; totalAthletes: number }[];
 }
 
 /**
- * Season-to-date leaderboard from measured workouts (template `is_test = true`).
- * Lower average rank is better (1.0 = best).
+ * Season-to-date leaderboard from ALL completed assignments with scores.
+ * Lower average rank is better (1 = best). Ranks are integers.
+ * Pass `orgId` to include org-level assignments (team_id = null, org_id set).
  */
 export async function getSeasonMeasuredLeaderboard(
   teamId: string,
-  opts?: { from?: string; to?: string; limit?: number }
+  opts?: { from?: string; to?: string; limit?: number; orgId?: string }
 ): Promise<SeasonLeaderboardEntry[]> {
-  const assignments = await getGroupAssignments(teamId, { from: opts?.from, to: opts?.to })
-    .then((rows) => rows.filter((a) => a.is_test_template));
+  const assignments = await getGroupAssignments(teamId, { from: opts?.from, to: opts?.to, orgId: opts?.orgId });
   if (assignments.length === 0) return [];
 
   const assignmentIds = assignments.map((a) => a.id);
-  const athletes = await getAthletes(teamId);
+
+  // Load athletes: org-wide if orgId provided, otherwise team-scoped
+  const athletes = opts?.orgId
+    ? await getOrgAthletesWithTeam(opts.orgId)
+    : await getAthletes(teamId);
   const athleteMap = new Map(athletes.map((a) => [a.id, a]));
 
+  // Query daily_workout_assignments — for org-level assignments, results span
+  // multiple teams, so query by group_assignment_id only (not team_id).
   let rows: LeaderboardDailyRow[] | null = null;
+  const hasOrgAssignments = assignments.some((a) => a.org_id && !a.team_id);
+
   if (resultWeightColumnAvailable !== false) {
-    const primary = await supabase
+    let query = supabase
       .from('daily_workout_assignments')
       .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_weight_kg, result_intervals')
-      .eq('team_id', teamId)
       .in('group_assignment_id', assignmentIds);
+    if (!hasOrgAssignments) {
+      query = query.eq('team_id', teamId);
+    }
+    const primary = await query;
     if (!primary.error) {
       rows = (primary.data as LeaderboardDailyRow[] | null) ?? [];
       markResultWeightColumnAvailable(true);
@@ -2502,17 +2519,20 @@ export async function getSeasonMeasuredLeaderboard(
   }
 
   if (!rows) {
-    const fallback = await supabase
+    let query = supabase
       .from('daily_workout_assignments')
       .select('group_assignment_id, athlete_id, completed, result_split_seconds, result_intervals')
-      .eq('team_id', teamId)
       .in('group_assignment_id', assignmentIds);
+    if (!hasOrgAssignments) {
+      query = query.eq('team_id', teamId);
+    }
+    const fallback = await query;
     if (fallback.error) throw fallback.error;
     rows = ((fallback.data as Omit<LeaderboardDailyRow, 'result_weight_kg'>[] | null) ?? [])
       .map((r) => ({ ...r, result_weight_kg: null }));
   }
 
-  const perAthleteRanks = new Map<string, { raw: number[]; wplb: number[]; rawByDate: Array<{ date: string; rank: number }> }>();
+  const perAthleteRanks = new Map<string, { raw: number[]; wplb: number[]; rawByDate: Array<{ date: string; rank: number; totalAthletes: number }> }>();
   for (const assignment of assignments) {
     const perAssignmentRows = (rows ?? [])
       .filter((r) => r.group_assignment_id === assignment.id && r.completed)
@@ -2530,10 +2550,11 @@ export async function getSeasonMeasuredLeaderboard(
     if (perAssignmentRows.length === 0) continue;
 
     const rawSorted = [...perAssignmentRows].sort((a, b) => (a.split ?? Number.POSITIVE_INFINITY) - (b.split ?? Number.POSITIVE_INFINITY));
+    const totalInAssignment = rawSorted.length;
     rawSorted.forEach((row, idx) => {
       const entry = perAthleteRanks.get(row.athleteId) ?? { raw: [], wplb: [], rawByDate: [] };
       entry.raw.push(idx + 1);
-      entry.rawByDate.push({ date: assignment.scheduled_date, rank: idx + 1 });
+      entry.rawByDate.push({ date: assignment.scheduled_date, rank: idx + 1, totalAthletes: totalInAssignment });
       perAthleteRanks.set(row.athleteId, entry);
     });
 
@@ -2550,23 +2571,36 @@ export async function getSeasonMeasuredLeaderboard(
     const athlete = athleteMap.get(athleteId);
     const sortedTrend = [...ranks.rawByDate].sort((a, b) => a.date.localeCompare(b.date));
     const trend = sortedTrend.length >= 2 ? sortedTrend[sortedTrend.length - 1].rank - sortedTrend[0].rank : null;
+    const avgRaw = ranks.raw.length > 0 ? Math.round(ranks.raw.reduce((sum, v) => sum + v, 0) / ranks.raw.length) : null;
+    const avgWplb = ranks.wplb.length > 0 ? Math.round(ranks.wplb.reduce((sum, v) => sum + v, 0) / ranks.wplb.length) : null;
+    // Composite: average of raw rank + efficiency rank (both available),
+    // falls back to whichever is available, or null
+    const compositeRaw = avgRaw != null && avgWplb != null
+      ? (avgRaw + avgWplb) / 2
+      : avgRaw ?? avgWplb ?? null;
+    const composite = compositeRaw != null ? Math.round(compositeRaw) : null;
     return {
       athlete_id: athleteId,
       athlete_name: athlete?.name ?? 'Unknown',
       squad: athlete?.squad ?? null,
       performance_tier: athlete?.performance_tier ?? null,
+      team_id: athlete?.team_id ?? null,
+      team_name: athlete?.team_name ?? null,
       assignment_count: ranks.raw.length,
-      avg_raw_rank: ranks.raw.length > 0 ? ranks.raw.reduce((sum, v) => sum + v, 0) / ranks.raw.length : null,
-      avg_wplb_rank: ranks.wplb.length > 0 ? ranks.wplb.reduce((sum, v) => sum + v, 0) / ranks.wplb.length : null,
+      avg_raw_rank: avgRaw,
+      avg_wplb_rank: avgWplb,
+      composite_rank: composite,
       trend_raw_rank: trend,
+      rank_history: sortedTrend,
     } as SeasonLeaderboardEntry;
   });
 
   leaderboard.sort((a, b) => {
-    const ar = a.avg_raw_rank ?? Number.POSITIVE_INFINITY;
-    const br = b.avg_raw_rank ?? Number.POSITIVE_INFINITY;
-    if (ar !== br) return ar - br;
-    return (a.avg_wplb_rank ?? Number.POSITIVE_INFINITY) - (b.avg_wplb_rank ?? Number.POSITIVE_INFINITY);
+    const ac = a.composite_rank ?? Number.POSITIVE_INFINITY;
+    const bc = b.composite_rank ?? Number.POSITIVE_INFINITY;
+    if (ac !== bc) return ac - bc;
+    // Tiebreak: raw rank
+    return (a.avg_raw_rank ?? Number.POSITIVE_INFINITY) - (b.avg_raw_rank ?? Number.POSITIVE_INFINITY);
   });
 
   return opts?.limit ? leaderboard.slice(0, opts.limit) : leaderboard;
@@ -2626,9 +2660,29 @@ export interface TeamErgComparison {
   bestSplit: number;
   bestWatts: number;
   date: string;
+  /** Grouping label for the chart selector, e.g. "2k Test · Mar 10" or "2000m" */
+  assignmentLabel: string;
 }
 
-/** Get best erg scores per athlete per distance for squad comparison */
+/** Format a date string as short month + day, e.g. "Mar 10" */
+function fmtShortDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+interface AssignmentRow {
+  athlete_id: string;
+  result_time_seconds: number;
+  result_distance_meters: number;
+  result_split_seconds: number | null;
+  workout_date: string;
+  group_assignment_id: string | null;
+  group_assignments: { title: string | null; scheduled_date: string; workout_templates: { name: string } | null } | null;
+}
+
+/** Get erg comparison data per assignment/workout for the chart.
+ *  Sources data from completed daily_workout_assignments (with template names)
+ *  AND coaching_erg_scores (manual entries, grouped by distance). */
 export async function getTeamErgComparison(teamId: string): Promise<TeamErgComparison[]> {
   const [scores, athletes] = await Promise.all([
     getErgScores(teamId),
@@ -2636,37 +2690,113 @@ export async function getTeamErgComparison(teamId: string): Promise<TeamErgCompa
   ]);
 
   const athleteMap = new Map(athletes.map(a => [a.id, a]));
+  const athleteIds = athletes.map(a => a.id);
 
-  // For each athlete × distance, pick the best (fastest) time
-  const bestByKey = new Map<string, CoachingErgScore>();
-  for (const s of scores) {
-    const key = `${s.athlete_id}_${s.distance}`;
-    const existing = bestByKey.get(key);
-    if (!existing || s.time_seconds < existing.time_seconds) {
-      bestByKey.set(key, s);
-    }
+  // Load assignment results with template names
+  let assignmentRows: AssignmentRow[] = [];
+  if (athleteIds.length > 0) {
+    const { data, error } = await supabase
+      .from('daily_workout_assignments')
+      .select('athlete_id, result_time_seconds, result_distance_meters, result_split_seconds, workout_date, group_assignment_id, group_assignments(title, scheduled_date, workout_templates(name))')
+      .in('athlete_id', athleteIds)
+      .eq('completed', true)
+      .not('result_time_seconds', 'is', null)
+      .not('result_distance_meters', 'is', null);
+    if (error) console.warn('Failed to load assignment results for erg comparison', error);
+    else assignmentRows = (data ?? []) as unknown as AssignmentRow[];
   }
 
   const results: TeamErgComparison[] = [];
-  for (const s of bestByKey.values()) {
-    const athlete = athleteMap.get(s.athlete_id);
-    if (!athlete) continue;
-    const splitSec = s.split_500m ?? (s.time_seconds / s.distance) * 500;
-    const watts = s.watts ?? (splitSec > 0 ? 2.80 / Math.pow(splitSec / 500, 3) : 0);
-    results.push({
-      athleteId: s.athlete_id,
-      athleteName: athlete.name,
-      squad: athlete.squad ?? undefined,
-      distance: s.distance,
-      bestTime: s.time_seconds,
-      bestSplit: splitSec,
-      bestWatts: watts,
-      date: s.date,
-    });
+
+  // ── Assignment results: group by group_assignment_id ──
+  // For each assignment, keep each athlete's best result
+  const byAssignment = new Map<string, { label: string; rows: AssignmentRow[] }>();
+  for (const r of assignmentRows) {
+    const distance = Number(r.result_distance_meters);
+    const time = Number(r.result_time_seconds);
+    if (!distance || !time || distance <= 0 || time <= 0) continue;
+
+    const gaId = r.group_assignment_id ?? `ungrouped_${r.workout_date}`;
+    if (!byAssignment.has(gaId)) {
+      const ga = r.group_assignments;
+      const templateName = ga?.workout_templates?.name ?? ga?.title;
+      const date = ga?.scheduled_date ?? r.workout_date;
+      const label = templateName ? `${templateName} · ${fmtShortDate(date)}` : `${distance}m · ${fmtShortDate(date)}`;
+      byAssignment.set(gaId, { label, rows: [] });
+    }
+    byAssignment.get(gaId)!.rows.push(r);
   }
 
-  // Sort by distance, then by watts descending (best first)
-  results.sort((a, b) => a.distance - b.distance || b.bestWatts - a.bestWatts);
+  for (const [, { label, rows }] of byAssignment) {
+    // Best result per athlete within this assignment
+    const bestPerAthlete = new Map<string, AssignmentRow>();
+    for (const r of rows) {
+      const existing = bestPerAthlete.get(r.athlete_id);
+      if (!existing || Number(r.result_time_seconds) < Number(existing.result_time_seconds)) {
+        bestPerAthlete.set(r.athlete_id, r);
+      }
+    }
+
+    for (const r of bestPerAthlete.values()) {
+      const athlete = athleteMap.get(r.athlete_id);
+      if (!athlete) continue;
+      const distance = Number(r.result_distance_meters);
+      const time = Number(r.result_time_seconds);
+      const splitSec = r.result_split_seconds ? Number(r.result_split_seconds) : (time / distance) * 500;
+      const watts = splitSec > 0 ? 2.80 / Math.pow(splitSec / 500, 3) : 0;
+      results.push({
+        athleteId: r.athlete_id,
+        athleteName: athlete.name,
+        squad: athlete.squad ?? undefined,
+        distance,
+        bestTime: time,
+        bestSplit: splitSec,
+        bestWatts: watts,
+        date: r.workout_date,
+        assignmentLabel: label,
+      });
+    }
+  }
+
+  // ── Manual erg scores: group by distance ──
+  const scoresByDistance = new Map<number, typeof scores>();
+  for (const s of scores) {
+    if (!scoresByDistance.has(s.distance)) scoresByDistance.set(s.distance, []);
+    scoresByDistance.get(s.distance)!.push(s);
+  }
+
+  for (const [distance, distScores] of scoresByDistance) {
+    const label = `${distance}m Erg Scores`;
+    // Best per athlete
+    const bestPerAthlete = new Map<string, (typeof scores)[0]>();
+    for (const s of distScores) {
+      const existing = bestPerAthlete.get(s.athlete_id);
+      if (!existing || s.time_seconds < existing.time_seconds) {
+        bestPerAthlete.set(s.athlete_id, s);
+      }
+    }
+
+    for (const s of bestPerAthlete.values()) {
+      const athlete = athleteMap.get(s.athlete_id);
+      if (!athlete) continue;
+      const splitSec = s.split_500m ?? (s.time_seconds / s.distance) * 500;
+      const watts = s.watts ?? (splitSec > 0 ? 2.80 / Math.pow(splitSec / 500, 3) : 0);
+      results.push({
+        athleteId: s.athlete_id,
+        athleteName: athlete.name,
+        squad: athlete.squad ?? undefined,
+        distance: s.distance,
+        bestTime: s.time_seconds,
+        bestSplit: splitSec,
+        bestWatts: watts,
+        date: s.date,
+        assignmentLabel: label,
+      });
+    }
+  }
+
+  // Sort by date descending (newest assignment first), then by watts descending
+  results.sort((a, b) => b.date.localeCompare(a.date) || b.bestWatts - a.bestWatts);
   return results;
 }
 

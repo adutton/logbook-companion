@@ -1370,7 +1370,7 @@ function SummaryTable({
               <SortTh label="SR" field="stroke_rate" sortField={sortField} onSort={toggleSort} />
               {isInterval && <SortTh label={bestRepLabel} field="best" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <SortTh label="Best Split" field="best" sortField={sortField} onSort={toggleSort} />}
-              {isInterval && hasWpkg && <SortTh label="Eff (W/lb)" field="best_eff" sortField={sortField} onSort={toggleSort} />}
+              {isInterval && hasWpkg && <SortTh label="Efficiency" field="best_eff" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <SortTh label="Worst" field="worst" sortField={sortField} onSort={toggleSort} />}
               {isInterval && <th className="px-3 py-2 text-xs font-medium text-neutral-400 uppercase text-right">Spread</th>}
             </tr>
@@ -1804,7 +1804,7 @@ export function AssignmentResults() {
                     const repCols = isInterval
                       ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
                       : [];
-                    const summaryColumns = isInterval ? [bestRepLabel, 'Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
+                    const summaryColumns = isInterval ? [bestRepLabel, 'Best Split', 'Efficiency', 'Worst Split', 'Spread'] : [];
                     const columns = [...baseColumns, ...repCols, ...summaryColumns];
                     const pdfRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Math.round(r.effective_weight_kg * 2.20462) : null;
@@ -1857,7 +1857,7 @@ export function AssignmentResults() {
                     const repCols = isInterval
                       ? repLabels.flatMap((_, i) => [`Rep ${i + 1} Split`, `Rep ${i + 1} Time`])
                       : [];
-                    const summaryColumns = isInterval ? [bestRepLabel, 'Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : [];
+                    const summaryColumns = isInterval ? [bestRepLabel, 'Best Split', 'Efficiency', 'Worst Split', 'Spread'] : [];
                     const columns = [...baseColumns, ...repCols, ...summaryColumns];
                     const xlsRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Number((r.effective_weight_kg * 2.20462).toFixed(1)) : null;
@@ -1918,7 +1918,7 @@ export function AssignmentResults() {
                       ...repCols,
                       'Total Time', 'Avg Split /500m',
                       'Watts', 'W/kg', 'W/lb', 'Weight (lb)',
-                      ...(isInterval ? [bestRepLabel, 'Best Split', 'Eff (W/lb)', 'Worst Split', 'Spread'] : []),
+                      ...(isInterval ? [bestRepLabel, 'Best Split', 'Efficiency', 'Worst Split', 'Spread'] : []),
                     ];
                     const csvRows = rows.map((r) => {
                       const weightLb = r.effective_weight_kg != null ? Number((r.effective_weight_kg * 2.20462).toFixed(1)) : null;

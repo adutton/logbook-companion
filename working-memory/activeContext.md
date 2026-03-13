@@ -2,7 +2,25 @@
 
 > Last updated: March 13, 2026
 
-## Session Summary (2026-03-13) — Roster tier filter, analytics tier filter, tier sort fix
+## Session Summary (2026-03-13) — Analytics filtering fixes, erg chart data gap
+
+### Completed This Session
+- [x] **Fix erg chart "No data" for teams with assignment results but no erg scores**
+  - Root cause: `getTeamErgComparison` only queried `coaching_erg_scores` table; teams like Upper Novice with completed assignments but no manually entered erg scores showed empty
+  - Fix: merged `daily_workout_assignments` results (by athlete ID) into erg comparison, picking best time per athlete×distance from either source
+  - Queried by `athlete_id` (not `team_id`) because transferred athletes keep old team_id on their assignments
+- [x] **Fix `hasErgData` using unfiltered data**
+  - Changed from `ergComparison.length > 0` to `filteredErgData.length > 0`
+- [x] **Leaderboard now filtered by squad & tier**
+  - Added `filteredLeaderboard` memo applying `squadFilter` + `tierFilter` (was only team-filtered)
+- [x] **Consolidated leaderboard-only fallback**
+  - Removed ~60 lines of duplicated leaderboard table; side-by-side grid now shows when either erg data OR leaderboard exists
+
+### Validation
+- `npm run build` ✅
+- Not yet tested with live data (needs manual verification)
+
+## Session Summary (2026-03-13) — Roster tier filter, analytics org-awareness, leaderboard fix
 
 ### Completed This Session
 - [x] **Performance tier filter on CoachingRoster**
@@ -17,10 +35,23 @@
   - Auto-resets filters when team/org context changes
 - [x] **Fixed stale `performanceTierOrder` in CoachingRoster**
   - Old: `{ pool: 0, developmental: 1, challenger: 2, champion: 3 }` — missing `competitor` and `nationals`
-  - New: uses shared `TIER_SORT_ORDER` from `performanceTierRubric.ts` covering all 6 tier values (pool, developmental, competitor, challenger, champion, nationals)
+  - New: uses shared `TIER_SORT_ORDER` from `performanceTierRubric.ts` covering all 6 tier values
 - [x] **Exported shared tier constants from `performanceTierRubric.ts`**
   - `BENCHMARK_TIERS`: ordered array of all 5 benchmark tiers
   - `TIER_SORT_ORDER`: unified sort order covering both `BenchmarkTier` and legacy `PerformanceTier` values
+- [x] **BUGFIX: Leaderboard empty — org-level assignments invisible**
+  - Root cause: `getSeasonMeasuredLeaderboard(teamId)` called `getGroupAssignments(teamId)` without `orgId`, so it used `.eq('team_id', teamId)` — missing org-scoped assignments where `team_id = null`
+  - Fix: Added `orgId` param to `getSeasonMeasuredLeaderboard`, passes through to `getGroupAssignments`
+  - Also made daily_workout_assignments query drop the `team_id` filter when org-level assignments exist
+  - Also loads org-wide athletes when `orgId` provided (instead of single-team)
+- [x] **BUGFIX: TeamAnalytics didn't reload on team filter change**
+  - `loadData()` deps were `[teamId, orgId, isOrg]` — missing `filterTeamId`
+  - Adopted `effectiveTeamId` pattern from CoachingRoster: `filterTeamId ?? teamId`
+  - Now properly reloads data when switching teams in CoachingNav
+  - Leaderboard now shown in org-wide mode too (was previously hidden with `!isOrg`)
+- [x] **BUGFIX: CoachDashboard leaderboard missing orgId**
+  - `getSeasonMeasuredLeaderboard(teamId, { limit: 5 })` → now passes `orgId`
+  - Added `orgId` to useEffect deps (was only `[teamId]`)
 
 ### Validation
 - `npm run build` ✅

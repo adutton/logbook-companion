@@ -422,7 +422,7 @@ export const CoachDashboard: React.FC = () => {
         getAssignmentCompletions(teamId, todayStr, athletes, orgId ?? undefined)
       ),
       getTeamStats(teamId),
-      getSeasonMeasuredLeaderboard(teamId, { limit: 5 }),
+      getSeasonMeasuredLeaderboard(teamId, { limit: 5, orgId: orgId ?? undefined }),
     ])
       .then(([asgn, comps, stats, leaderboard]) => {
         setTodayAssignments(asgn);
@@ -432,7 +432,7 @@ export const CoachDashboard: React.FC = () => {
       })
       .catch(() => { /* non-critical dashboard card */ })
       .finally(() => setTodayLoading(false));
-  }, [teamId]);
+  }, [teamId, orgId]);
 
   useEffect(() => {
     if (!orgId || orgTeams.length === 0) {
@@ -684,13 +684,13 @@ export const CoachDashboard: React.FC = () => {
                       )}
                     </div>
                     <div className="text-xs text-neutral-300 font-mono shrink-0">
-                      Rank {row.avg_raw_rank != null ? row.avg_raw_rank.toFixed(2) : '—'}
+                      {row.composite_rank != null ? row.composite_rank : '—'}
                     </div>
                   </div>
                 ))}
               </div>
               ) : (
-                <p className="text-sm text-neutral-500">No 2k scores recorded yet. Log erg scores to build the leaderboard.</p>
+                <p className="text-sm text-neutral-500">No completed assignments with scores yet.</p>
               )}
             </div>
 
