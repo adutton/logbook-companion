@@ -4,6 +4,119 @@
 
 ---
 
+## Phase 38: Titan Bias Save Propagation + Analytics Sort Typing (March 15, 2026)
+
+**Timeline**: March 15, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- `src/pages/coaching/TeamAnalytics.tsx`
+  - introduced a widened `LeaderboardSortField` union so the leaderboard can safely sort by:
+    - `avg_split_seconds`
+    - `best_split`
+    - `latest_split_seconds`
+    - `avg_wplb`
+    - `assignment_count`
+  - fixed the page-level TypeScript breakage caused by adding sortable leaderboard columns without expanding the sort state type.
+
+- `src/pages/coaching/CoachingSettings.tsx`
+  - Titan settings save flow now compares the previous and new `titan_power_weight`.
+  - when the weight changes, save now immediately runs:
+    - `backfillTitanIndexes(teamId, { orgId: updated.org_id ?? undefined, force: true })`
+  - this ensures stored `daily_workout_assignments.titan_index` rows are recomputed at save time instead of requiring the user to separately click the manual recompute control.
+  - updated helper copy to reflect the new automatic recompute behavior.
+
+- `src/pages/team/MyTeamNotes.tsx`
+  - updated athlete-facing notes to render the visible coach-note feed array instead of the old single-string coach-note model.
+
+### Key Debugging Outcome
+
+- The Titan weighting bug was not in `TeamAnalytics` display logic.
+- Root cause: the settings page persisted `teams.titan_power_weight`, but leaderboard Titan values still came from precomputed `daily_workout_assignments.titan_index` values.
+- Because those assignment-level Titan scores were only refreshed via the separate manual recompute action, changing the bias slider alone did not visibly affect analytics.
+- Fixing the save path resolved the mismatch without changing the underlying Titan pipeline:
+  - base per-workout scoring still comes from assignment rows,
+  - leaderboard Titan still rolls up from those assignment-level Titan values.
+
+### Validation
+
+- editor diagnostics:
+  - `TeamAnalytics.tsx` → ✅ no errors
+  - `CoachingSettings.tsx` → ✅ no errors
+- build:
+  - `npm run build` → ✅ pass
+
+### Outcome
+
+Saving a changed Titan power bias now updates the historical assignment Titan data immediately, so Team Analytics reflects the new weighting as soon as the save completes.
+
+---
+
+## Phase 39: Coach Notes Feed Pivot Completion (March 15, 2026)
+
+**Timeline**: March 15, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- `src/pages/team/MyTeamNotes.tsx`
+  - athlete-facing notes now render the visible coach-note feed as a list of entries with author/date metadata instead of assuming a single coach note string.
+
+- `src/pages/coaching/CoachingAthleteDetail.tsx`
+  - coach-facing athlete detail now creates coach notes against the athlete's actual `team_id`, not the active context team.
+  - this prevents wrong-team writes when coaches are operating in org-wide views.
+  - squad updates on the detail page now use the same athlete-team scoping fix.
+
+- `src/pages/coaching/CoachingRoster.tsx`
+  - removed stale legacy single-note fields from new-athlete creation payloads.
+
+- `src/services/coaching/coachingService.ts`
+  - narrowed `createAthlete()` and `updateAthlete()` to core athlete profile fields only.
+  - shared coach notes remain managed exclusively through `coaching_athlete_coach_notes` service methods:
+    - `getCoachNotesForAthlete()`
+    - `createCoachNote()`
+    - `getMyCoachNotes()`
+
+### Key Debugging Outcome
+
+- The codebase had already pivoted to the shared `coaching_athlete_coach_notes` feed, but some write paths still referenced the old `athletes.coach_notes` model.
+- There was also a multi-team scoping bug in athlete detail:
+  - org-wide coaches could open an athlete from another team,
+  - but note creation and squad updates still used the active context `teamId`.
+- Fixing those paths brought the UI and service layer back into alignment with the feed-based model and existing team/org RLS expectations.
+
+### Coaching RLS / Scope Validation
+
+- Touched surfaces:
+  - `coaching_athlete_coach_notes`
+  - `CoachingAthleteDetail`
+  - `CoachingRoster`
+  - `coachingService.ts`
+- Team/org scope:
+  - coach-note writes are now team-scoped using `athlete.team_id` when available.
+  - athlete-facing reads remain restricted to `visible_to_athlete = true` via `getMyCoachNotes()`.
+- Role enforcement:
+  - coach-facing add/read flow continues through coaching routes and the existing feed-table RLS.
+- Result:
+  - no new RLS mismatch found in the final query shapes used by the completed pivot.
+
+### Validation
+
+- editor diagnostics:
+  - `CoachingAthleteDetail.tsx` → ✅ no errors
+  - `CoachingRoster.tsx` → ✅ no errors
+  - `coachingService.ts` → ✅ no errors
+  - `MyTeamNotes.tsx` → ✅ no errors
+- build:
+  - `npm run build` → ✅ pass
+
+### Outcome
+
+The old single coach-note model is no longer used by the coaching UI, and the shared running coach-note feed now behaves consistently across coach-facing and athlete-facing surfaces.
+
+---
+
 ## Phase 37: Coaching Org Visibility + Team Creation RLS Alignment (March 12, 2026)
 
 **Timeline**: March 12, 2026  

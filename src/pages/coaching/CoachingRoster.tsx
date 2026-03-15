@@ -61,7 +61,7 @@ export function CoachingRoster() {
   const [hasAssignmentsToday, setHasAssignmentsToday] = useState(false);
   const [quickScoreAthlete, setQuickScoreAthlete] = useState<CoachingAthlete | null>(null);
   const [best2kByAthlete, setBest2kByAthlete] = useState<Record<string, number>>({});
-  const [orgRubric, setOrgRubric] = useState<PerformanceTierRubricConfig | null>(null);
+  const [loadedOrgRubric, setLoadedOrgRubric] = useState<PerformanceTierRubricConfig | null>(null);
 
   // Inline editing: which cell is being edited?  { athleteId, field }
   const [editingCell, setEditingCell] = useState<{ athleteId: string; field: string } | null>(null);
@@ -87,6 +87,7 @@ export function CoachingRoster() {
   const isOrgWide = filterTeamId === null && !!orgId;
   // The team ID to use for single-team queries (filter or home team)
   const effectiveTeamId = filterTeamId ?? teamId;
+  const orgRubric = userId && orgId ? loadedOrgRubric : null;
 
   const refresh2kBenchmarks = useCallback(async () => {
     if (!effectiveTeamId) return;
@@ -111,16 +112,13 @@ export function CoachingRoster() {
   }, [effectiveTeamId, orgId]);
 
   useEffect(() => {
-    if (!userId || !orgId) {
-      setOrgRubric(null);
-      return;
-    }
+    if (!userId || !orgId) return;
     getOrganizationsForUser(userId)
       .then((organizations) => {
         const org = organizations.find((o) => o.id === orgId);
-        setOrgRubric(org?.performance_tier_rubric ?? null);
+        setLoadedOrgRubric(org?.performance_tier_rubric ?? null);
       })
-      .catch(() => setOrgRubric(null));
+      .catch(() => setLoadedOrgRubric(null));
   }, [userId, orgId]);
 
   useEffect(() => {
@@ -157,7 +155,7 @@ export function CoachingRoster() {
         setError(err instanceof Error ? err.message : 'Failed to refresh');
       }
     }
-  }, [teamId, refreshCompletions, refresh2kBenchmarks]);
+  }, [teamId, isOrgWide, orgId, effectiveTeamId, refreshCompletions, refresh2kBenchmarks]);
 
   const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string; performance_tier?: CoachingAthlete['performance_tier'] }) => {
     if (!teamId) return;
@@ -293,7 +291,7 @@ export function CoachingRoster() {
       // Revert on failure
       await refreshAthletes();
     }
-  }, [editingCell, editValue, editValue2, athletes, teamId, refreshAthletes, isImperial]);
+  }, [editingCell, editValue, editValue2, athletes, effectiveTeamId, refreshAthletes, isImperial]);
 
   const handleCellKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
@@ -388,7 +386,7 @@ export function CoachingRoster() {
       }
       return sortDirection === 'asc' ? cmp : -cmp;
     });
-  }, [filteredAthletes, sortColumn, sortDirection]);
+  }, [filteredAthletes, sortColumn, sortDirection, effectiveTierByAthlete]);
 
   const toggleSort = (column: string) => {
     if (sortColumn === column) {

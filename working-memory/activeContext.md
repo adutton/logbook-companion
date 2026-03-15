@@ -1,6 +1,39 @@
 # Active Context
 
-> Last updated: March 13, 2026
+> Last updated: March 15, 2026
+
+## Session Summary (2026-03-15) — Titan bias propagation fix
+
+### Completed This Session
+- [x] **TeamAnalytics compile fix**
+  - widened leaderboard sort field typing to include split-based and workload sort columns (`avg_split_seconds`, `best_split`, `latest_split_seconds`, `avg_wplb`, `assignment_count`)
+  - resolved page-level TypeScript errors after the leaderboard column expansion
+- [x] **Titan settings now propagate to analytics immediately**
+  - `CoachingSettings` save path now detects changes to `titan_power_weight`
+  - when power bias changes, it automatically runs `backfillTitanIndexes(..., { force: true })`
+  - this refreshes stored `daily_workout_assignments.titan_index` values so `TeamAnalytics` reflects the new weighting without requiring a separate manual recompute click
+- [x] **Coach notes athlete page alignment**
+  - `MyTeamNotes` now renders a list of visible coach-note feed entries instead of assuming a single coach note string
+- [x] **Coach notes feed pivot completed across coaching UI**
+  - removed stale legacy `coach_notes` / `coach_notes_visible_to_athlete` write paths from roster athlete creation and generic athlete update flows
+  - `CoachingAthleteDetail` now writes coach notes using the athlete's actual `team_id`, avoiding wrong-team writes in org-wide views
+  - athlete detail squad updates now also use the athlete's actual team scope in org-wide mode
+- [x] **Titan model simplified**
+  - removed the coach-facing Titan power-bias slider from `CoachingSettings`
+  - Titan now uses a fixed 70/30 speed-to-W/lb blend instead of per-team slider weighting
+  - fixed the rolling Titan window bug so the leaderboard uses the most recent workouts, not the oldest loaded ones
+  - filtered/test-only leaderboard reranking now respects the configured Titan window instead of a hard-coded 5-workout average
+
+### Validation
+- `get_errors` on `TeamAnalytics.tsx` and `CoachingSettings.tsx` ✅
+- `npm run build` ✅
+- `get_errors` on `CoachingAthleteDetail.tsx`, `CoachingRoster.tsx`, `coachingService.ts`, `MyTeamNotes.tsx` ✅
+- `npm run build` after coach-notes cleanup ✅
+- `get_errors` on `TeamAnalytics.tsx`, `CoachingSettings.tsx`, `coachingService.ts` after Titan simplification ✅
+- `npm run build` after Titan simplification ✅
+
+### Remaining
+- [ ] Manual UX verification of coach-note feed in team and org-wide coaching flows
 
 ## Session Summary (2026-03-13) — Race finish chart + coach nav UX
 

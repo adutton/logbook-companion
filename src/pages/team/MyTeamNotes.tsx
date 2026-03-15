@@ -4,9 +4,10 @@ import { FileText, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import {
   getMyTeamMembership,
+  getMyCoachNotes,
   getMySessionNotes,
 } from '../../services/coaching/coachingService';
-import type { Team } from '../../services/coaching/types';
+import type { CoachingAthleteCoachNote, Team } from '../../services/coaching/types';
 import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { EmptyState } from '../../components/ui/EmptyState';
 
@@ -21,6 +22,7 @@ interface SessionNote {
 export function MyTeamNotes() {
   const { user } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
+  const [coachNotes, setCoachNotes] = useState<CoachingAthleteCoachNote[]>([]);
   const [notes, setNotes] = useState<SessionNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,10 +39,15 @@ export function MyTeamNotes() {
         }
         setTeam(membership.team);
         try {
-          const data = await getMySessionNotes(user.id, membership.team.id);
+          const [athleteCoachNotes, data] = await Promise.all([
+            getMyCoachNotes(user.id),
+            getMySessionNotes(user.id, membership.team.id),
+          ]);
+          setCoachNotes(athleteCoachNotes || []);
           setNotes(data || []);
         } catch {
           // Notes may not be available
+          setCoachNotes([]);
           setNotes([]);
         }
       })
@@ -81,14 +88,29 @@ export function MyTeamNotes() {
         <h1 className="text-2xl font-bold tracking-tight">My Notes</h1>
         {team && <p className="text-sm text-neutral-500">{team.name}</p>}
 
+        {coachNotes.length > 0 && (
+          <div className="space-y-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-indigo-300">Coach Notes</div>
+            {coachNotes.map((note) => (
+              <div key={note.id} className="bg-indigo-950/30 border border-indigo-900/40 rounded-xl p-4 space-y-1">
+                <div className="text-xs text-indigo-200/80">
+                  {note.author_display_name ?? 'Coach'} · {new Date(note.created_at).toLocaleDateString()}
+                </div>
+                <p className="text-sm text-neutral-100 whitespace-pre-wrap">{note.note}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {notes.length === 0 ? (
           <EmptyState
             icon={<FileText className="w-10 h-10" />}
-            title="No notes yet"
-            description="Session notes from your coaches will appear here."
+            title={coachNotes.length > 0 ? 'No session notes yet' : 'No notes yet'}
+            description={coachNotes.length > 0 ? 'Session notes from your coaches will appear here.' : 'Coach notes and session notes from your coaches will appear here.'}
           />
         ) : (
           <div className="space-y-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Session Notes</div>
             {notes.map((note) => (
               <div
                 key={note.id}

@@ -13,6 +13,7 @@ import type {
   UserTeamInfo,
   CoachingSession,
   CoachingAthleteNote,
+  CoachingAthleteCoachNote,
   CoachingErgScore,
   CoachingBoating,
   BoatPosition,
@@ -39,6 +40,7 @@ export type {
   UserTeamInfo,
   CoachingSession,
   CoachingAthleteNote,
+  CoachingAthleteCoachNote,
   CoachingErgScore,
   CoachingBoating,
   BoatPosition,
@@ -892,6 +894,95 @@ export async function getMySessionNotes(
     ...note,
     session: coaching_sessions ?? undefined,
   }));
+}
+
+async function attachCoachAuthorProfiles<T extends { coach_user_id: string }>(
+  notes: T[]
+): Promise<Array<T & { author_display_name?: string | null; author_email?: string | null }>> {
+  const coachIds = [...new Set(notes.map((note) => note.coach_user_id))];
+  if (coachIds.length === 0) return notes;
+
+  const { data: profiles } = await supabase
+    .from('user_profiles')
+    .select('user_id, display_name, email')
+    .in('user_id', coachIds);
+
+  const profileMap = new Map((profiles ?? []).map((profile) => [
+    profile.user_id as string,
+    {
+      author_display_name: (profile.display_name as string | null | undefined) ?? (profile.email as string | null | undefined) ?? 'Coach',
+      author_email: (profile.email as string | null | undefined) ?? null,
+    },
+  ]));
+
+  return notes.map((note) => ({
+    ...note,
+    ...(profileMap.get(note.coach_user_id) ?? { author_display_name: 'Coach', author_email: null }),
+  }));
+}
+
+/** Get shared coach-feed notes for a specific athlete, newest first. */
+export async function getCoachNotesForAthlete(
+  athleteId: string,
+  limit = 50
+): Promise<CoachingAthleteCoachNote[]> {
+  const notes = throwOnError(
+    await supabase
+      .from('coaching_athlete_coach_notes')
+      .select('*')
+      .eq('athlete_id', athleteId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+  ) as CoachingAthleteCoachNote[];
+
+  return attachCoachAuthorProfiles(notes);
+}
+
+/** Append a new shared coach-feed note for an athlete. */
+export async function createCoachNote(
+  teamId: string,
+  coachUserId: string,
+  payload: Pick<CoachingAthleteCoachNote, 'athlete_id' | 'note' | 'visible_to_athlete'>
+): Promise<CoachingAthleteCoachNote> {
+  const inserted = throwOnError(
+    await supabase
+      .from('coaching_athlete_coach_notes')
+      .insert({
+        team_id: teamId,
+        coach_user_id: coachUserId,
+        athlete_id: payload.athlete_id,
+        note: payload.note,
+        visible_to_athlete: payload.visible_to_athlete,
+      })
+      .select('*')
+      .single()
+  ) as CoachingAthleteCoachNote;
+
+  const [withAuthor] = await attachCoachAuthorProfiles([inserted]);
+  return withAuthor;
+}
+
+/** Get athlete-level coach notes that are visible to the athlete. */
+export async function getMyCoachNotes(userId: string, limit = 50): Promise<CoachingAthleteCoachNote[]> {
+  const { data: athleteLink } = await supabase
+    .from('athletes')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (!athleteLink?.id) return [];
+
+  const notes = throwOnError(
+    await supabase
+      .from('coaching_athlete_coach_notes')
+      .select('*')
+      .eq('athlete_id', athleteLink.id)
+      .eq('visible_to_athlete', true)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+  ) as CoachingAthleteCoachNote[];
+
+  return attachCoachAuthorProfiles(notes);
 }
 
 // ─── Athletes (unified: athletes + team_athletes) ───────────────────────────
@@ -2325,8 +2416,8 @@ export async function saveAssignmentResults(
 async function computeAndStoreWorkoutTitanIndex(groupAssignmentId: string): Promise<void> {
   // 1. Fetch all completed rows for this assignment
   const cols = resultWeightColumnAvailable !== false
-    ? 'athlete_id, result_split_seconds, result_intervals, result_weight_kg'
-    : 'athlete_id, result_split_seconds, result_intervals';
+    ? 'athlete_id, team_id, result_split_seconds, result_intervals, result_weight_kg'
+    : 'athlete_id, team_id, result_split_seconds, result_intervals';
   const { data: rows, error: fetchErr } = await supabase
     .from('daily_workout_assignments')
     .select(cols)
@@ -2369,7 +2460,7 @@ async function computeAndStoreWorkoutTitanIndex(groupAssignmentId: string): Prom
   for (const s of scored) {
     const speedZ = splitStd > 0 ? -(s.split - splitMean) / splitStd : 0;
     const effZ = wplbStd > 0 ? (s.wplb - wplbMean) / wplbStd : 0;
-    rawScores.push({ athleteId: s.athleteId, raw: (speedZ + effZ) / 2 });
+    rawScores.push({ athleteId: s.athleteId, raw: (speedZ * TITAN_POWER_WEIGHT) + (effZ * TITAN_EFFICIENCY_WEIGHT) });
   }
 
   const rawVals = rawScores.map((r) => r.raw);
@@ -2392,11 +2483,16 @@ async function computeAndStoreWorkoutTitanIndex(groupAssignmentId: string): Prom
  * Backfill titan_index for all group assignments that have completed rows
  * with NULL titan_index. Returns the number of assignments processed.
  */
-export async function backfillTitanIndexes(teamId: string, opts?: { orgId?: string }): Promise<number> {
+export async function backfillTitanIndexes(teamId: string, opts?: { orgId?: string; force?: boolean }): Promise<number> {
   const assignments = await getGroupAssignments(teamId, { orgId: opts?.orgId });
   let processed = 0;
   for (const assignment of assignments) {
-    // Check if this assignment has any completed rows missing titan_index
+    if (opts?.force) {
+      await computeAndStoreWorkoutTitanIndex(assignment.id);
+      processed++;
+      continue;
+    }
+
     const { count } = await supabase
       .from('daily_workout_assignments')
       .select('id', { count: 'exact', head: true })
@@ -2705,6 +2801,9 @@ function wattsFromSplit(splitSeconds: number): number {
   return 2.8 / Math.pow(splitSeconds / 500, 3);
 }
 
+const TITAN_POWER_WEIGHT = 0.7;
+const TITAN_EFFICIENCY_WEIGHT = 0.3;
+
 export interface SeasonLeaderboardEntry {
   athlete_id: string;
   athlete_name: string;
@@ -2807,7 +2906,7 @@ export async function getSeasonMeasuredLeaderboard(
     latest: { split: number | null; time: number | null; distance: number | null; wplb: number | null; date: string };
     scoreHistory: Array<{ assignmentId: string; date: string; label: string; split: number; time: number | null; distance: number | null; wplb: number | null; titan_index: number | null; is_test: boolean }>;
   }>();
-  // Assignments are sorted by scheduled_date ascending, so the last one processed is most recent
+  // Assignments are sorted by scheduled_date descending, so the first one processed is most recent.
   for (const assignment of assignments) {
     const perAssignmentRows = (rows ?? [])
       .filter((r) => r.group_assignment_id === assignment.id && r.completed)
@@ -2880,7 +2979,7 @@ export async function getSeasonMeasuredLeaderboard(
       : avgRaw ?? avgWplb ?? null;
     const composite = compositeRaw != null ? Math.round(compositeRaw) : null;
     // Rolling Titan Index: average of last N per-workout titan scores
-    const recentTitans = ranks.titanIndexes.slice(-titanWindow);
+    const recentTitans = ranks.titanIndexes.slice(0, titanWindow);
     const titanIndex = recentTitans.length > 0
       ? Math.round((recentTitans.reduce((s, v) => s + v, 0) / recentTitans.length) * 10) / 10
       : null;
@@ -2926,7 +3025,7 @@ export async function getSeasonMeasuredLeaderboard(
  * This recalculates avg_raw_rank, avg_wplb_rank, composite_rank, and rank_history
  * relative to only the athletes in the provided array.
  */
-export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLeaderboardEntry[] {
+export function rerankLeaderboard(entries: SeasonLeaderboardEntry[], titanWindow = 5): SeasonLeaderboardEntry[] {
   if (entries.length === 0) return [];
 
   // Collect all unique assignment IDs from score_history
@@ -2936,9 +3035,9 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
   }
 
   // Per-athlete accumulators
-  const perAthlete = new Map<string, { rawRanks: number[]; wplbRanks: number[]; titanIndexes: number[]; rankByDate: Array<{ date: string; rank: number; totalAthletes: number }> }>();
+  const perAthlete = new Map<string, { rawRanks: number[]; wplbRanks: number[]; titanScores: Array<{ date: string; value: number }>; rankByDate: Array<{ date: string; rank: number; totalAthletes: number }> }>();
   for (const e of entries) {
-    perAthlete.set(e.athlete_id, { rawRanks: [], wplbRanks: [], titanIndexes: [], rankByDate: [] });
+    perAthlete.set(e.athlete_id, { rawRanks: [], wplbRanks: [], titanScores: [], rankByDate: [] });
   }
 
   // For each assignment, rank only the filtered athletes
@@ -2963,7 +3062,7 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
     for (const e of entries) {
       const s = e.score_history.find((h) => h.assignmentId === assignmentId);
       if (s?.titan_index != null) {
-        perAthlete.get(e.athlete_id)!.titanIndexes.push(s.titan_index);
+        perAthlete.get(e.athlete_id)!.titanScores.push({ date: s.date, value: s.titan_index });
       }
     }
 
@@ -2985,7 +3084,10 @@ export function rerankLeaderboard(entries: SeasonLeaderboardEntry[]): SeasonLead
     const sortedTrend = [...ranks.rankByDate].sort((a, b) => a.date.localeCompare(b.date));
     const trend = sortedTrend.length >= 2 ? sortedTrend[sortedTrend.length - 1].rank - sortedTrend[0].rank : null;
     // Recompute rolling titan_index from the filtered subset's titan values
-    const recentTitans = ranks.titanIndexes.slice(-5);
+    const recentTitans = [...ranks.titanScores]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, titanWindow)
+      .map((score) => score.value);
     const titanIndex = recentTitans.length > 0
       ? Math.round((recentTitans.reduce((s, v) => s + v, 0) / recentTitans.length) * 10) / 10
       : null;

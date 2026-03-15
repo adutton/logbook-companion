@@ -190,12 +190,12 @@ export function AthleteEditorModal({ athlete, squads, units, onSave, onCancel }:
             )}
           </div>
 
-          {/* Notes */}
+          {/* General Notes */}
           <div>
-            <label htmlFor="ae-notes" className="block text-sm font-medium text-neutral-300 mb-1">Notes</label>
+            <label htmlFor="ae-notes" className="block text-sm font-medium text-neutral-300 mb-1">General Notes</label>
             <textarea id="ae-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
               className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none"
-              placeholder="Any notes about this athlete..." />
+              placeholder="Administrative or general notes..." />
           </div>
 
           {/* Actions */}

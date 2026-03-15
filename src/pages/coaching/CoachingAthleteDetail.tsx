@@ -7,6 +7,8 @@ import {
   getAthletes,
   getAthleteById,
   getOrgAthletesWithTeam,
+  getCoachNotesForAthlete,
+  createCoachNote,
   getErgScoresForAthlete,
   getNotesForAthlete,
   getAssignmentsForAthlete,
@@ -17,6 +19,7 @@ import {
   updateAthleteSquad,
   deleteAthlete,
   type CoachingAthlete,
+  type CoachingAthleteCoachNote,
   type CoachingErgScore,
   type CoachingAthleteNote,
   type CoachingSession,
@@ -41,13 +44,18 @@ export function CoachingAthleteDetail() {
   const [athlete, setAthlete] = useState<CoachingAthlete | null>(null);
   const [allAthletes, setAllAthletes] = useState<CoachingAthlete[]>([]);
   const [ergScores, setErgScores] = useState<CoachingErgScore[]>([]);
+  const [coachNotes, setCoachNotes] = useState<CoachingAthleteCoachNote[]>([]);
   const [athleteNotes, setAthleteNotes] = useState<(CoachingAthleteNote & { session?: CoachingSession })[]>([]);
   const [assignmentHistory, setAssignmentHistory] = useState<AthleteAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [newCoachNote, setNewCoachNote] = useState('');
+  const [newCoachNoteVisible, setNewCoachNoteVisible] = useState(false);
+  const [isSavingCoachNote, setIsSavingCoachNote] = useState(false);
   const units = useMeasurementUnits();
+  const athleteTeamId = athlete?.team_id ?? teamId;
 
   useEffect(() => {
     if (!athleteId || isLoadingTeam || (!teamId && !orgId)) return;
@@ -67,12 +75,14 @@ export function CoachingAthleteDetail() {
 
         if (found) {
           setAthlete(found);
-          const [scores, notes, assignments] = await Promise.all([
+          const [scores, runningCoachNotes, notes, assignments] = await Promise.all([
             getErgScoresForAthlete(athleteId, 50),
+            getCoachNotesForAthlete(athleteId, 50),
             getNotesForAthlete(athleteId, 30),
             getAssignmentsForAthlete(athleteId, 100),
           ]);
           setErgScores(scores);
+          setCoachNotes(runningCoachNotes);
           setAthleteNotes(notes);
           setAssignmentHistory(assignments);
         } else {
@@ -89,7 +99,7 @@ export function CoachingAthleteDetail() {
   }, [teamId, orgId, athleteId, isLoadingTeam]);
 
   const handleSave = async (data: Partial<CoachingAthlete> & { squad?: string }) => {
-    if (!athleteId || !teamId) return;
+    if (!athleteId || !athleteTeamId) return;
     try {
       await updateAthlete(athleteId, {
         first_name: data.first_name,
@@ -103,13 +113,15 @@ export function CoachingAthleteDetail() {
       });
       // Update squad on the junction table
       if (data.squad !== athlete?.squad) {
-        await updateAthleteSquad(teamId, athleteId, data.squad || null);
+        await updateAthleteSquad(athleteTeamId, athleteId, data.squad || null);
       }
       setIsEditing(false);
       // Refresh
-      const athletes = await getAthletes(teamId);
+      const updated = await getAthleteById(athleteId);
+      const athletes = orgId
+        ? await getOrgAthletesWithTeam(orgId)
+        : await getAthletes(athleteTeamId);
       setAllAthletes(athletes);
-      const updated = athletes.find((a) => a.id === athleteId);
       if (updated) setAthlete(updated);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save athlete');
@@ -123,6 +135,26 @@ export function CoachingAthleteDetail() {
       navigate('/team-management/roster');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete athlete');
+    }
+  };
+
+  const handleAddCoachNote = async () => {
+    if (!athleteId || !athleteTeamId || !newCoachNote.trim()) return;
+    setIsSavingCoachNote(true);
+    try {
+      const created = await createCoachNote(athleteTeamId, userId, {
+        athlete_id: athleteId,
+        note: newCoachNote.trim(),
+        visible_to_athlete: newCoachNoteVisible,
+      });
+      setCoachNotes((prev) => [created, ...prev]);
+      setNewCoachNote('');
+      setNewCoachNoteVisible(false);
+      toast.success('Coach note added');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add coach note');
+    } finally {
+      setIsSavingCoachNote(false);
     }
   };
 
@@ -224,8 +256,10 @@ export function CoachingAthleteDetail() {
 
           {athlete.notes && (
             <div className="mt-4 p-4 bg-neutral-800/50 rounded-xl">
-              <h3 className="font-medium mb-2 text-sm text-neutral-500 uppercase tracking-wide">Notes</h3>
-              <p className="text-neutral-300">{athlete.notes}</p>
+              <div>
+                <h3 className="font-medium mb-2 text-sm text-neutral-500 uppercase tracking-wide">General Notes</h3>
+                <p className="text-neutral-300 whitespace-pre-wrap">{athlete.notes}</p>
+              </div>
             </div>
           )}
         </div>
@@ -424,6 +458,68 @@ export function CoachingAthleteDetail() {
                       )}
                     </div>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Coach Notes */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className="font-semibold text-white flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" />
+              Coach Notes
+              {coachNotes.length > 0 && (
+                <span className="text-sm text-neutral-500 font-normal">({coachNotes.length})</span>
+              )}
+            </h2>
+            <span className="text-xs text-neutral-500">Shared across the coaching staff</span>
+          </div>
+
+          <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-xl p-4 mb-4 space-y-3">
+            <textarea
+              value={newCoachNote}
+              onChange={(e) => setNewCoachNote(e.target.value)}
+              rows={3}
+              placeholder="Add a technical observation, coaching cue, or development note..."
+              className="w-full px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none"
+            />
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <label htmlFor="new-coach-note-visible" className="flex items-center gap-2 text-sm text-neutral-400">
+                <input
+                  id="new-coach-note-visible"
+                  type="checkbox"
+                  checked={newCoachNoteVisible}
+                  onChange={(e) => setNewCoachNoteVisible(e.target.checked)}
+                  className="h-4 w-4 rounded border-neutral-600 bg-neutral-800 text-indigo-500 focus:ring-indigo-500"
+                />
+                Visible to the athlete in their team notes page
+              </label>
+              <button
+                onClick={handleAddCoachNote}
+                disabled={isSavingCoachNote || !newCoachNote.trim()}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50"
+              >
+                {isSavingCoachNote ? 'Saving…' : 'Add Coach Note'}
+              </button>
+            </div>
+          </div>
+
+          {coachNotes.length === 0 ? (
+            <p className="text-neutral-500 text-sm">No coach notes yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {coachNotes.map((note) => (
+                <div key={note.id} className="p-3 bg-neutral-800/60 border border-neutral-700/50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="text-xs text-neutral-300 font-medium">{note.author_display_name ?? 'Coach'}</span>
+                    <span className="text-xs text-neutral-500">{format(new Date(note.created_at), 'MMM d, yyyy')}</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${note.visible_to_athlete ? 'bg-emerald-900/30 text-emerald-400' : 'bg-neutral-700 text-neutral-300'}`}>
+                      {note.visible_to_athlete ? 'Visible to athlete' : 'Coach only'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-neutral-200 whitespace-pre-wrap">{note.note}</p>
                 </div>
               ))}
             </div>
@@ -641,18 +737,18 @@ function ErgScoresTable({ scores, onUpdate, onDelete }: ErgScoresTableProps) {
                 return (
                   <tr key={score.id} className="border-b border-neutral-800/50 bg-neutral-800/30">
                     <td className="py-2 pr-2">
-                      <input type="date" className={inp} value={editState.date} onChange={(e) => setEditState(s => ({ ...s, date: e.target.value }))} />
+                      <input type="date" title="Score date" aria-label="Score date" className={inp} value={editState.date} onChange={(e) => setEditState(s => ({ ...s, date: e.target.value }))} />
                     </td>
                     <td className="py-2 pr-2">
-                      <input type="number" className={`${inp} text-right w-20`} value={editState.distance} onChange={(e) => setEditState(s => ({ ...s, distance: e.target.value }))} />
+                      <input type="number" title="Distance in meters" aria-label="Distance in meters" className={`${inp} text-right w-20`} value={editState.distance} onChange={(e) => setEditState(s => ({ ...s, distance: e.target.value }))} />
                     </td>
                     <td className="py-2 pr-2">
                       <div className="flex items-center gap-0.5 justify-end">
-                        <input type="number" className={`${inp} w-10 text-right`} value={editState.minutes} min={0} onChange={(e) => setEditState(s => ({ ...s, minutes: e.target.value }))} />
+                        <input type="number" title="Minutes" aria-label="Minutes" className={`${inp} w-10 text-right`} value={editState.minutes} min={0} onChange={(e) => setEditState(s => ({ ...s, minutes: e.target.value }))} />
                         <span className="text-neutral-500">:</span>
-                        <input type="number" className={`${inp} w-10 text-right`} value={editState.seconds} min={0} max={59} onChange={(e) => setEditState(s => ({ ...s, seconds: e.target.value }))} />
+                        <input type="number" title="Seconds" aria-label="Seconds" className={`${inp} w-10 text-right`} value={editState.seconds} min={0} max={59} onChange={(e) => setEditState(s => ({ ...s, seconds: e.target.value }))} />
                         <span className="text-neutral-500">.</span>
-                        <input type="number" className={`${inp} w-8 text-right`} value={editState.tenths} min={0} max={9} onChange={(e) => setEditState(s => ({ ...s, tenths: e.target.value }))} />
+                        <input type="number" title="Tenths" aria-label="Tenths" className={`${inp} w-8 text-right`} value={editState.tenths} min={0} max={9} onChange={(e) => setEditState(s => ({ ...s, tenths: e.target.value }))} />
                       </div>
                     </td>
                     <td className="py-2 pr-2 text-right text-neutral-500 text-xs">auto</td>
@@ -696,7 +792,7 @@ function ErgScoresTable({ scores, onUpdate, onDelete }: ErgScoresTableProps) {
                         <button onClick={() => confirmDelete(score.id)} disabled={saving} className="px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-50">
                           Delete
                         </button>
-                        <button onClick={() => setDeleteConfirmId(null)} className="p-1 text-neutral-400 hover:text-neutral-300">
+                        <button onClick={() => setDeleteConfirmId(null)} className="p-1 text-neutral-400 hover:text-neutral-300" title="Cancel delete" aria-label="Cancel delete">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>

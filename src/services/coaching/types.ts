@@ -84,6 +84,8 @@ export interface Athlete {
   height_cm?: number | null;
   weight_kg?: number | null;
   notes?: string;
+  coach_notes?: string | null;
+  coach_notes_visible_to_athlete?: boolean;
   created_by: string; // FK → auth.users (coach who created)
   created_at: string;
   updated_at: string;
@@ -133,6 +135,19 @@ export interface CoachingAthleteNote {
   athlete_id: string;
   note: string;
   created_at: string;
+}
+
+export interface CoachingAthleteCoachNote {
+  id: string;
+  coach_user_id: string;
+  team_id: string;
+  athlete_id: string;
+  note: string;
+  visible_to_athlete: boolean;
+  created_at: string;
+  updated_at: string;
+  author_display_name?: string | null;
+  author_email?: string | null;
 }
 
 export interface CoachingErgScore {
