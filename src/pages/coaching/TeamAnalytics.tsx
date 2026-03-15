@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo,  Fragment } from 'react';
-import { Loader2, BarChart3, ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, Share2, Check } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { Loader2, BarChart3, ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, Share2, Check, Users, Trophy, Gauge, Filter } from 'lucide-react';
 import { EmptyState } from '../../components/ui';
 import { useCoachingContext } from '../../hooks/useCoachingContext';
 import {
@@ -318,6 +318,42 @@ export function TeamAnalytics() {
   const hasErgData = filteredErgData.length > 0;
   const hasLeaderboardData = sortedLeaderboard.length > 0;
   const hasAnyData = hasZoneData || hasErgData || hasLeaderboardData;
+  const leaderboardLeader = sortedLeaderboard[0] ?? null;
+
+  const leaderboardSummary = useMemo(() => {
+    const titanValues = sortedLeaderboard
+      .map((entry) => entry.titan_index)
+      .filter((value): value is number => value != null && Number.isFinite(value));
+
+    const averageTitan = titanValues.length > 0
+      ? titanValues.reduce((sum, value) => sum + value, 0) / titanValues.length
+      : null;
+
+    const fastestAverageSplit = sortedLeaderboard.reduce<SeasonLeaderboardEntry | null>((best, entry) => {
+      if (entry.avg_split_seconds == null) return best;
+      if (best?.avg_split_seconds == null) return entry;
+      return entry.avg_split_seconds < best.avg_split_seconds ? entry : best;
+    }, null);
+
+    const workloadLeader = sortedLeaderboard.reduce<SeasonLeaderboardEntry | null>((best, entry) => {
+      if (!best) return entry;
+      return entry.assignment_count > best.assignment_count ? entry : best;
+    }, null);
+
+    return {
+      averageTitan,
+      fastestAverageSplit,
+      workloadLeader,
+    };
+  }, [sortedLeaderboard]);
+
+  const activeScopeSummary = useMemo(() => {
+    const scope = titanTestOnly ? 'Tests only' : 'All scored workouts';
+    const teamScope = filterTeamId ? 'single-team view' : isOrg ? 'organization view' : 'current team';
+    const squadScope = squadFilter === 'all' ? 'all squads' : squadFilter;
+    const tierScope = tierFilter === 'all' ? 'all tiers' : tierFilter;
+    return `${scope} · ${teamScope} · ${squadScope} · ${tierScope}`;
+  }, [filterTeamId, isOrg, squadFilter, tierFilter, titanTestOnly]);
 
 /*   // Trend arrow with popover showing per-assignment rank history
   const TrendBadge = ({ value, history }: { value: number | null; history: { date: string; rank: number; totalAthletes: number }[] }) => {
@@ -447,6 +483,59 @@ export function TeamAnalytics() {
           />
         )}
 
+        {!isLoading && !error && hasAnyData && (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900/80 p-4">
+              <div className="flex items-center gap-2 text-neutral-400 text-xs uppercase tracking-[0.18em]">
+                <Users className="w-4 h-4 text-indigo-400" />
+                Visible athletes
+              </div>
+              <div className="mt-3 text-3xl font-semibold text-white">{filteredAthletes.length}</div>
+              <p className="mt-2 text-xs text-neutral-500">{activeScopeSummary}</p>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900/80 p-4">
+              <div className="flex items-center gap-2 text-neutral-400 text-xs uppercase tracking-[0.18em]">
+                <Filter className="w-4 h-4 text-cyan-400" />
+                Ranking scope
+              </div>
+              <div className="mt-3 text-lg font-semibold text-white">{titanTestOnly ? 'Erg tests only' : 'Season work view'}</div>
+              <p className="mt-2 text-xs text-neutral-500">Titan uses the most recent {titanWindowSize} scored workouts for each athlete.</p>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900/80 p-4">
+              <div className="flex items-center gap-2 text-neutral-400 text-xs uppercase tracking-[0.18em]">
+                <Trophy className="w-4 h-4 text-amber-400" />
+                Current leader
+              </div>
+              <div className="mt-3 text-lg font-semibold text-white">{leaderboardLeader?.athlete_name ?? '—'}</div>
+              <p className="mt-2 text-xs text-neutral-500">
+                {leaderboardLeader?.titan_index != null
+                  ? `Titan ${leaderboardLeader.titan_index.toFixed(1)} · ${leaderboardLeader.assignment_count} scored workouts`
+                  : 'No Titan data yet.'}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900/80 p-4">
+              <div className="flex items-center gap-2 text-neutral-400 text-xs uppercase tracking-[0.18em]">
+                <Gauge className="w-4 h-4 text-emerald-400" />
+                Group snapshot
+              </div>
+              <div className="mt-3 text-lg font-semibold text-white">
+                {leaderboardSummary.averageTitan != null ? leaderboardSummary.averageTitan.toFixed(1) : '—'}
+                <span className="ml-2 text-sm font-medium text-neutral-500">avg Titan</span>
+              </div>
+              <p className="mt-2 text-xs text-neutral-500">
+                {leaderboardSummary.fastestAverageSplit?.avg_split_seconds != null
+                  ? `Fastest avg split: ${leaderboardSummary.fastestAverageSplit.athlete_name} at ${formatSplit(leaderboardSummary.fastestAverageSplit.avg_split_seconds)}`
+                  : leaderboardSummary.workloadLeader
+                    ? `Highest workload: ${leaderboardSummary.workloadLeader.athlete_name} with ${leaderboardSummary.workloadLeader.assignment_count} scored workouts`
+                    : 'Waiting for enough scored work to summarize.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Training Zone Distribution */}
         {!isLoading && hasZoneData && (
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 max-w-lg">
@@ -462,8 +551,13 @@ export function TeamAnalytics() {
         {/* Leaderboard — full width */}
         {!isLoading && hasLeaderboardData && (
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-medium text-neutral-400">Season Leaderboard</h3>
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+              <div>
+                <h3 className="text-sm font-medium text-neutral-400">Season Leaderboard</h3>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Lead with Titan, then read split quality, recent form, and workload together before making coaching decisions.
+                </p>
+              </div>
               <button
                 onClick={async (e) => {
                   e.stopPropagation();
@@ -491,66 +585,71 @@ export function TeamAnalytics() {
                 {shareStatus === 'copied' ? 'Link copied!' : shareStatus === 'loading' ? 'Creating…' : 'Share'}
               </button>
             </div>
-            <div className="bg-neutral-800/50 border border-neutral-700/40 rounded-lg px-4 py-3 mb-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs text-neutral-300 leading-relaxed">
-                    <span className="font-semibold text-neutral-200">{titanTestOnly ? 'Erg Test Rankings' : 'Season Rankings'}</span> — {titanTestOnly
-                      ? 'see who is performing on erg tests. Rankings reflect only scored test pieces so you can identify your strongest testers.'
-                      : 'see who is consistently performing across all tested workouts. Rankings reflect every scored assignment this season.'
-                    } Expand a row to see individual scores, or go to <a href="/team-management/assignments" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">Team Workouts</a> for per-workout rankings.
+            <div className="bg-neutral-800/50 border border-neutral-700/40 rounded-lg px-4 py-4 mb-4 space-y-3">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm text-neutral-200 leading-relaxed">
+                    <span className="font-semibold">{titanTestOnly ? 'Erg test lens' : 'Season lens'}</span>
+                    {titanTestOnly
+                      ? ' isolates scored tests so you can see who performs best when the workout is explicitly a benchmark.'
+                      : ' keeps every scored assignment in play so you can spot athletes who hold quality over time, not just on one big piece.'}
                   </p>
-                  <p className="text-[11px] text-neutral-500 mt-1">
-                    Titan Index = fixed 70/30 blend of speed and W/lb, with speed intentionally weighted higher. Higher is better.{titanTestOnly ? ' Filtered to tests only.' : ''}
+                  <p className="text-[11px] text-neutral-500 mt-2">
+                    Titan Index is a fixed 70/30 blend of speed and W/lb. Higher is better. Expand any athlete to inspect recent scored work, or open <a href="/team-management/assignments" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">Team Workouts</a> for assignment-level ranking detail.
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0 rounded-lg bg-neutral-900/70 p-1 border border-neutral-700/60">
                   <button
                     onClick={() => setTitanTestOnly(false)}
-                    className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${!titanTestOnly ? 'bg-indigo-600 text-white' : 'bg-neutral-700 text-neutral-400 hover:text-neutral-200'}`}
+                    className={`px-3 py-1.5 text-[11px] font-medium rounded-md transition-colors ${!titanTestOnly ? 'bg-indigo-600 text-white' : 'bg-transparent text-neutral-400 hover:text-neutral-200'}`}
                   >All Workouts</button>
                   <button
                     onClick={() => setTitanTestOnly(true)}
-                    className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${titanTestOnly ? 'bg-indigo-600 text-white' : 'bg-neutral-700 text-neutral-400 hover:text-neutral-200'}`}
+                    className={`px-3 py-1.5 text-[11px] font-medium rounded-md transition-colors ${titanTestOnly ? 'bg-indigo-600 text-white' : 'bg-transparent text-neutral-400 hover:text-neutral-200'}`}
                   >Tests Only</button>
                 </div>
               </div>
+
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-full border border-neutral-700 bg-neutral-900/70 px-2.5 py-1 text-neutral-300">
+                  Scope: {filterTeamId ? 'Selected team' : isOrg ? 'Organization' : 'Current team'}
+                </span>
+                <span className="rounded-full border border-neutral-700 bg-neutral-900/70 px-2.5 py-1 text-neutral-300">
+                  Squad: {squadFilter === 'all' ? 'All squads' : squadFilter}
+                </span>
+                <span className="rounded-full border border-neutral-700 bg-neutral-900/70 px-2.5 py-1 text-neutral-300">
+                  Tier: {tierFilter === 'all' ? 'All tiers' : tierFilter}
+                </span>
+                <span className="rounded-full border border-neutral-700 bg-neutral-900/70 px-2.5 py-1 text-neutral-300">
+                  Titan window: last {titanWindowSize}
+                </span>
+              </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-xl border border-neutral-800">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-neutral-500 border-b border-neutral-800 text-xs">
-                    <th className="text-left py-2 pr-2 w-8">#</th>
-                    <th className="text-left py-2 pr-2">Athlete</th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('titan_index')}>
+                  <tr className="text-neutral-500 border-b border-neutral-800 text-xs bg-neutral-950/60">
+                    <th className="text-left py-3 pr-2 pl-3 w-12">#</th>
+                    <th className="text-left py-3 pr-2 min-w-[220px]">Athlete</th>
+                    <th className="text-center py-3 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('titan_index')}>
                       Titan Index<LbSortIcon field="titan_index" />
                     </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('composite_rank')}>
-                      Composite<LbSortIcon field="composite_rank" />
-                    </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_raw_rank')}>
-                      Speed<LbSortIcon field="avg_raw_rank" />
-                    </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_wplb_rank')}>
-                      Efficiency<LbSortIcon field="avg_wplb_rank" />
-                    </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_split_seconds')}>
+                    <th className="text-center py-3 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_split_seconds')}>
                       Avg Split<LbSortIcon field="avg_split_seconds" />
                     </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('best_split')}>
+                    <th className="text-center py-3 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('best_split')}>
                       Best Split<LbSortIcon field="best_split" />
                     </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('latest_split_seconds')}>
+                    <th className="text-center py-3 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('latest_split_seconds')}>
                       Latest Split<LbSortIcon field="latest_split_seconds" />
                     </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_wplb')}>
+                    <th className="text-center py-3 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleLbSort('avg_wplb')}>
                       Avg W/lb<LbSortIcon field="avg_wplb" />
                     </th>
-                    <th className="text-center py-2 px-2 cursor-pointer select-none w-10 whitespace-nowrap" onClick={() => toggleLbSort('assignment_count')}>
+                    <th className="text-center py-3 px-3 cursor-pointer select-none w-24 whitespace-nowrap" onClick={() => toggleLbSort('assignment_count')}>
                       <span title="Workouts"># Workouts</span>
                       <LbSortIcon field="assignment_count" />
                     </th>
-                    {/* <th className="text-center py-2 pl-2 w-10">Trend</th> */}
                   </tr>
                 </thead>
                 <tbody>
@@ -558,41 +657,71 @@ export function TeamAnalytics() {
                     const isExpanded = expandedAthleteId === row.athlete_id;
                     const recentHistory = row.score_history.slice(0, 5); // already newest-first from service
                     const bestSplit = getBestSplit(row);
+                    const globalRank = lbPage * LB_PAGE_SIZE + idx + 1;
                     return (
                       <Fragment key={row.athlete_id}>
-                        <tr
-                          className={`border-b border-neutral-800/50 cursor-pointer hover:bg-neutral-800/40 transition-colors ${isExpanded ? 'bg-neutral-800/30' : ''}`}
-                          onClick={() => setExpandedAthleteId(isExpanded ? null : row.athlete_id)}
-                        >
-                          <td className="py-2 pr-2 text-neutral-500">{lbPage * LB_PAGE_SIZE + idx + 1}</td>
-                          <td className="py-2 pr-2">
-                            <div className="flex items-center gap-1.5">
-                              <ChevronRight className={`w-3 h-3 text-neutral-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                              <div>
-                                <div className="text-white">{row.athlete_name}</div>
-                                <div className="text-[11px] text-neutral-500">
-                                  {[row.squad, row.performance_tier].filter(Boolean).join(' · ') || '—'}
-                                </div>
-                              </div>
-                            </div>
+                        <tr className={`border-b border-neutral-800/50 transition-colors ${isExpanded ? 'bg-neutral-800/30' : 'hover:bg-neutral-800/20'}`}>
+                          <td className="py-3 pr-2 pl-3 text-neutral-500 align-top">
+                            <span className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-semibold ${globalRank <= 3 ? 'bg-neutral-800 text-white border border-neutral-700' : 'text-neutral-500'}`}>
+                              {globalRank}
+                            </span>
                           </td>
-                          <td className="py-2 px-2 text-center font-mono text-white font-semibold">{row.titan_index != null ? row.titan_index.toFixed(1) : '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.composite_rank ?? '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_raw_rank ?? '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_wplb_rank ?? '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_split_seconds != null ? formatSplit(row.avg_split_seconds) : '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{bestSplit != null ? formatSplit(bestSplit) : '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.latest_split_seconds != null ? formatSplit(row.latest_split_seconds) : '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-300">{row.avg_wplb != null ? row.avg_wplb.toFixed(2) : '—'}</td>
-                          <td className="py-2 px-2 text-center font-mono text-neutral-500">{row.assignment_count}</td>
-                          {/* <td className="py-2 pl-2 text-center">
-                            <TrendBadge value={row.trend_raw_rank} history={row.rank_history} />
-                          </td> */}
+                          <td className="py-3 pr-2 align-top">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedAthleteId(isExpanded ? null : row.athlete_id)}
+                              className="flex w-full items-start gap-2 text-left"
+                              aria-label={`${isExpanded ? 'Hide' : 'Show'} recent workouts for ${row.athlete_name}`}
+                            >
+                              <ChevronRight className={`mt-0.5 w-3.5 h-3.5 shrink-0 text-neutral-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                              <div className="min-w-0">
+                                <div className="text-white font-medium">{row.athlete_name}</div>
+                                <div className="text-[11px] text-neutral-500">
+                                  {[row.squad, row.performance_tier].filter(Boolean).join(' · ') || 'No squad or tier'}
+                                </div>
+                                <div className="mt-1 text-[11px] text-neutral-500">{isExpanded ? 'Hide recent scored work' : 'View recent scored work and rank breakdown'}</div>
+                              </div>
+                            </button>
+                          </td>
+                          <td className="py-3 px-2 text-center align-top">
+                            <div className="font-mono text-white font-semibold">{row.titan_index != null ? row.titan_index.toFixed(1) : '—'}</div>
+                            <div className="mt-1 text-[11px] text-neutral-500">#{row.composite_rank ?? '—'} composite</div>
+                          </td>
+                          <td className="py-3 px-2 text-center font-mono text-neutral-300 align-top">{row.avg_split_seconds != null ? formatSplit(row.avg_split_seconds) : '—'}</td>
+                          <td className="py-3 px-2 text-center font-mono text-neutral-300 align-top">{bestSplit != null ? formatSplit(bestSplit) : '—'}</td>
+                          <td className="py-3 px-2 text-center font-mono text-neutral-300 align-top">{row.latest_split_seconds != null ? formatSplit(row.latest_split_seconds) : '—'}</td>
+                          <td className="py-3 px-2 text-center align-top">
+                            <div className="font-mono text-neutral-300">{row.avg_wplb != null ? row.avg_wplb.toFixed(2) : '—'}</div>
+                            <div className="mt-1 text-[11px] text-neutral-500">#{row.avg_wplb_rank ?? '—'} efficiency</div>
+                          </td>
+                          <td className="py-3 px-3 text-center align-top">
+                            <div className="font-mono text-neutral-200">{row.assignment_count}</div>
+                            <div className="mt-1 text-[11px] text-neutral-500">scored</div>
+                          </td>
                         </tr>
                         {isExpanded && recentHistory.length > 0 && (
                           <tr className="bg-neutral-800/20">
-                            <td colSpan={12} className="px-4 py-2">
-                              <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-1.5 font-semibold">Recent workouts (newest first)</div>
+                            <td colSpan={8} className="px-4 py-4">
+                              <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-4">
+                                <div className="rounded-lg border border-neutral-700/50 bg-neutral-900/60 px-3 py-2">
+                                  <div className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">Composite rank</div>
+                                  <div className="mt-1 text-lg font-semibold text-white">#{row.composite_rank ?? '—'}</div>
+                                </div>
+                                <div className="rounded-lg border border-neutral-700/50 bg-neutral-900/60 px-3 py-2">
+                                  <div className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">Speed rank</div>
+                                  <div className="mt-1 text-lg font-semibold text-white">#{row.avg_raw_rank ?? '—'}</div>
+                                </div>
+                                <div className="rounded-lg border border-neutral-700/50 bg-neutral-900/60 px-3 py-2">
+                                  <div className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">Efficiency rank</div>
+                                  <div className="mt-1 text-lg font-semibold text-white">#{row.avg_wplb_rank ?? '—'}</div>
+                                </div>
+                                <div className="rounded-lg border border-neutral-700/50 bg-neutral-900/60 px-3 py-2">
+                                  <div className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">Titan basis</div>
+                                  <div className="mt-1 text-sm font-medium text-white">Last {Math.min(titanWindowSize, row.score_history.length)} scores</div>
+                                  <div className="mt-1 text-[11px] text-neutral-500">70% speed · 30% W/lb</div>
+                                </div>
+                              </div>
+                              <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-1.5 font-semibold">Recent scored workouts (newest first)</div>
                               <table className="w-full text-xs">
                                 <thead>
                                   <tr className="text-neutral-600">
@@ -628,7 +757,7 @@ export function TeamAnalytics() {
                         )}
                         {isExpanded && recentHistory.length === 0 && (
                           <tr className="bg-neutral-800/20">
-                            <td colSpan={12} className="px-4 py-3 text-xs text-neutral-500 italic">No workout history available</td>
+                            <td colSpan={8} className="px-4 py-3 text-xs text-neutral-500 italic">No workout history available</td>
                           </tr>
                         )}
                       </Fragment>

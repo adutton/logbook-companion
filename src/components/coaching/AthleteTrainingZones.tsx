@@ -1,12 +1,18 @@
 import { useMemo } from 'react';
 import type { CoachingErgScore } from '../../services/coaching/coachingService';
-import { calculateZonePaceRange, formatSplit, calculateWattsFromSplit } from '../../utils/paceCalculator';
+import {
+  TRAINING_ZONE_CONFIG,
+  calculateZonePaceRange,
+  formatSplit,
+  calculateWattsFromSplit,
+  type TrainingZone,
+} from '../../utils/paceCalculator';
 
 interface Props {
   ergScores: CoachingErgScore[];
 }
 
-const ZONES = ['UT2', 'UT1', 'AT', 'TR', 'AN'] as const;
+const ZONES = ['UT2', 'UT1', 'AT', 'TR', 'AN'] as const satisfies readonly TrainingZone[];
 
 const ZONE_COLORS: Record<string, { bg: string; text: string; bar: string }> = {
   UT2: { bg: 'bg-emerald-900/20', text: 'text-emerald-400', bar: 'bg-emerald-500' },
@@ -16,21 +22,20 @@ const ZONE_COLORS: Record<string, { bg: string; text: string; bar: string }> = {
   AN:  { bg: 'bg-red-900/20', text: 'text-red-400', bar: 'bg-red-500' },
 };
 
-const ZONE_LABELS: Record<string, string> = {
-  UT2: 'Utilization 2 (Recovery)',
-  UT1: 'Utilization 1 (Endurance)',
-  AT:  'Anaerobic Threshold',
-  TR:  'Transport (Race Pace)',
-  AN:  'Anaerobic',
+const ZONE_BAR_WIDTH_CLASSES: Record<TrainingZone, string> = {
+  UT2: 'w-1/5',
+  UT1: 'w-2/5',
+  AT: 'w-3/5',
+  TR: 'w-4/5',
+  AN: 'w-full',
 };
 
 export function AthleteTrainingZones({ ergScores }: Props) {
-  // Find the best (most recent) 2k test score
+  // Use the most recent 2k test as the current anchor for training zones.
   const baseline = useMemo(() => {
     const twoKScores = ergScores.filter(s => s.distance === 2000);
     if (twoKScores.length === 0) return null;
 
-    // Use the most recent 2k test
     const sorted = [...twoKScores].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
@@ -72,42 +77,47 @@ export function AthleteTrainingZones({ ergScores }: Props) {
         </div>
       </div>
 
+      <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-xs text-neutral-400">
+        These bands follow common rowing practice and stay intentionally broad for normal day-to-day variance. Use split, feel, and heart rate together rather than treating any zone as a single exact number.
+      </div>
+
       <div className="space-y-2">
         {ZONES.map(zone => {
           const range = calculateZonePaceRange(zone, baseline.watts);
           if (!range) return null;
 
           const colors = ZONE_COLORS[zone];
-          const minWatts = Math.round(baseline.watts * (zone === 'UT2' ? 0.55 : zone === 'UT1' ? 0.65 : zone === 'AT' ? 0.75 : zone === 'TR' ? 0.85 : 0.95));
-          const maxWatts = Math.round(baseline.watts * (zone === 'UT2' ? 0.65 : zone === 'UT1' ? 0.75 : zone === 'AT' ? 0.85 : zone === 'TR' ? 0.95 : 1.05));
-
-          // Bar width represents intensity position (UT2 = narrow, AN = wide)
-          const barWidth = zone === 'UT2' ? '20%' : zone === 'UT1' ? '40%' : zone === 'AT' ? '60%' : zone === 'TR' ? '80%' : '100%';
+          const config = TRAINING_ZONE_CONFIG[zone];
+          const minWatts = Math.round(range.minWatts);
+          const maxWatts = Math.round(range.maxWatts);
 
           return (
             <div key={zone} className={`p-3 rounded-lg border border-neutral-700/50 ${colors.bg}`}>
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between mb-1 gap-3">
                 <div className="flex items-center gap-2">
                   <span className={`text-sm font-bold ${colors.text}`}>{zone}</span>
-                  <span className="text-xs text-neutral-500">{ZONE_LABELS[zone]}</span>
+                  <span className="text-xs text-neutral-500">{config.label} · {config.subtitle}</span>
                 </div>
+                <span className="text-[11px] text-neutral-500">{minWatts}–{maxWatts}W</span>
               </div>
+              <p className="text-xs text-neutral-400 mb-2">{config.guidance}</p>
               <div className="flex items-center justify-between text-xs">
                 <div className="font-mono text-neutral-300">
                   {range.lowFormatted} – {range.highFormatted} /500m
                 </div>
-                <div className="text-neutral-500">
-                  {minWatts}–{maxWatts}W
-                </div>
+                <div className="text-neutral-500">{Math.round(config.min * 100)}–{Math.round(config.max * 100)}% of 2k watts</div>
               </div>
-              {/* Intensity bar */}
               <div className="mt-2 h-1 bg-neutral-800 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full ${colors.bar} opacity-60`} style={{ width: barWidth }} />
+                <div className={`h-full rounded-full ${colors.bar} opacity-60 ${ZONE_BAR_WIDTH_CLASSES[zone]}`} />
               </div>
             </div>
           );
         })}
       </div>
+
+      <p className="text-[11px] text-neutral-500">
+        TR tops out around current 2k pace; AN now starts at 2k pace and moves above it, which better matches common rowing usage for short sprint and power work.
+      </p>
     </div>
   );
 }

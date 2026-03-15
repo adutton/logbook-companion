@@ -4,6 +4,70 @@
 
 ---
 
+## Phase 40: Team Analytics UX Refresh + Rowing Zone Alignment (March 15, 2026)
+
+**Timeline**: March 15, 2026  
+**Status**: ✅ Complete
+
+### What Was Built
+
+- `src/pages/coaching/TeamAnalytics.tsx`
+  - added summary cards above the charts/table so coaches can immediately see:
+    - visible athlete count in current scope
+    - whether the page is reading all scored work or tests only
+    - current Titan leader
+    - quick group snapshot (average Titan plus fastest average split / highest workload)
+  - rewrote leaderboard explanatory copy to make the two leaderboard modes more explicit and coaching-oriented.
+  - converted the leaderboard into a cleaner default table focused on:
+    - Titan Index
+    - average split
+    - best split
+    - latest split
+    - average W/lb
+    - scored workout count
+  - moved composite/speed/efficiency rank detail into the expanded athlete panel, reducing noise without removing useful data.
+  - replaced the row-wide click behavior with an explicit athlete expansion button, improving affordance and accessibility.
+
+- `src/utils/paceCalculator.ts`
+  - replaced the flat equal-width zone bands with a shared `TRAINING_ZONE_CONFIG`.
+  - updated the bands to broad rowing-aligned ranges anchored to 2k watts:
+    - UT2 `55–70%`
+    - UT1 `68–80%`
+    - AT `78–88%`
+    - TR `88–100%`
+    - AN `100–115%`
+  - kept the ranges intentionally broad so they match real coaching practice better than rigid single-value targets.
+
+- `src/components/coaching/AthleteTrainingZones.tsx`
+  - now consumes the shared zone config instead of duplicating watt percentages locally.
+  - updated athlete-facing copy to explain that the ranges are broad guidance to be paired with feel and heart rate.
+  - clarified the intent of each zone with better labels and usage descriptions.
+  - fixed the inline-style issue on the intensity bar by switching to class-based widths.
+
+### Domain Validation Applied
+
+- checked intensity-label coherence against rowing physiology references and common coaching usage
+- preserved broad practical ranges rather than overly narrow lab-style bands
+- corrected the confusing AN positioning so true anaerobic/sprint work begins at current 2k pace and above
+
+### Knowledge Base Sources Used
+
+- `kb/physiology/zones-and-pacing.md`
+- `kb/physiology/rowing-training-physiology.md`
+
+### Validation
+
+- pending current pass command validation after code edits:
+  - `npm run lint`
+  - `npm run build`
+  - `npm run test:run`
+
+### Outcome
+
+Team Analytics now reads more like a coaching dashboard and less like a raw spreadsheet, while athlete training zones are better aligned with common rowing practice and no longer imply that anaerobic work should sit below 2k pace.
+
+---
+
 ## Phase 38: Titan Bias Save Propagation + Analytics Sort Typing (March 15, 2026)
 
 **Timeline**: March 15, 2026  

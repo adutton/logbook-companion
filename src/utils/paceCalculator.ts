@@ -1,23 +1,52 @@
 import type { WorkoutStructure } from '../types/workoutStructure.types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-// Training zone pace ranges (% of 2k watts)
-const ZONE_RANGES = {
-    UT2: { min: 0.55, max: 0.65 },  // 55-65% of 2k watts
-    UT1: { min: 0.65, max: 0.75 },  // 65-75% of 2k watts
-    AT: { min: 0.75, max: 0.85 },   // 75-85% of 2k watts
-    TR: { min: 0.85, max: 0.95 },   // 85-95% of 2k watts
-    AN: { min: 0.95, max: 1.05 }    // 95-105% of 2k watts
-};
+// Broad rowing-zone bands anchored to recent 2k watts.
+// These intentionally reflect common rowing practice with enough room for day-to-day variance.
+export const TRAINING_ZONE_CONFIG = {
+    UT2: {
+        min: 0.55,
+        max: 0.70,
+        defaultOffsetSeconds: 24,
+        label: 'Utilization 2',
+        subtitle: 'Easy aerobic / recovery',
+        guidance: 'Long easy meters, technical rows, and recovery work.',
+    },
+    UT1: {
+        min: 0.68,
+        max: 0.80,
+        defaultOffsetSeconds: 14,
+        label: 'Utilization 1',
+        subtitle: 'Steady endurance',
+        guidance: 'Firm aerobic work you can hold with control for a while.',
+    },
+    AT: {
+        min: 0.78,
+        max: 0.88,
+        defaultOffsetSeconds: 7,
+        label: 'Anaerobic Threshold',
+        subtitle: 'Threshold',
+        guidance: 'Comfortably hard work near lactate threshold.',
+    },
+    TR: {
+        min: 0.88,
+        max: 1.00,
+        defaultOffsetSeconds: 2,
+        label: 'Transport',
+        subtitle: 'VO2 / race-support',
+        guidance: 'Hard interval work building oxygen transport and race support.',
+    },
+    AN: {
+        min: 1.00,
+        max: 1.15,
+        defaultOffsetSeconds: -3,
+        label: 'Anaerobic',
+        subtitle: 'Sprint / power',
+        guidance: 'Short maximal work above 2k pace where feel and power matter most.',
+    },
+} as const;
 
-// Zone-based time adjustments (seconds added to 2k pace for 500m split)
-const ZONE_TIME_ADJUSTMENTS = {
-    UT2: 25,  // +25s (Slower/Easier)
-    UT1: 18,  // +18s
-    AT: 10,   // +10s
-    TR: 2,    // +2s (Slightly slower than 2k)
-    AN: -2    // -2s (Slightly faster than 2k)
-};
+export type TrainingZone = keyof typeof TRAINING_ZONE_CONFIG;
 
 /**
  * Calculate watts from 500m split time (in seconds)
@@ -85,8 +114,8 @@ export function parsePaceToSeconds(pace: string): number | null {
  * Get zone-based time adjustment for a training zone
  */
 export function getZoneTimeAdjustment(zone: string): number {
-    const upperZone = zone.toUpperCase() as keyof typeof ZONE_TIME_ADJUSTMENTS;
-    return ZONE_TIME_ADJUSTMENTS[upperZone] ?? 22; // Default to safe middle value
+    const upperZone = zone.toUpperCase() as TrainingZone;
+    return TRAINING_ZONE_CONFIG[upperZone]?.defaultOffsetSeconds ?? 22;
 }
 
 /**
@@ -96,9 +125,9 @@ export function getZoneTimeAdjustment(zone: string): number {
 export function calculateZonePaceRange(
     zone: string,
     baseline2kWatts: number
-): { low: number; high: number; lowFormatted: string; highFormatted: string } | null {
-    const upperZone = zone.toUpperCase() as keyof typeof ZONE_RANGES;
-    const range = ZONE_RANGES[upperZone];
+): { low: number; high: number; lowFormatted: string; highFormatted: string; minWatts: number; maxWatts: number } | null {
+    const upperZone = zone.toUpperCase() as TrainingZone;
+    const range = TRAINING_ZONE_CONFIG[upperZone];
     
     if (!range) return null;
 
@@ -110,6 +139,8 @@ export function calculateZonePaceRange(
     return {
         low: minSplit,
         high: maxSplit,
+        minWatts,
+        maxWatts,
         lowFormatted: formatSplit(minSplit),
         highFormatted: formatSplit(maxSplit)
     };
@@ -204,7 +235,7 @@ export function calculateActualPace(
 
     // Check for training zone (e.g., "UT2")
     const zone = pace.toUpperCase();
-    if (zone in ZONE_RANGES) {
+    if (zone in TRAINING_ZONE_CONFIG) {
         const zoneRange = calculateZonePaceRange(zone, baseline2kWatts);
         if (zoneRange) {
             return {

@@ -23,6 +23,21 @@
   - Titan now uses a fixed 70/30 speed-to-W/lb blend instead of per-team slider weighting
   - fixed the rolling Titan window bug so the leaderboard uses the most recent workouts, not the oldest loaded ones
   - filtered/test-only leaderboard reranking now respects the configured Titan window instead of a hard-coded 5-workout average
+- [x] **Team Analytics UX pass**
+  - added high-level summary cards so coaches can read scope, leader, and group state before dropping into the table
+  - rewrote leaderboard guidance copy to clarify the difference between season view and tests-only view
+  - reduced leaderboard visual density by centering the default table on Titan, splits, efficiency, and workload
+  - moved composite/speed/efficiency rank detail into the athlete expansion panel where it is useful but less noisy
+- [x] **Training zone alignment with rowing conventions**
+  - centralized zone definitions in `paceCalculator.ts` via shared `TRAINING_ZONE_CONFIG`
+  - shifted bands to broader rowing-aligned ranges anchored to 2k watts:
+    - UT2 `55–70%`
+    - UT1 `68–80%`
+    - AT `78–88%`
+    - TR `88–100%`
+    - AN `100–115%`
+  - updated athlete-facing copy to explain that the ranges are intentionally broad and should be read with RPE and HR, not as exact single-target prescriptions
+  - moved AN to start at current 2k pace and above, which better matches common rowing usage for sprint / anaerobic work
 
 ### Validation
 - `get_errors` on `TeamAnalytics.tsx` and `CoachingSettings.tsx` ✅
@@ -31,9 +46,12 @@
 - `npm run build` after coach-notes cleanup ✅
 - `get_errors` on `TeamAnalytics.tsx`, `CoachingSettings.tsx`, `coachingService.ts` after Titan simplification ✅
 - `npm run build` after Titan simplification ✅
+- pending current pass validation: `get_errors`, `npm run lint`, `npm run build`, `npm run test:run`
 
 ### Remaining
 - [ ] Manual UX verification of coach-note feed in team and org-wide coaching flows
+- [ ] Manual review of Team Analytics summary-card usefulness with live roster data
+- [ ] Manual sanity check on athlete training-zone ranges against a few known 2k baselines in UI
 
 ## Session Summary (2026-03-13) — Race finish chart + coach nav UX
 
